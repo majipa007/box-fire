@@ -62,13 +62,13 @@ How each side works:
 
 `INPUT_BUFFER` and `INTERP_DELAY_TICKS` are constants, tuned in the first real session with the bot, the lobby ping and the host's tick-interval log. Make them adaptive only if no fixed values work for everyone.
 
-Input hygiene, in the order the server checks it:
+Input hygiene. Every input is one fixed step, applied in order exactly once, so the client's prediction always replays the same steps the server ran:
 
-- An input whose tick has already been simulated is dropped, but the acked sequence still advances, so the client reconciles for one tick and moves on.
-- A queue more than 2 deep gets two inputs applied in that tick to catch up, never more; beyond that the oldest is dropped, so a stalled client does not teleport when it wakes.
-- Whenever an input is dropped, late or oldest, its fire press carries into the next applied input together with its shot number and render tick. Fire events are processed in order and the cooldown still gates each one; the dropped input's movement is lost. Without this, a network stall eats clicks the client already showed as shots.
-- An empty tick repeats the last input for movement and look only. Fire is never repeated, so a semi-auto never shoots a click the player did not make.
+- A queue more than 2 deep (`INPUT_BUFFER` + 1) gets two inputs applied in that tick to catch up, never more; beyond 8 queued (`MAX_INPUT_QUEUE`) the oldest are dropped, so a stalled client does not teleport when it wakes.
+- Whenever an input is dropped by that overflow, its fire press carries into the next applied input together with its shot number and render tick. Fire events are processed in order and the cooldown still gates each one; the dropped input's movement is lost. Without this, a long stall eats clicks the client already showed as shots.
+- An empty tick applies nothing: the player stands still for that tick, and the jitter buffer refills before inputs are applied again. Nothing is ever invented or dropped for being late. (The first design repeated the last input on an empty tick and dropped the late input when it arrived; measured with a 20–40 fps client, that threw away 260–430 inputs per 10 s and lost direction changes, so it was replaced on 05/10/2026.)
 - After 250 ms without input the server treats the player as neutral, no keys held. The client also clears its key state and sends a neutral packet on window blur, tab hide and pointer-lock loss, because keyup events never arrive for a background tab.
+- The host's 10 s tick log also counts buffer underflows and overflow drops, the numbers to watch when tuning `INPUT_BUFFER` in the first session.
 
 Trust boundary: one bad packet must never crash the host or put NaN into the shared sim. An exception in a `ws` message handler, or an `'error'` event on a socket with no listener, kills the Node process and the match with it. So `protocol.js` wraps `JSON.parse` in try/catch, drops any message containing NaN or infinite numbers, requires `seq` and shot number to be integers, clamps pitch to ±89°, and clamps the render tick into `[tick − 60, tick]` so a rewind can never index outside the history buffer; every socket gets an `error` listener; and the `ws` server sets `maxPayload` to about 4 KB.
 

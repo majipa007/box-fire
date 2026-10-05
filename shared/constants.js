@@ -22,6 +22,8 @@ export const MAX_CATCHUP_TICKS = 5; // after a stall, never run more than this a
 // snapshot other players are drawn, and the server's input buffer depth.
 export const INTERP_DELAY_TICKS = 2;
 export const INPUT_BUFFER = 1;
+export const MAX_INPUT_QUEUE = 8; // inputs; beyond this the oldest are dropped
+export const NEUTRAL_MS = 250; // no input for this long: the player stops
 export const MAX_BUFFERED_BYTES = 64 * 1024; // skip snapshots to a backed-up socket
 
 // Movement (metres, seconds).

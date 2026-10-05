@@ -36,7 +36,7 @@ const net = connect({
   },
   event(m) {
     if (m.e === 'spawn' && m.id === myId) {
-      self.mover = createMover(m.x, m.y, m.z);
+      self.mover = { ...createMover(m.x, m.y, m.z), grounded: true }; // as the server does
       self.pending = [];
       prev = { x: m.x, y: m.y, z: m.z };
       input.look.yaw = m.yaw;
@@ -61,7 +61,7 @@ function applySettings() {
 // One fixed 60 Hz step: sample input, predict locally, send to the host.
 function fixedStep() {
   const me = self.mover;
-  if (!me) return;
+  if (!me || !world) return;
   prev = { x: me.x, y: me.y, z: me.z };
   const inp = { ...input.sample(), rt: renderTick(performance.now()), fire: false, shot: 0, slot: 0 };
   predict(inp, world.boxes);
@@ -76,6 +76,7 @@ async function enterGame() {
   input.init(canvas, {
     onLockChange: (locked) => (locked ? ui.hideMenu() : ui.showMenu(true)),
     onLockError: ui.showLockError,
+    onNeutral: fixedStep, // one immediate step with no keys held
   });
   ui.initMenu({ onPlay: () => input.requestLock(canvas), onChange: applySettings });
   applySettings();

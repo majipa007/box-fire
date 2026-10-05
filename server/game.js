@@ -27,7 +27,7 @@ export class Game {
     const p = conn.player;
     if (!p) return;
     if (msg.t === 'input') {
-      if (p.mover) p.receive(msg);
+      if (p.mover) p.receive(msg, performance.now());
     } else if (msg.t === 'start' && p.id === this.hostId && this.phase === 'lobby') {
       this.phase = 'playing';
       for (const q of this.players.values()) this.spawn(q);
@@ -62,8 +62,7 @@ export class Game {
   spawn(p) {
     const spawns = this.map.spawns;
     const [x, y, z] = spawns[Math.floor(Math.random() * spawns.length)];
-    p.mover = createMover(x, y, z);
-    p.queue = [];
+    p.mover = { ...createMover(x, y, z), grounded: true }; // spawns sit on a surface
     p.yaw = Math.atan2(x, z); // face the arena centre
     p.pitch = 0;
     this.broadcast({ t: 'event', e: 'spawn', id: p.id, x, y, z, yaw: p.yaw });
@@ -84,9 +83,10 @@ export class Game {
   step() {
     this.tick++;
     if (this.phase === 'playing') {
+      const now = performance.now();
       for (const p of this.players.values()) {
         if (!p.mover) continue;
-        for (const input of p.nextInputs()) step(p.mover, input, this.map.boxes);
+        for (const input of p.nextInputs(now)) step(p.mover, input, this.map.boxes);
       }
       this.sendSnapshots();
     }
@@ -133,7 +133,12 @@ export class Game {
       if (now >= next) next = now + stepNs; // stalled past the cap: drop the backlog
       if (now - logAt >= 10_000_000_000n) {
         if (this.players.size) {
-          console.log(`ticks: ${count} in 10 s, interval avg ${(Number(sum / BigInt(count || 1)) / 1e6).toFixed(1)} ms, max ${(Number(max) / 1e6).toFixed(1)} ms`);
+          const inputs = { underflow: 0, overflow: 0 };
+          for (const p of this.players.values()) {
+            for (const k in inputs) inputs[k] += p.stats[k];
+            p.stats = { underflow: 0, overflow: 0 };
+          }
+          console.log(`ticks: ${count} in 10 s, interval avg ${(Number(sum / BigInt(count || 1)) / 1e6).toFixed(1)} ms, max ${(Number(max) / 1e6).toFixed(1)} ms; inputs: ${inputs.underflow} buffer underflows, ${inputs.overflow} dropped by overflow`);
         }
         logAt = now;
         count = 0;

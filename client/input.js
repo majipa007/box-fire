@@ -41,7 +41,14 @@ export function sample() {
   return { keys, yaw: look.yaw, pitch: look.pitch };
 }
 
-export function init(target, { onLockChange, onLockError }) {
+// onNeutral fires when the game loses the keyboard (blur, hidden tab, lost
+// pointer lock): keyup never arrives for a background tab, so keys are
+// cleared and the caller sends a no-keys packet at once.
+export function init(target, { onLockChange, onLockError, onNeutral }) {
+  const neutral = () => {
+    clearKeys();
+    onNeutral();
+  };
   addEventListener('mousemove', (e) => {
     if (!locked) return;
     // Chrome on Windows occasionally reports a huge bogus jump under pointer lock.
@@ -59,10 +66,11 @@ export function init(target, { onLockChange, onLockError }) {
     latched |= bit & EDGES;
   });
   addEventListener('keyup', (e) => { held &= ~bitFor(e.code); });
-  addEventListener('blur', clearKeys); // keyup never arrives for a background window
+  addEventListener('blur', neutral);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) neutral(); });
   document.addEventListener('pointerlockchange', () => {
     locked = document.pointerLockElement === target;
-    if (!locked) clearKeys();
+    if (!locked) neutral();
     onLockChange(locked);
   });
   document.addEventListener('pointerlockerror', onLockError);
