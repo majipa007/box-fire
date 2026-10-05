@@ -70,7 +70,7 @@ Input hygiene. Every input is one fixed step, applied in order exactly once, so 
 - After 250 ms without input the server treats the player as neutral, no keys held. The client also clears its key state and sends a neutral packet on window blur, tab hide and pointer-lock loss, because keyup events never arrive for a background tab.
 - The host's 10 s tick log also counts buffer underflows and overflow drops, the numbers to watch when tuning `INPUT_BUFFER` in the first session.
 
-Trust boundary: one bad packet must never crash the host or put NaN into the shared sim. An exception in a `ws` message handler, or an `'error'` event on a socket with no listener, kills the Node process and the match with it. So `protocol.js` wraps `JSON.parse` in try/catch, drops any message containing NaN or infinite numbers, requires `seq` and shot number to be integers, clamps pitch to ±89°, and clamps the render tick into `[tick − 60, tick]` so a rewind can never index outside the history buffer; every socket gets an `error` listener; and the `ws` server sets `maxPayload` to about 4 KB.
+Trust boundary: one bad packet must never crash the host or put NaN into the shared sim. An exception in a `ws` message handler, or an `'error'` event on a socket with no listener, kills the Node process and the match with it. So `protocol.js` wraps `JSON.parse` in try/catch, drops any message containing NaN or infinite numbers, requires `seq` and shot number to be integers, clamps pitch to ±89°; `history.js` clamps the render tick into the stored second (`[tick − 60, tick]`) so a rewind can never index outside its buffer; every socket gets an `error` listener; and the `ws` server sets `maxPayload` to about 4 KB.
 
 | Message | Direction | Payload | Rate |
 | --- | --- | --- | --- |

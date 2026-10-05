@@ -9,6 +9,7 @@ import { createMover, step } from '../shared/movement.js';
 import { prepareMap } from '../shared/collision.js';
 import { createArsenal, stepWeapon, weaponOf, eyeOf, aimDir, traceShot } from '../shared/weapons.js';
 import { Player } from './player.js';
+import { History } from './history.js';
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
@@ -23,6 +24,7 @@ export class Game {
     this.mapId = mapId;
     this.map = prepareMap(mapJson);
     this.spawnUsedAt = this.map.spawns.map(() => -Infinity); // tick each spawn was last used
+    this.history = new History();
   }
 
   handle(conn, msg) {
@@ -117,6 +119,10 @@ export class Game {
           if (stepWeapon(p.arsenal, input)) this.fire(p, input);
         }
       }
+      this.history.record(this.tick, [...this.players.values()].filter((p) => p.alive).map((p) => {
+        const { x, y, z, crouch } = p.mover;
+        return [p.id, { x, y, z, crouch }];
+      }));
       this.sendSnapshots();
     }
     if (this.tick % TICK_RATE === 0) this.broadcastLobby(); // refresh pings
@@ -126,9 +132,9 @@ export class Game {
     const weapon = weaponOf(p.arsenal);
     const origin = eyeOf(p.mover);
     const dir = aimDir(input.yaw, input.pitch);
-    const targets = [...this.players.values()]
-      .filter((q) => q !== p && q.alive)
-      .map((q) => ({ id: q.id, ...q.mover }));
+    // Rewind: test against the others where this shooter saw them, at the
+    // render tick their input carries, as long as they are still alive now.
+    const targets = this.history.at(input.rt, this.tick).filter((q) => q.id !== p.id && this.players.get(q.id)?.alive);
     const hit = traceShot(origin, dir, this.map.boxes, targets);
     const end = origin.map((o, i) => r3(o + dir[i] * hit.t));
     this.broadcast({ t: 'event', e: 'shot', id: p.id, o: origin.map(r3), h: end }, p);

@@ -4,8 +4,8 @@
 
 **Blocked by:** 08
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The server keeps 1 s of hitbox history and blends between stored ticks for a fractional render tick.
-- [ ] Every input carries the render tick. It is clamped so the history can never be read out of range.
-- [ ] The history lookup has tests.
+- [x] The server keeps 1 s of hitbox history and blends between stored ticks for a fractional render tick.
+- [x] Every input carries the render tick. It is clamped so the history can never be read out of range.
+- [x] The history lookup has tests.
