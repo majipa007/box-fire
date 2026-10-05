@@ -4,11 +4,11 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The shared movement step has: run at 5.5 m/s, jump of about 1 m, gravity of 20 m/s², 20 % air control, and no speed gain from air strafing.
-- [ ] Collision against the map boxes is swept on each axis. Nothing tunnels through, even at maximum fall speed.
-- [ ] A jump press is latched between samples, so a quick tap still jumps.
-- [ ] A 0.75 m ledge can be jumped onto. The 1.2 m platform cannot be jumped onto directly, but can be reached over the 0.6 m crate.
-- [ ] Your own player renders interpolated between the last two fixed steps.
-- [ ] Movement and collision have tests.
+- [x] The shared movement step has: run at 5.5 m/s, jump of about 1 m, gravity of 20 m/s², 20 % air control, and no speed gain from air strafing.
+- [x] Collision against the map boxes is swept on each axis. Nothing tunnels through, even at maximum fall speed.
+- [x] A jump press is latched between samples, so a quick tap still jumps.
+- [x] A 0.75 m ledge can be jumped onto. The 1.2 m platform cannot be jumped onto directly, but can be reached over the 0.6 m crate.
+- [x] Your own player renders interpolated between the last two fixed steps.
+- [x] Movement and collision have tests.

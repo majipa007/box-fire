@@ -14,6 +14,18 @@ export const DEAD_MS = 5000;
 export const MAP_COLORS = ['#5b6170', '#8a8f9c', '#6e7b8b', '#a08868', '#7d9177', '#9b7f7f'];
 export const SKY_COLOR = '#9fb6cc';
 
+// Simulation clock: one fixed step everywhere.
+export const TICK_RATE = 60;
+export const DT = 1 / TICK_RATE;
+
+// Movement (metres, seconds).
+export const GRAVITY = 20;
+export const JUMP_HEIGHT = 1;
+export const RUN_SPEED = 5.5;
+export const GROUND_ACCEL = 50; // m/s²: full speed in ~0.1 s, and the same to stop
+export const AIR_CONTROL = 0.2;
+export const PLAYER_WIDTH = 0.6;
+export const STAND_HEIGHT = 1.8;
 export const EYE_STAND = 1.6;
 
 // One fixed colour per player slot, chosen to pop against the muted map.
