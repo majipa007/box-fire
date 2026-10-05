@@ -17,6 +17,26 @@ test('join trims the name and accepts 1 to 16 characters', () => {
   }
 });
 
+const input = { t: 'input', s: 7, rt: 120.5, k: 9, y: 1.25, p: -0.5, f: 1, n: 3, w: 1 };
+
+test('input decodes every field', () => {
+  assert.deepEqual(decodeClient(JSON.stringify(input)), { t: 'input', s: 7, rt: 120.5, keys: 9, yaw: 1.25, pitch: -0.5, fire: true, shot: 3, slot: 1 });
+});
+
+test('input pitch is clamped to ±89°', () => {
+  const limit = (89 * Math.PI) / 180;
+  assert.equal(decodeClient(JSON.stringify({ ...input, p: 3 })).pitch, limit);
+  assert.equal(decodeClient(JSON.stringify({ ...input, p: -3 })).pitch, -limit);
+});
+
+test('input with a non-finite, missing or out-of-range field is dropped', () => {
+  for (const bad of [{ s: 1.5 }, { s: -1 }, { s: '7' }, { k: 1 << 16 }, { k: 0.5 }, { n: -2 }, { w: 2 }, { y: undefined }, { rt: 'x' }]) {
+    assert.equal(decodeClient(JSON.stringify({ ...input, ...bad })), null, JSON.stringify(bad));
+  }
+  // 1e999 parses to Infinity, the one way a non-finite number survives JSON
+  assert.equal(decodeClient('{"t":"input","s":1,"rt":1,"k":0,"y":1e999,"p":0,"f":0,"n":0,"w":0}'), null);
+});
+
 test('start carries no payload', () => {
   assert.deepEqual(decodeClient('{"t":"start","extra":1}'), { t: 'start' });
 });

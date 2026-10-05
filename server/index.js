@@ -50,7 +50,8 @@ function notFound(res) {
 const isLoopback = (addr = '') => /^(127\.|::1$|::ffff:127\.)/.test(addr);
 const port = Number(process.env.PORT) || PORT;
 
-const game = new Game();
+const MAP_ID = 'arena_01';
+const game = new Game(MAP_ID, JSON.parse(fs.readFileSync(path.join(root, 'shared', 'maps', `${MAP_ID}.json`), 'utf8')));
 const conns = new Set();
 const wss = new WebSocketServer({ server, maxPayload: 4096 });
 
@@ -92,7 +93,8 @@ setInterval(() => {
     conn.ws.ping();
   }
 }, HEARTBEAT_MS);
-setInterval(() => game.broadcastLobby(), 1000); // refresh pings
+
+game.startLoop();
 
 server.listen(port, () => {
   const urls = Object.values(os.networkInterfaces()).flat()

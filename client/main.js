@@ -1,11 +1,11 @@
-// Boot: connect to the host, drive the screens, run the render loop.
-import { connect } from './net.js';
+// Boot: connect to the host, drive the screens, run the game loop.
+import { connect, self, predict, reconcile } from './net.js';
 import * as ui from './ui.js';
 import * as render from './render.js';
 import * as input from './input.js';
-import { cleanName } from '../shared/protocol.js';
+import { cleanName, encodeInput } from '../shared/protocol.js';
 import { EYE_STAND, EYE_CROUCH, TICK_RATE } from '../shared/constants.js';
-import { createMover, step } from '../shared/movement.js';
+import { createMover } from '../shared/movement.js';
 import { prepareMap } from '../shared/collision.js';
 
 const STEP_MS = 1000 / TICK_RATE;
@@ -14,6 +14,9 @@ const lerp = (a, b, t) => a + (b - a) * t;
 let myId = null;
 let mapId = null;
 let inGame = false;
+let world = null; // prepared map, once loaded
+let serverTick = 0;
+let prev = null; // own position before the last fixed step, for smooth rendering
 
 const net = connect({
   welcome(m) {
@@ -26,6 +29,19 @@ const net = connect({
     if (!inGame && myId !== null && m.phase !== 'lobby') enterGame();
   },
   reject(m) { ui.showJoinError(m.reason); },
+  snapshot(m) {
+    serverTick = m.tick;
+    if (world) reconcile(m, world.boxes);
+  },
+  event(m) {
+    if (m.e === 'spawn' && m.id === myId) {
+      self.mover = createMover(m.x, m.y, m.z);
+      self.pending = [];
+      prev = { x: m.x, y: m.y, z: m.z };
+      input.look.yaw = m.yaw;
+      input.look.pitch = 0;
+    }
+  },
   close() { ui.showDisconnected(); },
 });
 
@@ -39,6 +55,16 @@ ui.onStart(() => net.send({ t: 'start' }));
 function applySettings() {
   input.setSensitivity(ui.settings.sens);
   render.setFov(ui.settings.fov);
+}
+
+// One fixed 60 Hz step: sample input, predict locally, send to the host.
+function fixedStep() {
+  const me = self.mover;
+  if (!me) return;
+  prev = { x: me.x, y: me.y, z: me.z };
+  const inp = { ...input.sample(), rt: serverTick, fire: false, shot: 0, slot: 0 };
+  predict(inp, world.boxes);
+  net.send(encodeInput(inp));
 }
 
 async function enterGame() {
@@ -56,11 +82,7 @@ async function enterGame() {
 
   const map = await (await fetch(new URL(`../shared/maps/${mapId}.json`, import.meta.url))).json();
   render.addMap(map);
-  const { boxes, spawns } = prepareMap(map);
-  const [x, y, z] = spawns[0];
-  input.look.yaw = Math.atan2(x, z); // face the arena centre
-  const me = createMover(x, y, z);
-  let prev = { x, y, z };
+  world = prepareMap(map);
 
   const debug = new URLSearchParams(location.search).has('debug');
   let frames = 0;
@@ -77,18 +99,20 @@ async function enterGame() {
     if (acc > 250) acc = STEP_MS; // after a long stall, don't fast-forward
     while (acc >= STEP_MS) {
       acc -= STEP_MS;
-      prev = { x: me.x, y: me.y, z: me.z };
-      step(me, input.sample(), boxes);
+      fixedStep();
     }
-    const a = acc / STEP_MS;
-    eye = lerp(eye, me.crouch ? EYE_CROUCH : EYE_STAND, Math.min(1, frameMs / 60)); // ease, don't snap
-    render.setView(lerp(prev.x, me.x, a), lerp(prev.y, me.y, a) + eye, lerp(prev.z, me.z, a), input.look.yaw, input.look.pitch);
+    const me = self.mover;
+    if (me) {
+      const a = acc / STEP_MS;
+      eye = lerp(eye, me.crouch ? EYE_CROUCH : EYE_STAND, Math.min(1, frameMs / 60)); // ease, don't snap
+      render.setView(lerp(prev.x, me.x, a), lerp(prev.y, me.y, a) + eye, lerp(prev.z, me.z, a), input.look.yaw, input.look.pitch);
+    }
     render.draw();
     frames++;
     if (debug && now - statsAt > 500) {
       const { calls, triangles } = render.renderer.info.render;
-      const pos = [me.x, me.y, me.z].map((v) => v.toFixed(2)).join(', ');
-      ui.showStats(`${Math.round((frames * 1000) / (now - statsAt))} fps · ${calls} draws · ${triangles} tris · ${pos}`);
+      const pos = me ? [me.x, me.y, me.z].map((v) => v.toFixed(2)).join(', ') : '-';
+      ui.showStats(`${Math.round((frames * 1000) / (now - statsAt))} fps · ${calls} draws · ${triangles} tris · ${pos} · pending ${self.pending.length}`);
       frames = 0;
       statsAt = now;
     }

@@ -4,10 +4,10 @@
 
 **Blocked by:** 04
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Each input packet carries seq, render tick, keys, yaw, pitch, fire, shot number and weapon slot.
-- [ ] The server tick loop uses an hrtime accumulator, caps catch-up at 5 ticks, and logs tick intervals every 10 s.
-- [ ] Every snapshot carries the tick, the last acked seq, every player's public state, and the receiving player's full own state.
-- [ ] The client reconciles: it snaps to the server state, drops acked inputs, and replays the rest. It never reconciles its own yaw or pitch.
-- [ ] A client whose socket buffer is backed up gets no new snapshots until it drains.
+- [x] Each input packet carries seq, render tick, keys, yaw, pitch, fire, shot number and weapon slot.
+- [x] The server tick loop uses an hrtime accumulator, caps catch-up at 5 ticks, and logs tick intervals every 10 s.
+- [x] Every snapshot carries the tick, the last acked seq, every player's public state, and the receiving player's full own state.
+- [x] The client reconciles: it snaps to the server state, drops acked inputs, and replays the rest. It never reconciles its own yaw or pitch.
+- [x] A client whose socket buffer is backed up gets no new snapshots until it drains.

@@ -17,6 +17,8 @@ export const SKY_COLOR = '#9fb6cc';
 // Simulation clock: one fixed step everywhere.
 export const TICK_RATE = 60;
 export const DT = 1 / TICK_RATE;
+export const MAX_CATCHUP_TICKS = 5; // after a stall, never run more than this at once
+export const MAX_BUFFERED_BYTES = 64 * 1024; // skip snapshots to a backed-up socket
 
 // Movement (metres, seconds).
 export const GRAVITY = 20;
