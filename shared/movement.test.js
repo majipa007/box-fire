@@ -128,6 +128,48 @@ test('the arena platform is reached over its step crate, not by jumping at its f
   assert.equal(direct.y, 0);
 });
 
+test('Shift walks at 2.7 m/s and C crouch-walks at 1.8 m/s', () => {
+  for (const [keys, speed] of [[KEY.FORWARD | KEY.WALK, 2.7], [KEY.FORWARD | KEY.CROUCH, 1.8], [KEY.FORWARD | KEY.CROUCH | KEY.WALK, 1.8]]) {
+    const s = createMover(0, 0, 0);
+    run(s, { keys, yaw: 0 }, world(), 60);
+    assert.ok(Math.abs(Math.hypot(s.vx, s.vz) - speed) < 1e-9, `keys ${keys}: ${Math.hypot(s.vx, s.vz)}`);
+  }
+});
+
+test('crouching shrinks the player to 1.2 m, so a 1.5 m gap blocks standing but not crouching', () => {
+  const boxes = world({ pos: [0, 2.25, -6], size: [4, 1.5, 6] }); // underside at 1.5 m, face at z = -3
+  const standing = createMover(0, 0, 0);
+  run(standing, { keys: KEY.FORWARD, yaw: 0 }, boxes, 120);
+  assert.ok(Math.abs(standing.z - -2.7) < 1e-9);
+
+  const crouched = createMover(0, 0, 0);
+  run(crouched, { keys: KEY.FORWARD | KEY.CROUCH, yaw: 0 }, boxes, 180); // 3 s at 1.8 m/s
+  assert.ok(crouched.z < -4, `crouched reached z=${crouched.z}`);
+  assert.equal(crouched.crouch, true);
+});
+
+test('standing up is blocked under a ceiling until there is room', () => {
+  const boxes = world({ pos: [0, 2.25, -6], size: [4, 1.5, 6] }); // spans z -3 .. -9
+  const s = createMover(0, 0, -6);
+  run(s, { keys: KEY.CROUCH, yaw: 0 }, boxes, 5);
+  run(s, { keys: 0, yaw: 0 }, boxes, 5); // let go of C under the ceiling
+  assert.equal(s.crouch, true);
+  run(s, { keys: KEY.BACK, yaw: 0 }, boxes, 180); // walk out toward +z
+  assert.equal(s.crouch, false);
+  assert.ok(s.z > -2.7);
+});
+
+test('crouching in the air keeps the feet where they are (no crouch-jump)', () => {
+  const plain = createMover(0, 0, 0);
+  const tucked = createMover(0, 0, 0);
+  for (const s of [plain, tucked]) { run(s, { keys: 0, yaw: 0 }, world(), 2); step(s, { keys: KEY.JUMP, yaw: 0 }, world()); }
+  for (let i = 0; i < 40; i++) {
+    step(plain, { keys: 0, yaw: 0 }, world());
+    step(tucked, { keys: KEY.CROUCH, yaw: 0 }, world());
+    assert.equal(tucked.y, plain.y);
+  }
+});
+
 test('releasing the keys on the ground stops the player quickly', () => {
   const s = createMover(0, 0, 0);
   run(s, { keys: KEY.FORWARD, yaw: 0 }, world(), 60);

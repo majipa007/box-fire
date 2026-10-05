@@ -4,7 +4,7 @@ import * as ui from './ui.js';
 import * as render from './render.js';
 import * as input from './input.js';
 import { cleanName } from '../shared/protocol.js';
-import { EYE_STAND, TICK_RATE } from '../shared/constants.js';
+import { EYE_STAND, EYE_CROUCH, TICK_RATE } from '../shared/constants.js';
 import { createMover, step } from '../shared/movement.js';
 import { prepareMap } from '../shared/collision.js';
 
@@ -67,10 +67,12 @@ async function enterGame() {
   let statsAt = performance.now();
   let acc = 0;
   let last = performance.now();
+  let eye = EYE_STAND;
   requestAnimationFrame(function frame(now) {
     requestAnimationFrame(frame);
     // Fixed 60 Hz steps on the wall clock; render between the last two.
-    acc += now - last;
+    const frameMs = now - last;
+    acc += frameMs;
     last = now;
     if (acc > 250) acc = STEP_MS; // after a long stall, don't fast-forward
     while (acc >= STEP_MS) {
@@ -79,7 +81,8 @@ async function enterGame() {
       step(me, input.sample(), boxes);
     }
     const a = acc / STEP_MS;
-    render.setView(lerp(prev.x, me.x, a), lerp(prev.y, me.y, a) + EYE_STAND, lerp(prev.z, me.z, a), input.look.yaw, input.look.pitch);
+    eye = lerp(eye, me.crouch ? EYE_CROUCH : EYE_STAND, Math.min(1, frameMs / 60)); // ease, don't snap
+    render.setView(lerp(prev.x, me.x, a), lerp(prev.y, me.y, a) + eye, lerp(prev.z, me.z, a), input.look.yaw, input.look.pitch);
     render.draw();
     frames++;
     if (debug && now - statsAt > 500) {

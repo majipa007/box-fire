@@ -22,11 +22,15 @@ export const DT = 1 / TICK_RATE;
 export const GRAVITY = 20;
 export const JUMP_HEIGHT = 1;
 export const RUN_SPEED = 5.5;
+export const WALK_SPEED = 2.7;
+export const CROUCH_SPEED = 1.8;
 export const GROUND_ACCEL = 50; // m/s²: full speed in ~0.1 s, and the same to stop
 export const AIR_CONTROL = 0.2;
 export const PLAYER_WIDTH = 0.6;
 export const STAND_HEIGHT = 1.8;
+export const CROUCH_HEIGHT = 1.2;
 export const EYE_STAND = 1.6;
+export const EYE_CROUCH = 1.1;
 
 // One fixed colour per player slot, chosen to pop against the muted map.
 export const PLAYER_COLORS = [

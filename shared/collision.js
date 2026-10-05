@@ -17,6 +17,12 @@ function bounds(s, half, height) {
   return [[s.x - half, s.y, s.z - half], [s.x + half, s.y + height, s.z + half]];
 }
 
+// Does a mover of this size intersect any box?
+export function overlaps(s, half, height, boxes) {
+  const [min, max] = bounds(s, half, height);
+  return boxes.some((b) => [0, 1, 2].every((a) => min[a] < b.max[a] - EPS && max[a] > b.min[a] + EPS));
+}
+
 // How far a mover can travel along `axis` (0 x, 1 y, 2 z) before touching a
 // box face: an exact swept test, so no speed can tunnel through anything.
 export function sweep(s, half, height, axis, delta, boxes) {

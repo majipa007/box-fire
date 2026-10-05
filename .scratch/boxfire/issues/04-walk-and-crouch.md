@@ -4,9 +4,9 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Walk and crouch speeds apply on the ground.
-- [ ] The crouched collider is 1.2 m tall and its feet stay put, including in the air.
-- [ ] Standing up is blocked under a ceiling, and you stay crouched until there is room.
-- [ ] Tests cover the crouch collider, a blocked uncrouch, and both speeds.
+- [x] Walk and crouch speeds apply on the ground.
+- [x] The crouched collider is 1.2 m tall and its feet stay put, including in the air.
+- [x] Standing up is blocked under a ceiling, and you stay crouched until there is room.
+- [x] Tests cover the crouch collider, a blocked uncrouch, and both speeds.
