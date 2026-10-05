@@ -32,14 +32,14 @@ The host's own browser connects to `localhost:3000` and is treated exactly like 
 
 The browser cannot broadcast on a network, so there is no auto-discovery: the host shares one URL and that is the whole join flow.
 
-1. Host runs `npm start` in the repo folder. The server starts on port 3000.
+1. Host runs `npm start` in the repo folder. The server starts on port 3000; if something else already holds it, `PORT=3001 npm start` picks another port (the firewall rule in gotcha 5 must match).
 2. Terminal prints every LAN IPv4 address as a URL, e.g. `http://192.168.1.42:3000`, read from `os.networkInterfaces()`. Host pastes it into the group chat.
 3. First run on Windows triggers a firewall prompt: allow on Private networks (see gotcha 5). macOS prompts the same way.
 4. Friends open the URL, type a display name (trimmed, 1–16 characters), land in the lobby.
 5. Lobby shows connected players and their ping. Host sees a Start button; everyone else sees "waiting for host".
 6. Host starts. Anyone who opens the URL after that drops straight into the running match.
 
-The host is whichever connection arrives from loopback (`127.0.0.1`, `::1`, or the IPv4-mapped `::ffff:127.0.0.1`); with none, the first player to join. If the host leaves, the role passes to the longest-connected player, which also covers a spare laptop running the server with nobody at it.
+The host is whichever connection arrives from loopback (`127.0.0.1`, `::1`, or the IPv4-mapped `::ffff:127.0.0.1`); with none, the first player to join. If the host leaves, the role passes to the longest-connected player, which also covers a spare laptop running the server with nobody at it. Bots from the bot tool also connect from the host machine, so they flag themselves in `join` and are never host.
 
 If the URL times out for everyone, the router is blocking device-to-device traffic (guest, campus, hotel and some mesh WiFi do this). Fallback: one person turns on a phone hotspot and everyone joins that.
 
@@ -74,8 +74,9 @@ Trust boundary: one bad packet must never crash the host or put NaN into the sha
 
 | Message | Direction | Payload | Rate |
 | --- | --- | --- | --- |
-| `join` | client → server | name | once |
+| `join` | client → server | name, bot flag | once |
 | `welcome` | server → client | your id, map id, tick rate, server seed, lobby state | once |
+| `reject` | server → client | reason: name taken or game full | on a failed join |
 | `lobby` | server → client | players (id, name, ping, colour slot, kills, deaths, connected), host id, phase, phase end tick | on change; ping refreshes every 1 s |
 | `start` | host → server | — | once |
 | `end_match` | host → server | — | on demand |
@@ -192,7 +193,7 @@ Six milestones, each playable on its own; finish and feel-test one before starti
 
 ## Gotchas to know before coding
 
-Eleven things that are cheap to get right up front and expensive to discover mid-build.
+Twelve things that are cheap to get right up front and expensive to discover mid-build.
 
 1. **No CDN, ever.** One `<script src="https://…">` breaks the game the moment the WiFi has no internet. Vendor Three.js locally, including `three.core.js` and the addons it needs; missing either is a blank screen offline. Test once with the host's internet actually off.
 2. **`file://` cannot work.** Opening `index.html` directly cannot open WebSockets to a LAN host or discover anything. The host server is the one non-negotiable piece.
@@ -213,6 +214,7 @@ Eleven things that are cheap to get right up front and expensive to discover mid
 9. **Tab key default.** Call `preventDefault()` on Tab keydown or focus leaves the canvas and the scoreboard never shows.
 10. **Host on power, ideally on Ethernet.** On battery, laptops let the WiFi radio doze between packets, adding tens of ms, and a lost TCP packet stalls the WebSocket and then delivers a burst. Keep the host plugged in, and on Ethernet if there is a port.
 11. **Everything from the network is untrusted.** Player names go into the DOM with `textContent`, never `innerHTML`, or a name like `<img onerror=…>` runs script in every player's browser; name tags are drawn on a canvas, so they are already safe. Packets are validated as described under the Netcode trust boundary.
+12. **Hosting from WSL2.** In WSL's default NAT networking, `os.networkInterfaces()` prints the WSL VM's internal address (e.g. `172.22.x.x`), which friends on the LAN cannot reach. Run the host with Windows Node, or switch WSL to mirrored networking (`networkingMode=mirrored` in `.wslconfig`). Port-proxying into WSL instead is a network rule change: it needs human review. Whether loopback host detection sees `127.0.0.1` through WSL's localhost forwarding is unverified.
 
 ## Controls and HUD
 

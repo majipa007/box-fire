@@ -1,0 +1,18 @@
+{
+  "name": "boxfire",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Boxy LAN first-person shooter for friends on the same WiFi",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "bot": "node tools/bot.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  }
+}

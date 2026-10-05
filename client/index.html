@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Boxfire</title>
+<style>
+  :root { --bg: #14161b; --panel: #1f232b; --text: #e8e8e8; --dim: #8a909c; --accent: #f58231; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, sans-serif; overflow: hidden; }
+  button { font: inherit; color: var(--text); background: var(--accent); border: 0; border-radius: 6px; padding: 8px 18px; cursor: pointer; }
+  input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid #3a3f4a; border-radius: 6px; padding: 8px 10px; }
+  .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  .card { background: var(--panel); border-radius: 10px; padding: 24px 28px; min-width: 320px; max-width: 92vw; }
+  h1 { margin: 0 0 16px; letter-spacing: 0.04em; }
+  #join-error { color: #ff6b6b; min-height: 1.4em; margin: 8px 0 0; }
+  #lobby-players { list-style: none; padding: 0; margin: 0 0 16px; }
+  #lobby-players li { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+  .swatch { width: 14px; height: 14px; border-radius: 3px; flex: none; }
+  .ping { margin-left: auto; color: var(--dim); font-size: 14px; }
+  .dim { color: var(--dim); }
+</style>
+</head>
+<body>
+<div id="lobby" class="screen">
+  <div class="card">
+    <h1>Boxfire</h1>
+    <form id="join-form">
+      <input id="name" maxlength="16" placeholder="Your name" autocomplete="off" autofocus>
+      <button>Join</button>
+      <p id="join-error"></p>
+    </form>
+    <div id="lobby-room" hidden>
+      <ul id="lobby-players"></ul>
+      <button id="start" hidden>Start</button>
+      <p id="lobby-status" class="dim"></p>
+    </div>
+  </div>
+</div>
+<script type="module" src="main.js"></script>
+</body>
+</html>
