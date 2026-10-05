@@ -4,11 +4,11 @@
 
 **Blocked by:** 06
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Shared weapon state is predicted on the client: a cooldown that carries its remainder and is clamped when not firing, a 25-round magazine, R to reload, and an automatic reload when firing on empty.
-- [ ] The server raycasts head first against standing or crouched hitboxes. Walls block shots.
-- [ ] The shooter gets a hit marker and a tracer, and others see the shot.
-- [ ] HP and death work. Respawn is after 3 s at the spawn point furthest from any enemy, skipping points used in the last 3 s.
-- [ ] Kills appear in the kill feed (names inserted as text). The HUD shows HP and ammo.
-- [ ] Ray-vs-box and the weapon cooldown and reload have tests.
+- [x] Shared weapon state is predicted on the client: a cooldown that carries its remainder and is clamped when not firing, a 25-round magazine, R to reload, and an automatic reload when firing on empty.
+- [x] The server raycasts head first against standing or crouched hitboxes. Walls block shots.
+- [x] The shooter gets a hit marker and a tracer, and others see the shot.
+- [x] HP and death work. Respawn is after 3 s at the spawn point furthest from any enemy, skipping points used in the last 3 s.
+- [x] Kills appear in the kill feed (names inserted as text). The HUD shows HP and ammo.
+- [x] Ray-vs-box and the weapon cooldown and reload have tests.

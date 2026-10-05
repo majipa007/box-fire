@@ -17,6 +17,26 @@ function bounds(s, half, height) {
   return [[s.x - half, s.y, s.z - half], [s.x + half, s.y + height, s.z + half]];
 }
 
+// Distance along a unit ray to where it enters a box (0 if it starts inside),
+// or Infinity if it never does. Slab method.
+export function rayBox(origin, dir, min, max) {
+  let near = 0;
+  let far = Infinity;
+  for (let a = 0; a < 3; a++) {
+    if (dir[a] === 0) {
+      if (origin[a] < min[a] || origin[a] > max[a]) return Infinity;
+      continue;
+    }
+    let t1 = (min[a] - origin[a]) / dir[a];
+    let t2 = (max[a] - origin[a]) / dir[a];
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    near = Math.max(near, t1);
+    far = Math.min(far, t2);
+    if (near > far) return Infinity;
+  }
+  return near;
+}
+
 // Does a mover of this size intersect any box?
 export function overlaps(s, half, height, boxes) {
   const [min, max] = bounds(s, half, height);

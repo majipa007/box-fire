@@ -59,7 +59,25 @@ export function setView(x, y, z, yaw, pitch) {
   camera.rotation.set(pitch, yaw, 0);
 }
 
-export const draw = () => renderer.render(scene, camera);
+// Tracers: a thin line from muzzle to impact, shown for 60 ms.
+const tracerMaterial = new THREE.LineBasicMaterial({ color: '#fff1b8' });
+const tracers = [];
+
+export function addTracer(from, to) {
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...from), new THREE.Vector3(...to)]), tracerMaterial);
+  scene.add(line);
+  tracers.push({ line, until: performance.now() + 60 });
+}
+
+export function draw() {
+  const now = performance.now();
+  while (tracers.length && tracers[0].until <= now) {
+    const { line } = tracers.shift();
+    scene.remove(line);
+    line.geometry.dispose();
+  }
+  renderer.render(scene, camera);
+}
 
 // Other players: four boxes plus a gun, tinted with their slot colour, and
 // a name tag. Standing is 1.8 m tall and crouched 1.2 m, matching the hitboxes.

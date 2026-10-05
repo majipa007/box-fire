@@ -40,6 +40,19 @@ export const CROUCH_HEIGHT = 1.2;
 export const EYE_STAND = 1.6;
 export const EYE_CROUCH = 1.1;
 
+// Weapons: damage per hit (per pellet for the shotgun), head multiplier,
+// shots per second, magazine, reload seconds (per shell for the shotgun),
+// spread in degrees standing still and moving at run speed.
+export const WEAPONS = {
+  pistol: { dmg: 26, head: 3, rps: 6.75, auto: false, mag: 12, reload: 1.75, spreadStand: 0.3, spreadMove: 1.5 },
+  rifle: { dmg: 40, head: 4, rps: 9.75, auto: true, mag: 25, reload: 2.5, spreadStand: 0.4, spreadMove: 2.5 },
+};
+export const HEAD_SIZE = 0.3;
+export const MAX_HP = 100;
+export const RESPAWN_SECONDS = 3;
+export const SPAWN_REUSE_SECONDS = 3; // a spawn point used this recently is skipped
+export const SHOT_RANGE = 200;
+
 // One fixed colour per player slot, chosen to pop against the muted map.
 export const PLAYER_COLORS = [
   '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231',

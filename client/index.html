@@ -27,6 +27,18 @@
   #menu output { color: var(--dim); text-align: right; }
   #hud { position: fixed; inset: 0; pointer-events: none; }
   #crosshair { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; background: #0f0; border-radius: 50%; }
+  #hitmarker { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; opacity: 0; transition: opacity 0.15s; }
+  #hitmarker::before, #hitmarker::after { content: ""; position: absolute; left: 10px; top: 0; width: 2px; height: 22px; background: currentColor; }
+  #hitmarker::before { transform: rotate(45deg); }
+  #hitmarker::after { transform: rotate(-45deg); }
+  #hitmarker.show { opacity: 1; transition: none; }
+  .hud-big { position: absolute; bottom: 18px; font: 600 30px system-ui, sans-serif; text-shadow: 0 1px 3px #000; }
+  #hp { left: 24px; }
+  #ammo { right: 24px; }
+  #killfeed { position: absolute; top: 14px; right: 18px; list-style: none; margin: 0; padding: 0; text-align: right; font-size: 15px; }
+  #killfeed li { background: rgba(0, 0, 0, 0.45); padding: 3px 9px; margin-bottom: 4px; border-radius: 4px; }
+  #killfeed .mine { outline: 1px solid var(--accent); }
+  #death { position: absolute; left: 50%; top: 38%; transform: translateX(-50%); font: 600 26px system-ui, sans-serif; text-shadow: 0 1px 4px #000; text-align: center; }
   #stats { position: fixed; left: 8px; top: 8px; font: 12px monospace; color: #fff; background: rgba(0, 0, 0, 0.5); padding: 2px 6px; }
 </style>
 <script type="importmap">
@@ -36,6 +48,11 @@
 <body>
 <div id="hud" hidden>
   <div id="crosshair"></div>
+  <div id="hitmarker"></div>
+  <div id="hp" class="hud-big"></div>
+  <div id="ammo" class="hud-big"></div>
+  <ul id="killfeed"></ul>
+  <div id="death" hidden></div>
 </div>
 <div id="menu" class="screen" hidden>
   <div class="card">

@@ -2,10 +2,12 @@
 // Transport is in index.js.
 import {
   MAX_PLAYERS, PLAYER_COLORS, TICK_RATE, MAX_CATCHUP_TICKS, MAX_BUFFERED_BYTES,
+  MAX_HP, RESPAWN_SECONDS, SPAWN_REUSE_SECONDS, WEAPONS,
 } from '../shared/constants.js';
 import { encode } from '../shared/protocol.js';
 import { createMover, step } from '../shared/movement.js';
 import { prepareMap } from '../shared/collision.js';
+import { createArsenal, stepWeapon, weaponOf, eyeOf, aimDir, traceShot } from '../shared/weapons.js';
 import { Player } from './player.js';
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
@@ -20,6 +22,7 @@ export class Game {
   constructor(mapId, mapJson) {
     this.mapId = mapId;
     this.map = prepareMap(mapJson);
+    this.spawnUsedAt = this.map.spawns.map(() => -Infinity); // tick each spawn was last used
   }
 
   handle(conn, msg) {
@@ -59,10 +62,28 @@ export class Game {
     this.broadcastLobby();
   }
 
+  // Furthest from the nearest living enemy, skipping points used in the last
+  // few seconds so two players who die together never spawn stacked.
+  pickSpawn(p) {
+    const recent = this.tick - SPAWN_REUSE_SECONDS * TICK_RATE;
+    const all = this.map.spawns.map((pos, i) => ({ pos, i }));
+    const fresh = all.filter(({ i }) => this.spawnUsedAt[i] < recent);
+    const pool = fresh.length ? fresh : all;
+    const enemies = [...this.players.values()].filter((q) => q !== p && q.alive);
+    if (!enemies.length) return pool[Math.floor(Math.random() * pool.length)];
+    const clearance = ({ pos: [x, , z] }) => Math.min(...enemies.map((q) => Math.hypot(q.mover.x - x, q.mover.z - z)));
+    return pool.reduce((best, s) => (clearance(s) > clearance(best) ? s : best));
+  }
+
   spawn(p) {
-    const spawns = this.map.spawns;
-    const [x, y, z] = spawns[Math.floor(Math.random() * spawns.length)];
+    const { pos: [x, y, z], i } = this.pickSpawn(p);
+    this.spawnUsedAt[i] = this.tick;
     p.mover = { ...createMover(x, y, z), grounded: true }; // spawns sit on a surface
+    p.arsenal = createArsenal(p.primary);
+    p.hp = MAX_HP;
+    p.alive = true;
+    p.queue = []; // inputs sent before this life are stale
+    p.buffering = true;
     p.yaw = Math.atan2(x, z); // face the arena centre
     p.pitch = 0;
     this.broadcast({ t: 'event', e: 'spawn', id: p.id, x, y, z, yaw: p.yaw });
@@ -86,25 +107,64 @@ export class Game {
       const now = performance.now();
       for (const p of this.players.values()) {
         if (!p.mover) continue;
-        for (const input of p.nextInputs(now)) step(p.mover, input, this.map.boxes);
+        const inputs = p.nextInputs(now);
+        if (!p.alive) {
+          if (this.tick >= p.respawnAt) this.spawn(p);
+          continue;
+        }
+        for (const input of inputs) {
+          step(p.mover, input, this.map.boxes);
+          if (stepWeapon(p.arsenal, input)) this.fire(p, input);
+        }
       }
       this.sendSnapshots();
     }
     if (this.tick % TICK_RATE === 0) this.broadcastLobby(); // refresh pings
   }
 
+  fire(p, input) {
+    const weapon = weaponOf(p.arsenal);
+    const origin = eyeOf(p.mover);
+    const dir = aimDir(input.yaw, input.pitch);
+    const targets = [...this.players.values()]
+      .filter((q) => q !== p && q.alive)
+      .map((q) => ({ id: q.id, ...q.mover }));
+    const hit = traceShot(origin, dir, this.map.boxes, targets);
+    const end = origin.map((o, i) => r3(o + dir[i] * hit.t));
+    this.broadcast({ t: 'event', e: 'shot', id: p.id, o: origin.map(r3), h: end }, p);
+    if (hit.id !== null) {
+      const w = WEAPONS[weapon];
+      this.damage(p, this.players.get(hit.id), w.dmg * (hit.head ? w.head : 1), hit.head, weapon);
+    }
+  }
+
+  damage(attacker, victim, dmg, head, weapon) {
+    victim.hp = Math.max(0, victim.hp - dmg);
+    const hit = encode({ t: 'event', e: 'hit', a: attacker.id, v: victim.id, dmg, head });
+    sendRaw(attacker.conn, hit);
+    sendRaw(victim.conn, hit);
+    if (victim.hp > 0) return;
+    victim.alive = false;
+    victim.deaths++;
+    attacker.kills++;
+    victim.respawnAt = this.tick + RESPAWN_SECONDS * TICK_RATE;
+    this.broadcast({ t: 'event', e: 'kill', k: attacker.id, v: victim.id, w: weapon, head });
+    this.broadcastLobby();
+  }
+
   // Everyone gets every player's public state (rounded, for interpolation)
-  // plus their own full movement state at full precision, for reconciliation.
+  // plus their own full state at full precision, for reconciliation.
   sendSnapshots() {
     const ps = JSON.stringify([...this.players.values()].filter((p) => p.mover).map((p) => {
       const m = p.mover;
-      return [p.id, r3(m.x), r3(m.y), r3(m.z), r3(p.yaw), r3(p.pitch), m.crouch ? 1 : 0];
+      return [p.id, r3(m.x), r3(m.y), r3(m.z), r3(p.yaw), r3(p.pitch), (m.crouch ? 1 : 0) | (p.alive ? 2 : 0), p.hp];
     }));
     for (const p of this.players.values()) {
       const { ws } = p.conn;
       // A backed-up socket would only get a burst of stale snapshots.
       if (ws.readyState !== ws.OPEN || ws.bufferedAmount > MAX_BUFFERED_BYTES) continue;
-      ws.send(`{"t":"snapshot","tick":${this.tick},"ack":${p.ack},"me":${JSON.stringify(p.mover)},"ps":${ps}}`);
+      const me = p.mover ? JSON.stringify({ mover: p.mover, arsenal: p.arsenal, hp: p.hp, alive: p.alive }) : 'null';
+      ws.send(`{"t":"snapshot","tick":${this.tick},"ack":${p.ack},"me":${me},"ps":${ps}}`);
     }
   }
 
@@ -150,9 +210,9 @@ export class Game {
     loop();
   }
 
-  broadcast(msg) {
+  broadcast(msg, except = null) {
     const data = encode(msg);
-    for (const p of this.players.values()) sendRaw(p.conn, data);
+    for (const p of this.players.values()) if (p !== except) sendRaw(p.conn, data);
   }
 
   broadcastLobby() {
@@ -160,7 +220,9 @@ export class Game {
       t: 'lobby',
       phase: this.phase,
       host: this.hostId,
-      players: [...this.players.values()].map((p) => ({ id: p.id, name: p.name, slot: p.slot, ping: p.conn.rtt, bot: p.bot })),
+      players: [...this.players.values()].map((p) => ({
+        id: p.id, name: p.name, slot: p.slot, ping: p.conn.rtt, bot: p.bot, kills: p.kills, deaths: p.deaths,
+      })),
     });
   }
 }

@@ -83,7 +83,7 @@ Trust boundary: one bad packet must never crash the host or put NaN into the sha
 | `loadout` | client → server | primary: rifle or shotgun | on change |
 | `input` | client → server | seq, render tick (fractional), keys bitmask, yaw, pitch, fire, shot number, weapon slot | 60 Hz |
 | `snapshot` | server → client | tick, your last acked seq, players\[ id, pos, yaw, pitch, crouch, hp, weapon, state \], plus your own velocity, on-ground, both magazines, cooldown, reload and switch timers | 60 Hz |
-| `event` | server → client | kill (killer, victim, weapon, headshot), hit (attacker, victim, damage, headshot: hit marker for the attacker, red arc for the victim), spawn, match\_end | on occurrence |
+| `event` | server → client | kill (killer, victim, weapon, headshot), hit (attacker, victim, damage, headshot: hit marker for the attacker, red arc for the victim), shot (shooter, origin, impact: everyone but the shooter draws the tracer and hears it), spawn, match\_end | on occurrence |
 
 ## Gameplay v1: deathmatch
 
@@ -148,15 +148,14 @@ boxfire/
 ├─ package.json            # "type": "module"; "start": "node server/index.js", "bot": "node tools/bot.js"
 ├─ server/
 │  ├─ index.js             # node:http static files + ws, heartbeat, prints LAN URL, host election
-│  ├─ game.js              # 60 Hz tick loop, phases, authoritative state, snapshots, tick-interval log
+│  ├─ game.js              # 60 Hz tick loop, phases, authoritative state, shots and damage, snapshots, tick log
 │  ├─ player.js            # per-player state, input queue + hygiene, fire carry-forward, respawn timer
-│  ├─ history.js           # 1 s ring buffer of hitbox positions, blended at fractional ticks
-│  └─ hitscan.js           # ray vs AABB against rewound state, damage, kills
+│  └─ history.js           # 1 s ring buffer of hitbox positions, blended at fractional ticks
 ├─ shared/
 │  ├─ constants.js         # TICK_RATE, INPUT_BUFFER, INTERP_DELAY_TICKS, speeds, weapon stats, palettes
 │  ├─ movement.js          # step(player, input, dt, map) — same code both sides
 │  ├─ collision.js         # swept AABB vs map boxes, crouch / uncrouch check
-│  ├─ weapons.js           # cooldown, magazines, reload, switch, spread — predicted like movement
+│  ├─ weapons.js           # cooldown, magazines, reload, switch, spread, hitboxes, shot trace — both sides
 │  ├─ rng.js               # seeded PRNG for spread and pellets
 │  ├─ protocol.js          # message types, encode / validated decode
 │  └─ maps/

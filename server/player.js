@@ -3,6 +3,13 @@ import { INPUT_BUFFER, MAX_INPUT_QUEUE, NEUTRAL_MS } from '../shared/constants.j
 
 export class Player {
   mover = null; // null until spawned
+  arsenal = null;
+  primary = 'rifle';
+  hp = 0;
+  alive = false;
+  respawnAt = 0; // tick
+  kills = 0;
+  deaths = 0;
   ack = 0; // seq of the last input simulated
   yaw = 0;
   pitch = 0;

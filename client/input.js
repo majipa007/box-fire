@@ -21,6 +21,8 @@ const PITCH_LIMIT = (89 * Math.PI) / 180;
 let radiansPerPixel = 0.002;
 let held = 0;
 let latched = 0;
+let fireHeld = false;
+let fireLatched = false; // a click shorter than one step still fires
 let locked = false;
 
 export const setSensitivity = (s) => { radiansPerPixel = s * 0.001; };
@@ -33,12 +35,16 @@ function bitFor(code) {
 export function clearKeys() {
   held = 0;
   latched = 0;
+  fireHeld = false;
+  fireLatched = false;
 }
 
 export function sample() {
   const keys = (held & ~EDGES) | latched;
+  const fire = fireHeld || fireLatched;
   latched = 0;
-  return { keys, yaw: look.yaw, pitch: look.pitch };
+  fireLatched = false;
+  return { keys, yaw: look.yaw, pitch: look.pitch, fire };
 }
 
 // onNeutral fires when the game loses the keyboard (blur, hidden tab, lost
@@ -66,6 +72,12 @@ export function init(target, { onLockChange, onLockError, onNeutral }) {
     latched |= bit & EDGES;
   });
   addEventListener('keyup', (e) => { held &= ~bitFor(e.code); });
+  addEventListener('mousedown', (e) => {
+    if (!locked || e.button !== 0) return;
+    fireHeld = true;
+    fireLatched = true;
+  });
+  addEventListener('mouseup', (e) => { if (e.button === 0) fireHeld = false; });
   addEventListener('blur', neutral);
   document.addEventListener('visibilitychange', () => { if (document.hidden) neutral(); });
   document.addEventListener('pointerlockchange', () => {

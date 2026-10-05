@@ -53,6 +53,57 @@ export function showLockError() {
   $('menu-error').textContent = 'The browser refused the mouse lock. Click again.';
 }
 
+// HUD. Text only changes when the value does.
+const shown = {};
+function setText(id, text) {
+  if (shown[id] === text) return;
+  shown[id] = text;
+  $(id).textContent = text;
+}
+
+export function updateHud(hp, mag, reloading) {
+  setText('hp', `${hp} HP`);
+  setText('ammo', reloading ? 'Reloading…' : `${mag} / ∞`);
+}
+
+let hitTimer = 0;
+export function hitMarker(head) {
+  const el = $('hitmarker');
+  el.style.color = head ? '#ff4d4d' : '#ffffff';
+  el.classList.add('show');
+  clearTimeout(hitTimer);
+  hitTimer = setTimeout(() => el.classList.remove('show'), 120);
+}
+
+export function addKill(killer, victim, weapon, head, mine) {
+  const li = document.createElement('li');
+  li.textContent = `${killer}  ⟶  ${victim}  · ${weapon}${head ? ' · headshot' : ''}`;
+  if (mine) li.className = 'mine';
+  $('killfeed').prepend(li);
+  while ($('killfeed').children.length > 5) $('killfeed').lastChild.remove();
+  setTimeout(() => li.remove(), 6000);
+}
+
+let deathTimer = 0;
+export function showDeath(killer, seconds) {
+  const el = $('death');
+  el.hidden = false;
+  const end = performance.now() + seconds * 1000;
+  const tick = () => {
+    const left = Math.max(0, Math.ceil((end - performance.now()) / 1000));
+    el.textContent = `Eliminated by ${killer}\nRespawning in ${left}…`;
+    if (left > 0) deathTimer = setTimeout(tick, 200);
+  };
+  el.style.whiteSpace = 'pre-line';
+  clearTimeout(deathTimer);
+  tick();
+}
+
+export function hideDeath() {
+  clearTimeout(deathTimer);
+  $('death').hidden = true;
+}
+
 export function showStats(text) {
   $('stats').hidden = false;
   $('stats').textContent = text;

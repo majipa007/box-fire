@@ -2,6 +2,7 @@
 // the snapshot buffer other players are interpolated from.
 import { encode } from '../shared/protocol.js';
 import { step } from '../shared/movement.js';
+import { stepWeapon } from '../shared/weapons.js';
 import { TICK_RATE, INTERP_DELAY_TICKS } from '../shared/constants.js';
 
 const STEP_MS = 1000 / TICK_RATE;
@@ -24,24 +25,36 @@ export function connect(handlers) {
   };
 }
 
-// Prediction: each input moves the local player at once and is kept until
-// the server acknowledges it. Each snapshot snaps to the server's state and
-// replays what the server has not seen yet. Look angles are never touched:
-// the camera belongs to the client.
-export const self = { mover: null, pending: [], seq: 0 };
+// Prediction: each input moves the local player and steps their weapon at
+// once, and is kept until the server acknowledges it. Each snapshot snaps to
+// the server's state and silently replays what the server has not seen yet.
+// Look angles are never touched: the camera belongs to the client.
+export const self = { mover: null, arsenal: null, hp: 0, alive: false, pending: [], seq: 0, shots: 0 };
 
+// Returns true when this input fires a shot.
 export function predict(input, boxes) {
   input.s = ++self.seq;
   step(self.mover, input, boxes);
+  const fired = stepWeapon(self.arsenal, input);
+  if (fired) self.shots++;
+  input.shot = self.shots; // seeds the shot's spread on both sides
   self.pending.push(input);
   if (self.pending.length > 120) self.pending.shift(); // the server stopped acking
+  return fired;
 }
 
 export function reconcile(snapshot, boxes) {
-  if (!self.mover || !snapshot.me) return;
-  Object.assign(self.mover, snapshot.me);
-  self.pending = self.pending.filter((i) => i.s > snapshot.ack);
-  for (const i of self.pending) step(self.mover, i, boxes);
+  const me = snapshot.me;
+  if (!self.mover || !me) return;
+  Object.assign(self.mover, me.mover);
+  Object.assign(self.arsenal, me.arsenal);
+  self.hp = me.hp;
+  self.alive = me.alive;
+  self.pending = me.alive ? self.pending.filter((i) => i.s > snapshot.ack) : [];
+  for (const i of self.pending) {
+    step(self.mover, i, boxes);
+    stepWeapon(self.arsenal, i);
+  }
 }
 
 // Other players are drawn INTERP_DELAY_TICKS behind the server's current
@@ -65,7 +78,7 @@ export const renderTick = (now) => (clockBase === null ? 0 : (now - clockBase) /
 const lerp = (a, b, t) => a + (b - a) * t;
 const lerpAngle = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
-// [{ id, x, y, z, yaw, pitch, crouch }] at the render tick.
+// [{ id, x, y, z, yaw, pitch, crouch, alive, hp }] at the render tick.
 export function others(now) {
   if (!buffer.length) return [];
   const rt = renderTick(now);
@@ -75,15 +88,18 @@ export function others(now) {
   const a = i > 0 && buffer[i - 1].tick <= rt ? buffer[i - 1] : b;
   const t = a === b ? 0 : Math.min(1, (rt - a.tick) / (b.tick - a.tick));
   const from = new Map(a.ps.map((p) => [p[0], p]));
-  return b.ps.map(([id, x, y, z, yaw, pitch, flags]) => {
+  return b.ps.map(([id, x, y, z, yaw, pitch, flags, hp]) => {
     const p = from.get(id);
+    const alive = !!(flags & 2);
     // Respawns and joins snap rather than streak across the map.
-    if (!p || Math.hypot(p[1] - x, p[3] - z) > 2) return { id, x, y, z, yaw, pitch, crouch: !!(flags & 1) };
+    if (!p || Math.hypot(p[1] - x, p[3] - z) > 2) return { id, x, y, z, yaw, pitch, crouch: !!(flags & 1), alive, hp };
     return {
       id,
       x: lerp(p[1], x, t), y: lerp(p[2], y, t), z: lerp(p[3], z, t),
       yaw: lerpAngle(p[4], yaw, t), pitch: lerp(p[5], pitch, t),
       crouch: !!((t < 0.5 ? p[6] : flags) & 1),
+      alive,
+      hp,
     };
   });
 }

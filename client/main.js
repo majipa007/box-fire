@@ -4,9 +4,10 @@ import * as ui from './ui.js';
 import * as render from './render.js';
 import * as input from './input.js';
 import { cleanName, encodeInput } from '../shared/protocol.js';
-import { EYE_STAND, EYE_CROUCH, TICK_RATE } from '../shared/constants.js';
+import { EYE_STAND, EYE_CROUCH, TICK_RATE, MAX_HP, RESPAWN_SECONDS } from '../shared/constants.js';
 import { createMover } from '../shared/movement.js';
 import { prepareMap } from '../shared/collision.js';
+import { createArsenal, eyeOf, aimDir, traceShot } from '../shared/weapons.js';
 
 const STEP_MS = 1000 / TICK_RATE;
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -15,8 +16,9 @@ let myId = null;
 let mapId = null;
 let inGame = false;
 let world = null; // prepared map, once loaded
-let roster = new Map(); // id → { name, slot, bot } from the lobby list
+let roster = new Map(); // id → { name, slot, bot, kills, deaths } from the lobby list
 let prev = null; // own position before the last fixed step, for smooth rendering
+const nameOf = (id) => roster.get(id)?.name ?? '?';
 
 const net = connect({
   welcome(m) {
@@ -37,10 +39,24 @@ const net = connect({
   event(m) {
     if (m.e === 'spawn' && m.id === myId) {
       self.mover = { ...createMover(m.x, m.y, m.z), grounded: true }; // as the server does
+      self.arsenal = createArsenal();
+      self.hp = MAX_HP;
+      self.alive = true;
       self.pending = [];
       prev = { x: m.x, y: m.y, z: m.z };
       input.look.yaw = m.yaw;
       input.look.pitch = 0;
+      ui.hideDeath();
+    } else if (m.e === 'shot') {
+      render.addTracer(m.o, m.h);
+    } else if (m.e === 'hit') {
+      if (m.a === myId) ui.hitMarker(m.head);
+    } else if (m.e === 'kill') {
+      ui.addKill(nameOf(m.k), nameOf(m.v), m.w, m.head, m.k === myId || m.v === myId);
+      if (m.v === myId) {
+        self.alive = false;
+        ui.showDeath(nameOf(m.k), RESPAWN_SECONDS);
+      }
     }
   },
   close() { ui.showDisconnected(); },
@@ -61,11 +77,23 @@ function applySettings() {
 // One fixed 60 Hz step: sample input, predict locally, send to the host.
 function fixedStep() {
   const me = self.mover;
-  if (!me || !world) return;
+  if (!me || !world || !self.alive) return;
   prev = { x: me.x, y: me.y, z: me.z };
-  const inp = { ...input.sample(), rt: renderTick(performance.now()), fire: false, shot: 0, slot: 0 };
-  predict(inp, world.boxes);
+  const inp = { ...input.sample(), rt: renderTick(performance.now()), slot: 0 };
+  if (predict(inp, world.boxes)) ownShot(inp);
   net.send(encodeInput(inp));
+}
+
+// Draw our own tracer at once, along the packet's angles (what the server
+// will test), ending where it would hit the map or a player we can see.
+function ownShot(inp) {
+  const origin = eyeOf(self.mover);
+  const dir = aimDir(inp.yaw, inp.pitch);
+  const targets = others(performance.now()).filter((o) => o.alive && o.id !== myId);
+  const { t } = traceShot(origin, dir, world.boxes, targets);
+  const right = [Math.cos(inp.yaw), 0, -Math.sin(inp.yaw)];
+  const muzzle = origin.map((o, i) => o + right[i] * 0.15 + dir[i] * 0.4 - (i === 1 ? 0.12 : 0));
+  render.addTracer(muzzle, origin.map((o, i) => o + dir[i] * t));
 }
 
 async function enterGame() {
@@ -86,30 +114,33 @@ async function enterGame() {
   render.addMap(map);
   world = prepareMap(map);
 
+  // Fixed 60 Hz steps on the wall clock, on their own timer so a slow frame
+  // on the GPU does not bunch inputs up.
+  const start = performance.now();
+  let steps = 0;
+  setInterval(() => {
+    const due = Math.floor((performance.now() - start) / STEP_MS);
+    if (due - steps > 15) steps = due - 1; // asleep for > 250 ms: skip, the host has gone neutral
+    for (; steps < due; steps++) fixedStep();
+  }, 4);
+
   const debug = new URLSearchParams(location.search).has('debug');
   let frames = 0;
   let statsAt = performance.now();
-  let acc = 0;
   let last = performance.now();
   let eye = EYE_STAND;
   requestAnimationFrame(function frame(now) {
     requestAnimationFrame(frame);
-    // Fixed 60 Hz steps on the wall clock; render between the last two.
     const frameMs = now - last;
-    acc += frameMs;
     last = now;
-    if (acc > 250) acc = STEP_MS; // after a long stall, don't fast-forward
-    while (acc >= STEP_MS) {
-      acc -= STEP_MS;
-      fixedStep();
-    }
     const me = self.mover;
     if (me) {
-      const a = acc / STEP_MS;
+      const a = Math.min(1, Math.max(0, (now - start) / STEP_MS - steps)); // between the last two steps
       eye = lerp(eye, me.crouch ? EYE_CROUCH : EYE_STAND, Math.min(1, frameMs / 60)); // ease, don't snap
       render.setView(lerp(prev.x, me.x, a), lerp(prev.y, me.y, a) + eye, lerp(prev.z, me.z, a), input.look.yaw, input.look.pitch);
+      ui.updateHud(self.hp, self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0);
     }
-    render.syncPlayers(others(now).filter((o) => o.id !== myId), roster, frameMs / 1000);
+    render.syncPlayers(others(now).filter((o) => o.alive && o.id !== myId), roster, frameMs / 1000);
     render.draw();
     frames++;
     if (debug && now - statsAt > 500) {
