@@ -7,6 +7,7 @@
 <style>
   :root { --bg: #14161b; --panel: #1f232b; --text: #e8e8e8; --dim: #8a909c; --accent: #f58231; }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, sans-serif; overflow: hidden; }
   button { font: inherit; color: var(--text); background: var(--accent); border: 0; border-radius: 6px; padding: 8px 18px; cursor: pointer; }
   input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid #3a3f4a; border-radius: 6px; padding: 8px 10px; }
@@ -19,9 +20,33 @@
   .swatch { width: 14px; height: 14px; border-radius: 3px; flex: none; }
   .ping { margin-left: auto; color: var(--dim); font-size: 14px; }
   .dim { color: var(--dim); }
+  .error { color: #ff6b6b; min-height: 1.4em; }
+  #view { position: fixed; inset: 0; display: block; }
+  #menu { background: rgba(10, 12, 16, 0.55); }
+  #menu label { display: grid; grid-template-columns: 9em 1fr 3em; align-items: center; gap: 10px; margin: 10px 0; }
+  #menu output { color: var(--dim); text-align: right; }
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; background: #0f0; border-radius: 50%; }
+  #stats { position: fixed; left: 8px; top: 8px; font: 12px monospace; color: #fff; background: rgba(0, 0, 0, 0.5); padding: 2px 6px; }
 </style>
+<script type="importmap">
+  { "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/addons/" } }
+</script>
 </head>
 <body>
+<div id="hud" hidden>
+  <div id="crosshair"></div>
+</div>
+<div id="menu" class="screen" hidden>
+  <div class="card">
+    <h1 id="menu-title">Boxfire</h1>
+    <label>Sensitivity <input id="set-sens" type="range" min="0.1" max="5" step="0.05"><output></output></label>
+    <label>Field of view <input id="set-fov" type="range" min="70" max="110" step="1"><output></output></label>
+    <p id="menu-error" class="error"></p>
+    <button id="play">Click to play</button>
+  </div>
+</div>
+<div id="stats" hidden></div>
 <div id="lobby" class="screen">
   <div class="card">
     <h1>Boxfire</h1>

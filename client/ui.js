@@ -4,6 +4,60 @@ import { PLAYER_COLORS } from '../shared/constants.js';
 
 const $ = (id) => document.getElementById(id);
 
+// Per-browser settings. Storage can be missing or blocked, so every access is
+// guarded and the defaults always work.
+const SETTINGS_KEY = 'boxfire.settings';
+export const settings = { sens: 2, fov: 90, ...loadSettings() };
+
+function loadSettings() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) ?? {}; } catch { return {}; }
+}
+
+function saveSettings() {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* not persisted */ }
+}
+
+export function initMenu({ onPlay, onChange }) {
+  for (const [id, key] of [['set-sens', 'sens'], ['set-fov', 'fov']]) {
+    const input = $(id);
+    const out = input.nextElementSibling;
+    input.value = settings[key];
+    out.textContent = input.value;
+    input.addEventListener('input', () => {
+      settings[key] = Number(input.value);
+      out.textContent = input.value;
+      saveSettings();
+      onChange();
+    });
+  }
+  $('play').addEventListener('click', onPlay);
+}
+
+export function enterGame() {
+  $('lobby').hidden = true;
+  $('hud').hidden = false;
+}
+
+export function showMenu(paused) {
+  $('menu').hidden = false;
+  $('menu-title').textContent = paused ? 'Paused' : 'Boxfire';
+  $('play').textContent = paused ? 'Resume' : 'Click to play';
+}
+
+export function hideMenu() {
+  $('menu').hidden = true;
+  $('menu-error').textContent = '';
+}
+
+export function showLockError() {
+  $('menu-error').textContent = 'The browser refused the mouse lock. Click again.';
+}
+
+export function showStats(text) {
+  $('stats').hidden = false;
+  $('stats').textContent = text;
+}
+
 const REJECT_TEXT = {
   'name-taken': 'That name is already taken.',
   'full': 'The game is full.',
