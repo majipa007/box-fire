@@ -8,7 +8,9 @@ export const look = { yaw: 0, pitch: 0 };
 export const bindings = {
   forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD',
   jump: 'Space', walk: 'ShiftLeft', crouch: 'KeyC', reload: 'KeyR',
+  primary: 'Digit1', pistol: 'Digit2',
 };
+const SLOTS = { primary: 0, pistol: 1 };
 const BITS = {
   forward: KEY.FORWARD, back: KEY.BACK, left: KEY.LEFT, right: KEY.RIGHT,
   jump: KEY.JUMP, walk: KEY.WALK, crouch: KEY.CROUCH, reload: KEY.RELOAD,
@@ -23,7 +25,10 @@ let held = 0;
 let latched = 0;
 let fireHeld = false;
 let fireLatched = false; // a click shorter than one step still fires
+let slot = 0; // weapon slot asked for: 0 primary, 1 pistol
 let locked = false;
+
+export const setSlot = (s) => { slot = s; };
 
 export const setSensitivity = (s) => { radiansPerPixel = s * 0.001; };
 
@@ -44,7 +49,7 @@ export function sample() {
   const fire = fireHeld || fireLatched;
   latched = 0;
   fireLatched = false;
-  return { keys, yaw: look.yaw, pitch: look.pitch, fire };
+  return { keys, yaw: look.yaw, pitch: look.pitch, fire, slot };
 }
 
 // onNeutral fires when the game loses the keyboard (blur, hidden tab, lost
@@ -64,6 +69,7 @@ export function init(target, { onLockChange, onLockError, onNeutral }) {
   });
   addEventListener('keydown', (e) => {
     if (e.code === 'Tab') e.preventDefault(); // keep focus on the game
+    for (const action in SLOTS) if (locked && bindings[action] === e.code) slot = SLOTS[action];
     const bit = locked && bitFor(e.code);
     if (!bit) return;
     e.preventDefault();
@@ -78,6 +84,7 @@ export function init(target, { onLockChange, onLockError, onNeutral }) {
     fireLatched = true;
   });
   addEventListener('mouseup', (e) => { if (e.button === 0) fireHeld = false; });
+  addEventListener('wheel', (e) => { if (locked && e.deltaY) slot = 1 - slot; });
   addEventListener('blur', neutral);
   document.addEventListener('visibilitychange', () => { if (document.hidden) neutral(); });
   document.addEventListener('pointerlockchange', () => {

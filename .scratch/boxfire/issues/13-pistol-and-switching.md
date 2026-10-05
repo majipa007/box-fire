@@ -4,8 +4,8 @@
 
 **Blocked by:** 08
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The pistol is semi-auto: one shot per click, capped at 6.75 shots per second.
-- [ ] A switch takes 0.4 s before you can fire and cancels any reload. Each weapon keeps its own magazine.
-- [ ] Switching and reload cancelling have tests.
+- [x] The pistol is semi-auto: one shot per click, capped at 6.75 shots per second.
+- [x] A switch takes 0.4 s before you can fire and cancels any reload. Each weapon keeps its own magazine.
+- [x] Switching and reload cancelling have tests.

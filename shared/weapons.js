@@ -1,7 +1,7 @@
 // Weapon state, stepped once per input exactly like movement, so the client
 // predicts shots, ammo and reloads and the server agrees.
 import {
-  DT, WEAPONS, SHOT_RANGE, EYE_STAND, EYE_CROUCH, STAND_HEIGHT, CROUCH_HEIGHT, PLAYER_WIDTH, HEAD_SIZE, RUN_SPEED,
+  DT, WEAPONS, SWITCH_SECONDS, SHOT_RANGE, EYE_STAND, EYE_CROUCH, STAND_HEIGHT, CROUCH_HEIGHT, PLAYER_WIDTH, HEAD_SIZE, RUN_SPEED,
 } from './constants.js';
 import { KEY } from './movement.js';
 import { rayBox } from './collision.js';
@@ -13,6 +13,7 @@ export const createArsenal = (primary = 'rifle') => ({
   mags: [WEAPONS[primary].mag, WEAPONS.pistol.mag],
   cooldown: 0, // seconds until the next shot; carries its remainder
   reload: 0, // seconds of reload left, 0 when not reloading
+  switching: 0, // seconds until a newly drawn weapon can fire
   trigger: false, // trigger state last step, for semi-auto edges
 });
 
@@ -78,6 +79,12 @@ export function traceShot(origin, dir, boxes, targets) {
 
 // One fixed step. Returns true when a shot fires.
 export function stepWeapon(a, input) {
+  if (a.switching > 0) a.switching = Math.max(0, a.switching - DT);
+  if (input.slot !== a.slot) {
+    a.slot = input.slot;
+    a.switching = SWITCH_SECONDS; // can't fire until the new gun is up
+    a.reload = 0; // switching cancels a reload
+  }
   const w = WEAPONS[weaponOf(a)];
   if (a.reload > 0) {
     a.reload -= DT;
@@ -88,7 +95,9 @@ export function stepWeapon(a, input) {
   }
   a.cooldown -= DT;
   let fired = false;
-  if (input.fire && a.reload === 0 && a.cooldown <= 0) {
+  // Automatic weapons fire while held; semi-automatic ones once per click.
+  const pull = input.fire && (w.auto || !a.trigger);
+  if (pull && a.switching < 1e-9 && a.reload === 0 && a.cooldown <= 0) {
     if (a.mags[a.slot] > 0) {
       a.mags[a.slot]--;
       a.cooldown += 1 / w.rps; // += keeps the remainder: 9.75/s is 6.15 steps

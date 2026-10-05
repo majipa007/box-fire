@@ -92,6 +92,44 @@ test('the rifle runs dry after 25 shots; firing on empty reloads it in 2.5 s', (
   assert.equal(shots(a, hold, 1), 1);
 });
 
+const pistol = (fire) => ({ keys: 0, fire, slot: 1 });
+
+test('the pistol fires once per click, never on a held trigger', () => {
+  const a = createArsenal('rifle');
+  shots(a, pistol(false), 30); // switch to the pistol and let the switch finish
+  assert.equal(shots(a, pistol(true), 120), 1, 'holding fires one shot');
+});
+
+test('clicking as fast as possible is capped at 6.75 pistol shots per second', () => {
+  const a = createArsenal('rifle');
+  shots(a, pistol(false), 30);
+  a.mags[1] = 1000;
+  let n = 0;
+  for (let i = 0; i < 600; i++) if (stepWeapon(a, pistol(i % 2 === 0))) n++; // a click every other step
+  assert.ok(n === 67 || n === 68, `${n} shots in 10 s`);
+});
+
+test('switching weapons blocks firing for 0.4 s and cancels a reload', () => {
+  const a = createArsenal('rifle');
+  shots(a, pistol(false), 30); // draw the pistol
+  shots(a, pistol(true), 1);
+  stepWeapon(a, { ...pistol(false), keys: KEY.RELOAD }); // start reloading the pistol
+  assert.ok(a.reload > 0);
+  let steps = 0;
+  while (!stepWeapon(a, hold) && steps < 100) steps++; // switch to the rifle, trigger held
+  assert.equal(steps, 24, 'the first rifle shot comes 0.4 s after the switch');
+  assert.equal(a.mags[1], 11, 'the pistol reload was cancelled');
+});
+
+test('each weapon keeps its own magazine', () => {
+  const a = createArsenal('rifle');
+  shots(a, hold, 30); // 5 rifle shots
+  shots(a, pistol(false), 30);
+  shots(a, pistol(true), 1);
+  shots(a, idle, 30); // back to the rifle
+  assert.deepEqual(a.mags, [20, 11]);
+});
+
 test('R reloads a partly used magazine, but not a full one', () => {
   const full = createArsenal('rifle');
   stepWeapon(full, { ...idle, keys: KEY.RELOAD });

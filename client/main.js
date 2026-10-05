@@ -49,6 +49,7 @@ const net = connect({
       prev = { x: m.x, y: m.y, z: m.z };
       input.look.yaw = m.yaw;
       input.look.pitch = 0;
+      input.setSlot(0); // every life starts on the primary
       ui.hideDeath();
     } else if (m.e === 'shot') {
       for (const end of m.h) render.addTracer(m.o, end);
@@ -82,7 +83,7 @@ function fixedStep() {
   const me = self.mover;
   if (!me || !world || !self.alive) return;
   prev = { x: me.x, y: me.y, z: me.z };
-  const inp = { ...input.sample(), rt: renderTick(performance.now()), slot: 0 };
+  const inp = { ...input.sample(), rt: renderTick(performance.now()) };
   if (predict(inp, world.boxes)) ownShot(inp);
   net.send(encodeInput(inp));
 }
@@ -144,7 +145,7 @@ async function enterGame() {
       const a = Math.min(1, Math.max(0, (now - start) / STEP_MS - steps)); // between the last two steps
       eye = lerp(eye, me.crouch ? EYE_CROUCH : EYE_STAND, Math.min(1, frameMs / 60)); // ease, don't snap
       render.setView(lerp(prev.x, me.x, a), lerp(prev.y, me.y, a) + eye, lerp(prev.z, me.z, a), input.look.yaw, input.look.pitch);
-      ui.updateHud(self.hp, self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0);
+      ui.updateHud(self.hp, weaponOf(self.arsenal), self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0);
     }
     render.syncPlayers(others(now).filter((o) => o.alive && o.id !== myId), roster, frameMs / 1000);
     render.draw();

@@ -61,9 +61,9 @@ function setText(id, text) {
   $(id).textContent = text;
 }
 
-export function updateHud(hp, mag, reloading) {
+export function updateHud(hp, weapon, mag, reloading) {
   setText('hp', `${hp} HP`);
-  setText('ammo', reloading ? 'Reloading…' : `${mag} / ∞`);
+  setText('ammo', `${weapon}  ${reloading ? 'reloading…' : `${mag} / ∞`}`);
 }
 
 let hitTimer = 0;
