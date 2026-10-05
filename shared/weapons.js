@@ -1,7 +1,7 @@
 // Weapon state, stepped once per input exactly like movement, so the client
 // predicts shots, ammo and reloads and the server agrees.
 import {
-  DT, WEAPONS, SHOT_RANGE, EYE_STAND, EYE_CROUCH, STAND_HEIGHT, CROUCH_HEIGHT, PLAYER_WIDTH, HEAD_SIZE,
+  DT, WEAPONS, SHOT_RANGE, EYE_STAND, EYE_CROUCH, STAND_HEIGHT, CROUCH_HEIGHT, PLAYER_WIDTH, HEAD_SIZE, RUN_SPEED,
 } from './constants.js';
 import { KEY } from './movement.js';
 import { rayBox } from './collision.js';
@@ -21,6 +21,32 @@ export const weaponOf = (a) => (a.slot === 0 ? a.primary : 'pistol');
 // Where a player's shot starts and which way it goes (yaw 0 faces -z).
 export const eyeOf = (m) => [m.x, m.y + (m.crouch ? EYE_CROUCH : EYE_STAND), m.z];
 export const aimDir = (yaw, pitch) => [-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)];
+
+// Spread cone half-angle in degrees: blended from standing to moving by
+// ground speed, doubled in the air, tightened when crouched.
+export function spreadDegrees(weapon, m) {
+  const w = WEAPONS[weapon];
+  if (!m.grounded) return 2 * w.spreadMove;
+  if (m.crouch) return 0.8 * w.spreadStand;
+  const t = Math.min(1, Math.hypot(m.vx, m.vz) / RUN_SPEED);
+  return w.spreadStand + (w.spreadMove - w.spreadStand) * t;
+}
+
+// The direction of each pellet (one for the rifle and pistol), spread
+// uniformly over the cone by the shot's seeded generator.
+export function shotDirs(yaw, pitch, weapon, m, rand) {
+  const fwd = aimDir(yaw, pitch);
+  const right = [Math.cos(yaw), 0, -Math.sin(yaw)];
+  const up = [right[1] * fwd[2] - right[2] * fwd[1], right[2] * fwd[0] - right[0] * fwd[2], right[0] * fwd[1] - right[1] * fwd[0]];
+  const cone = Math.tan((spreadDegrees(weapon, m) * Math.PI) / 180);
+  return Array.from({ length: WEAPONS[weapon].pellets ?? 1 }, () => {
+    const r = Math.sqrt(rand()) * cone;
+    const a = 2 * Math.PI * rand();
+    const d = fwd.map((f, i) => f + right[i] * r * Math.cos(a) + up[i] * r * Math.sin(a));
+    const len = Math.hypot(...d);
+    return d.map((v) => v / len);
+  });
+}
 
 // Two boxes per player, matching the drawn model: a 0.3 m head cube on top of
 // a 1.5 m body standing, or a 0.9 m body crouched.

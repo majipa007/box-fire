@@ -7,7 +7,8 @@ import {
 import { encode } from '../shared/protocol.js';
 import { createMover, step } from '../shared/movement.js';
 import { prepareMap } from '../shared/collision.js';
-import { createArsenal, stepWeapon, weaponOf, eyeOf, aimDir, traceShot } from '../shared/weapons.js';
+import { createArsenal, stepWeapon, weaponOf, eyeOf, shotDirs, traceShot } from '../shared/weapons.js';
+import { shotRng } from '../shared/rng.js';
 import { Player } from './player.js';
 import { History } from './history.js';
 
@@ -19,6 +20,7 @@ export class Game {
   phase = 'lobby';
   hostId = null;
   tick = 0;
+  seed = Math.floor(Math.random() * 2 ** 32); // one per server run, seeds every shot's spread
 
   constructor(mapId, mapJson) {
     this.mapId = mapId;
@@ -50,7 +52,7 @@ export class Game {
     const p = new Player(this.nextId++, name, this.freeSlot(), conn, bot);
     this.players.set(p.id, p);
     conn.player = p;
-    send(conn, { t: 'welcome', id: p.id, map: this.mapId, tickRate: TICK_RATE });
+    send(conn, { t: 'welcome', id: p.id, map: this.mapId, tickRate: TICK_RATE, seed: this.seed });
     if (this.phase === 'playing') this.spawn(p);
     this.electHost();
     this.broadcastLobby();
@@ -130,18 +132,26 @@ export class Game {
 
   fire(p, input) {
     const weapon = weaponOf(p.arsenal);
+    const w = WEAPONS[weapon];
     const origin = eyeOf(p.mover);
-    const dir = aimDir(input.yaw, input.pitch);
     // Rewind: test against the others where this shooter saw them, at the
     // render tick their input carries, as long as they are still alive now.
     const targets = this.history.at(input.rt, this.tick).filter((q) => q.id !== p.id && this.players.get(q.id)?.alive);
-    const hit = traceShot(origin, dir, this.map.boxes, targets);
-    const end = origin.map((o, i) => r3(o + dir[i] * hit.t));
-    this.broadcast({ t: 'event', e: 'shot', id: p.id, o: origin.map(r3), h: end }, p);
-    if (hit.id !== null) {
-      const w = WEAPONS[weapon];
-      this.damage(p, this.players.get(hit.id), w.dmg * (hit.head ? w.head : 1), hit.head, weapon);
-    }
+    // The shot number seeds the spread exactly as the client rolled it.
+    const dirs = shotDirs(input.yaw, input.pitch, weapon, p.mover, shotRng(this.seed, p.id, input.shot));
+    const hits = new Map(); // victim id → { dmg, head }, summed over pellets
+    const ends = dirs.map((dir) => {
+      const hit = traceShot(origin, dir, this.map.boxes, targets);
+      if (hit.id !== null) {
+        const h = hits.get(hit.id) ?? { dmg: 0, head: false };
+        h.dmg += w.dmg * (hit.head ? w.head : 1);
+        h.head ||= hit.head;
+        hits.set(hit.id, h);
+      }
+      return origin.map((o, i) => r3(o + dir[i] * hit.t));
+    });
+    this.broadcast({ t: 'event', e: 'shot', id: p.id, o: origin.map(r3), h: ends }, p);
+    for (const [id, { dmg, head }] of hits) this.damage(p, this.players.get(id), dmg, head, weapon);
   }
 
   damage(attacker, victim, dmg, head, weapon) {

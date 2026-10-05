@@ -7,13 +7,15 @@ import { cleanName, encodeInput } from '../shared/protocol.js';
 import { EYE_STAND, EYE_CROUCH, TICK_RATE, MAX_HP, RESPAWN_SECONDS } from '../shared/constants.js';
 import { createMover } from '../shared/movement.js';
 import { prepareMap } from '../shared/collision.js';
-import { createArsenal, eyeOf, aimDir, traceShot } from '../shared/weapons.js';
+import { createArsenal, eyeOf, aimDir, traceShot, shotDirs, weaponOf } from '../shared/weapons.js';
+import { shotRng } from '../shared/rng.js';
 
 const STEP_MS = 1000 / TICK_RATE;
 const lerp = (a, b, t) => a + (b - a) * t;
 
 let myId = null;
 let mapId = null;
+let seed = 0; // the host's spread seed
 let inGame = false;
 let world = null; // prepared map, once loaded
 let roster = new Map(); // id → { name, slot, bot, kills, deaths } from the lobby list
@@ -24,6 +26,7 @@ const net = connect({
   welcome(m) {
     myId = m.id;
     mapId = m.map;
+    seed = m.seed;
     ui.showRoom();
   },
   lobby(m) {
@@ -48,7 +51,7 @@ const net = connect({
       input.look.pitch = 0;
       ui.hideDeath();
     } else if (m.e === 'shot') {
-      render.addTracer(m.o, m.h);
+      for (const end of m.h) render.addTracer(m.o, end);
     } else if (m.e === 'hit') {
       if (m.a === myId) ui.hitMarker(m.head);
     } else if (m.e === 'kill') {
@@ -84,16 +87,19 @@ function fixedStep() {
   net.send(encodeInput(inp));
 }
 
-// Draw our own tracer at once, along the packet's angles (what the server
-// will test), ending where it would hit the map or a player we can see.
+// Draw our own tracers at once: the same seeded pellets the server will
+// test, along the packet's angles, ending where each would hit the map or a
+// player we can see.
 function ownShot(inp) {
   const origin = eyeOf(self.mover);
-  const dir = aimDir(inp.yaw, inp.pitch);
   const targets = others(performance.now()).filter((o) => o.alive && o.id !== myId);
-  const { t } = traceShot(origin, dir, world.boxes, targets);
   const right = [Math.cos(inp.yaw), 0, -Math.sin(inp.yaw)];
-  const muzzle = origin.map((o, i) => o + right[i] * 0.15 + dir[i] * 0.4 - (i === 1 ? 0.12 : 0));
-  render.addTracer(muzzle, origin.map((o, i) => o + dir[i] * t));
+  const fwd = aimDir(inp.yaw, inp.pitch);
+  const muzzle = origin.map((o, i) => o + right[i] * 0.15 + fwd[i] * 0.4 - (i === 1 ? 0.12 : 0));
+  for (const dir of shotDirs(inp.yaw, inp.pitch, weaponOf(self.arsenal), self.mover, shotRng(seed, myId, self.shots))) {
+    const { t } = traceShot(origin, dir, world.boxes, targets);
+    render.addTracer(muzzle, origin.map((o, i) => o + dir[i] * t));
+  }
 }
 
 async function enterGame() {

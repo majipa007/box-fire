@@ -1,8 +1,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createArsenal, stepWeapon, traceShot } from './weapons.js';
+import { createArsenal, stepWeapon, traceShot, spreadDegrees, shotDirs, aimDir } from './weapons.js';
 import { KEY } from './movement.js';
 import { prepareMap } from './collision.js';
+import { shotRng } from './rng.js';
+
+const mover = (speed, extra = {}) => ({ x: 0, y: 0, z: 0, vx: speed, vy: 0, vz: 0, grounded: true, crouch: false, ...extra });
+const close = (a, b) => Math.abs(a - b) < 1e-9;
+
+test('rifle spread blends from 0.4° standing to 2.5° at run speed', () => {
+  assert.ok(close(spreadDegrees('rifle', mover(0)), 0.4));
+  assert.ok(close(spreadDegrees('rifle', mover(5.5)), 2.5));
+  assert.ok(close(spreadDegrees('rifle', mover(2.75)), 1.45));
+});
+
+test('airborne spread is double the moving value, crouched is 0.8 of standing', () => {
+  assert.ok(close(spreadDegrees('rifle', mover(0, { grounded: false })), 5));
+  assert.ok(close(spreadDegrees('rifle', mover(1.8, { crouch: true })), 0.32));
+});
+
+test('seeded shot directions stay inside the spread cone and repeat exactly', () => {
+  const m = mover(5.5); // 2.5° rifle spread
+  const aim = aimDir(0.3, 0.1);
+  for (let shot = 1; shot <= 200; shot++) {
+    const [d] = shotDirs(0.3, 0.1, 'rifle', m, shotRng(42, 1, shot));
+    const angle = (Math.acos(Math.min(1, d[0] * aim[0] + d[1] * aim[1] + d[2] * aim[2])) * 180) / Math.PI;
+    assert.ok(angle <= 2.5 + 1e-9, `shot ${shot} strayed ${angle}°`);
+    assert.ok(Math.abs(Math.hypot(...d) - 1) < 1e-12, 'unit length');
+  }
+  assert.deepEqual(shotDirs(0.3, 0.1, 'rifle', m, shotRng(42, 1, 9)), shotDirs(0.3, 0.1, 'rifle', m, shotRng(42, 1, 9)));
+});
 
 const ahead = [0, 0, -1];
 const target = (id, z, crouch = false) => ({ id, x: 0, y: 0, z, crouch });
