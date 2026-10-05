@@ -59,6 +59,15 @@ test('beyond the maximum backlog the oldest inputs are dropped', () => {
   assert.equal(p.ack, 14);
 });
 
+test('a click inside inputs dropped by overflow still fires on the next applied input', () => {
+  const p = player();
+  const now = steady(p, 3);
+  for (let s = 4; s <= 20; s++) p.receive(input(s, s === 5 ? { fire: true, shot: 9, rt: 77.5 } : {}), now);
+  const [first, second] = p.nextInputs(now); // 4..12 were dropped
+  assert.deepEqual([first.s, first.fire, first.shot, first.rt], [13, true, 9, 77.5]);
+  assert.equal(second.fire, false);
+});
+
 test('after 250 ms without input the player goes neutral, then picks up where the client left off', () => {
   const p = player();
   const now = steady(p, 3); // last input received at 2 ticks

@@ -4,10 +4,10 @@
 
 **Blocked by:** 07, 10, 11
 
-**Status:** ready-for-agent
+**Status:** done
 
 Since ticket 07, inputs are only ever dropped by queue overflow; nothing is dropped for being late.
 
-- [ ] An overflow-dropped input's fire press carries into the next applied input, along with its shot number and render tick.
-- [ ] The cooldown still gates every shot.
-- [ ] A test with an overflowing burst shows the press still fires.
+- [x] An overflow-dropped input's fire press carries into the next applied input, along with its shot number and render tick.
+- [x] The cooldown still gates every shot.
+- [x] A test with an overflowing burst shows the press still fires.

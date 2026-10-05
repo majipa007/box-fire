@@ -39,7 +39,11 @@ export class Player {
     // A backlog this deep would only replay as a fast-forward: drop the oldest.
     if (this.queue.length > MAX_INPUT_QUEUE) {
       this.stats.overflow += this.queue.length - MAX_INPUT_QUEUE;
-      this.queue.splice(0, this.queue.length - MAX_INPUT_QUEUE);
+      const dropped = this.queue.splice(0, this.queue.length - MAX_INPUT_QUEUE);
+      // The client already showed that click as a shot: keep the earliest one,
+      // with the shot number and render tick it was fired with.
+      const click = dropped.find((i) => i.fire);
+      if (click && !this.queue[0].fire) this.queue[0] = { ...this.queue[0], fire: true, shot: click.shot, rt: click.rt };
     }
   }
 
