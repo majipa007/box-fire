@@ -4,9 +4,9 @@
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Other players are interpolated a configurable number of ticks behind. When snapshots run dry they freeze rather than extrapolate.
-- [ ] Crouched players render shorter, and legs swing with movement speed.
-- [ ] Players pass through each other.
-- [ ] `npm run bot -- --count N` joins N bots. Bots never become host.
+- [x] Other players are interpolated a configurable number of ticks behind. When snapshots run dry they freeze rather than extrapolate.
+- [x] Crouched players render shorter, and legs swing with movement speed.
+- [x] Players pass through each other.
+- [x] `npm run bot -- --count N` joins N bots. Bots never become host.

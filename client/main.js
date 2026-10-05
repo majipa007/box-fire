@@ -1,5 +1,5 @@
 // Boot: connect to the host, drive the screens, run the game loop.
-import { connect, self, predict, reconcile } from './net.js';
+import { connect, self, predict, reconcile, bufferSnapshot, renderTick, others } from './net.js';
 import * as ui from './ui.js';
 import * as render from './render.js';
 import * as input from './input.js';
@@ -15,7 +15,7 @@ let myId = null;
 let mapId = null;
 let inGame = false;
 let world = null; // prepared map, once loaded
-let serverTick = 0;
+let roster = new Map(); // id → { name, slot, bot } from the lobby list
 let prev = null; // own position before the last fixed step, for smooth rendering
 
 const net = connect({
@@ -25,12 +25,13 @@ const net = connect({
     ui.showRoom();
   },
   lobby(m) {
+    roster = new Map(m.players.map((p) => [p.id, p]));
     ui.renderLobby(m, myId);
     if (!inGame && myId !== null && m.phase !== 'lobby') enterGame();
   },
   reject(m) { ui.showJoinError(m.reason); },
   snapshot(m) {
-    serverTick = m.tick;
+    bufferSnapshot(m, performance.now());
     if (world) reconcile(m, world.boxes);
   },
   event(m) {
@@ -62,7 +63,7 @@ function fixedStep() {
   const me = self.mover;
   if (!me) return;
   prev = { x: me.x, y: me.y, z: me.z };
-  const inp = { ...input.sample(), rt: serverTick, fire: false, shot: 0, slot: 0 };
+  const inp = { ...input.sample(), rt: renderTick(performance.now()), fire: false, shot: 0, slot: 0 };
   predict(inp, world.boxes);
   net.send(encodeInput(inp));
 }
@@ -107,6 +108,7 @@ async function enterGame() {
       eye = lerp(eye, me.crouch ? EYE_CROUCH : EYE_STAND, Math.min(1, frameMs / 60)); // ease, don't snap
       render.setView(lerp(prev.x, me.x, a), lerp(prev.y, me.y, a) + eye, lerp(prev.z, me.z, a), input.look.yaw, input.look.pitch);
     }
+    render.syncPlayers(others(now).filter((o) => o.id !== myId), roster, frameMs / 1000);
     render.draw();
     frames++;
     if (debug && now - statsAt > 500) {
