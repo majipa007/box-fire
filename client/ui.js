@@ -129,7 +129,8 @@ export function renderScoreboard(players, myId, over) {
   $('sb-rows').replaceChildren(...ranked.map((p) => {
     const tr = document.createElement('tr');
     if (p.id === myId) tr.className = 'me';
-    for (const text of [p.name, p.kills, p.deaths, p.bot ? 'bot' : `${p.ping} ms`]) {
+    else if (!p.connected) tr.className = 'gone';
+    for (const text of [p.name, p.kills, p.deaths, !p.connected ? 'left' : p.bot ? 'bot' : `${p.ping} ms`]) {
       const td = document.createElement('td');
       td.textContent = text;
       tr.append(td);
@@ -156,11 +157,17 @@ const REJECT_TEXT = {
   'bad-name': 'Use 1 to 16 characters.',
 };
 
+// The last name used here is offered again, so a rejoin keeps your score.
 export function onJoin(fn) {
+  try { $('name').value = localStorage.getItem('boxfire.name') ?? ''; } catch { /* no storage */ }
   $('join-form').addEventListener('submit', (e) => {
     e.preventDefault();
     fn($('name').value);
   });
+}
+
+export function rememberName(name) {
+  try { localStorage.setItem('boxfire.name', name); } catch { /* not remembered */ }
 }
 
 export const onStart = (fn) => $('start').addEventListener('click', fn);
@@ -189,7 +196,7 @@ export function renderLobby(m, myId) {
     name.textContent = p.name + (p.id === m.host ? ' (host)' : '') + (p.id === myId ? ' (you)' : '');
     const ping = document.createElement('span');
     ping.className = 'ping';
-    ping.textContent = p.bot ? 'bot' : `${p.ping} ms`;
+    ping.textContent = !p.connected ? 'offline' : p.bot ? 'bot' : `${p.ping} ms`;
     li.append(swatch, name, ping);
     return li;
   }));

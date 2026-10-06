@@ -32,6 +32,14 @@ export class Player {
     this.joinedAt = Date.now();
   }
 
+  resetInput() {
+    this.queue = [];
+    this.buffering = true;
+    this.receivedAt = -Infinity;
+    this.last = null;
+    this.ack = 0;
+  }
+
   receive(input, now) {
     const newest = this.queue.at(-1)?.s ?? this.ack;
     if (input.s <= newest) return; // already have it

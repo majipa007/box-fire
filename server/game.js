@@ -3,7 +3,7 @@
 import {
   MAX_PLAYERS, PLAYER_COLORS, TICK_RATE, MAX_CATCHUP_TICKS, MAX_BUFFERED_BYTES,
   MAX_HP, RESPAWN_SECONDS, SPAWN_REUSE_SECONDS, SPAWN_PROTECT_SECONDS,
-  KILL_TARGET, MATCH_SECONDS, SCOREBOARD_SECONDS,
+  KILL_TARGET, MATCH_SECONDS, SCOREBOARD_SECONDS, SILENT_MS, EMPTY_RESET_SECONDS,
 } from '../shared/constants.js';
 import { encode } from '../shared/protocol.js';
 import { createMover, step } from '../shared/movement.js';
@@ -22,6 +22,7 @@ export class Game {
   phaseEndsAt = 0; // tick the current match or scoreboard ends
   hostId = null;
   tick = 0;
+  emptySince = null; // tick the last connected player left
   seed = Math.floor(Math.random() * 2 ** 32); // one per server run, seeds every shot's spread
 
   constructor(mapId, mapJson) {
@@ -49,28 +50,58 @@ export class Game {
   join(conn, { name, bot }) {
     if (conn.player) return;
     const key = name.toLowerCase();
-    for (const p of this.players.values()) {
-      if (p.key === key) return send(conn, { t: 'reject', reason: 'name-taken' });
+    const existing = [...this.players.values()].find((p) => p.key === key);
+    if (existing) {
+      // Rejoin by name: allowed once the old socket is gone, or has been
+      // silent long enough to be a crashed tab. The score comes back.
+      const old = existing.conn;
+      if (old && Date.now() - (old.lastPong ?? 0) <= SILENT_MS) return send(conn, { t: 'reject', reason: 'name-taken' });
+      if (old) {
+        old.player = null;
+        old.ws.terminate();
+      }
+      return this.attach(existing, conn);
     }
-    if (this.players.size >= MAX_PLAYERS) return send(conn, { t: 'reject', reason: 'full' });
+    if (this.players.size >= MAX_PLAYERS) {
+      const gone = [...this.players.values()].find((p) => !p.conn); // free a greyed-out slot
+      if (!gone) return send(conn, { t: 'reject', reason: 'full' });
+      this.players.delete(gone.id);
+    }
     const p = new Player(this.nextId++, name, this.freeSlot(), conn, bot);
     this.players.set(p.id, p);
+    this.attach(p, conn);
+  }
+
+  attach(p, conn) {
+    p.conn = conn;
     conn.player = p;
+    p.joinedAt = Date.now();
+    p.resetInput(); // a new tab numbers its inputs from 1 again
     send(conn, { t: 'welcome', id: p.id, map: this.mapId, tickRate: TICK_RATE, seed: this.seed });
     if (this.phase === 'playing') this.spawn(p);
     this.electHost();
     this.broadcastLobby();
   }
 
+  // Mid-match, a player who leaves stays on the scoreboard, greyed out and
+  // out of the world, until the match ends; in the lobby they just go.
   disconnect(conn) {
     const p = conn.player;
-    if (!p) return;
-    this.players.delete(p.id);
+    if (!p || p.conn !== conn) return;
+    conn.player = null;
+    if (this.phase === 'lobby') {
+      this.players.delete(p.id);
+    } else {
+      p.conn = null;
+      p.alive = false;
+      p.mover = null;
+    }
     this.electHost();
     this.broadcastLobby();
   }
 
   startMatch() {
+    for (const p of this.players.values()) if (!p.conn) this.players.delete(p.id);
     this.phase = 'playing';
     this.phaseEndsAt = this.tick + MATCH_SECONDS * TICK_RATE;
     for (const p of this.players.values()) {
@@ -128,12 +159,21 @@ export class Game {
   // The loopback player if one is connected, else the longest-connected
   // player. Bots run on the host machine too, so they never qualify.
   electHost() {
-    const humans = [...this.players.values()].filter((p) => !p.bot).sort((a, b) => a.joinedAt - b.joinedAt);
+    const humans = [...this.players.values()].filter((p) => !p.bot && p.conn).sort((a, b) => a.joinedAt - b.joinedAt);
     this.hostId = (humans.find((p) => p.conn.loopback) ?? humans[0])?.id ?? null;
   }
 
   step() {
     this.tick++;
+    // Nobody connected for a while: back to the lobby with scores cleared.
+    if (this.phase === 'lobby' || [...this.players.values()].some((p) => p.conn)) this.emptySince = null;
+    else if (this.emptySince === null) this.emptySince = this.tick;
+    else if (this.tick - this.emptySince >= EMPTY_RESET_SECONDS * TICK_RATE) {
+      this.players.clear();
+      this.phase = 'lobby';
+      this.emptySince = null;
+      return;
+    }
     if (this.phase === 'playing') {
       const now = performance.now();
       for (const p of this.players.values()) {
@@ -211,6 +251,7 @@ export class Game {
       return [p.id, r3(m.x), r3(m.y), r3(m.z), r3(p.yaw), r3(p.pitch), flags, p.hp];
     }));
     for (const p of this.players.values()) {
+      if (!p.conn) continue;
       const { ws } = p.conn;
       // A backed-up socket would only get a burst of stale snapshots.
       if (ws.readyState !== ws.OPEN || ws.bufferedAmount > MAX_BUFFERED_BYTES) continue;
@@ -274,7 +315,7 @@ export class Game {
       end: this.phaseEndsAt,
       host: this.hostId,
       players: [...this.players.values()].map((p) => ({
-        id: p.id, name: p.name, slot: p.slot, ping: p.conn.rtt, bot: p.bot, kills: p.kills, deaths: p.deaths,
+        id: p.id, name: p.name, slot: p.slot, ping: p.conn?.rtt ?? 0, bot: p.bot, kills: p.kills, deaths: p.deaths, connected: !!p.conn,
       })),
     });
   }
@@ -283,5 +324,5 @@ export class Game {
 const send = (conn, msg) => sendRaw(conn, encode(msg));
 
 function sendRaw(conn, data) {
-  if (conn.ws.readyState === conn.ws.OPEN) conn.ws.send(data);
+  if (conn && conn.ws.readyState === conn.ws.OPEN) conn.ws.send(data); // null: a greyed-out player
 }

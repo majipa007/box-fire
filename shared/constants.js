@@ -64,6 +64,7 @@ export const SPAWN_PROTECT_SECONDS = 2; // ends early if you fire
 export const KILL_TARGET = 30;
 export const MATCH_SECONDS = 8 * 60;
 export const SCOREBOARD_SECONDS = 15;
+export const EMPTY_RESET_SECONDS = 30; // nobody connected this long: back to the lobby
 export const SPAWN_REUSE_SECONDS = 3; // a spawn point used this recently is skipped
 export const SHOT_RANGE = 200;
 

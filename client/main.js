@@ -22,11 +22,13 @@ let roster = new Map(); // id → { name, slot, bot, kills, deaths } from the lo
 let lobby = { phase: 'lobby', end: 0, host: null, players: [] }; // the latest lobby message
 let winner = null; // name of the last match's winner, for the scoreboard
 let tabHeld = false;
+let pendingName = ''; // the name we asked to join with
 let prev = null; // own position before the last fixed step, for smooth rendering
 const nameOf = (id) => roster.get(id)?.name ?? '?';
 
 const net = connect({
   welcome(m) {
+    ui.rememberName(pendingName);
     myId = m.id;
     mapId = m.map;
     seed = m.seed;
@@ -82,8 +84,9 @@ const net = connect({
 
 ui.onJoin((raw) => {
   const name = cleanName(raw);
-  if (name) net.send({ t: 'join', name });
-  else ui.showJoinError('bad-name');
+  if (!name) return ui.showJoinError('bad-name');
+  pendingName = name;
+  net.send({ t: 'join', name });
 });
 ui.onStart(() => net.send({ t: 'start' }));
 ui.onEndMatch(() => net.send({ t: 'end_match' }));
