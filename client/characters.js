@@ -9,7 +9,7 @@
 // Also here: blob shadows, name tags, the hit flash, the firing kick, the
 // spawn-protection blink and the death-shatter hook.
 import * as THREE from 'three';
-import { PLAYER_COLORS, STAND_HEIGHT, CROUCH_HEIGHT, HEAD_SIZE, RUN_SPEED, MAX_PLAYERS } from '../shared/constants.js';
+import { PLAYER_COLORS, STAND_HEIGHT, CROUCH_HEIGHT, HEAD_SIZE, PLAYER_WIDTH, RUN_SPEED, MAX_PLAYERS } from '../shared/constants.js';
 
 // ─── Look: every number an art pass may tune ────────────────────────────────
 // Metres, radians and milliseconds. The rig faces -z, +x is its right and y
@@ -476,13 +476,15 @@ function drawBlob(rig, p, i) {
   return i + 1;
 }
 
-// Top of the highest map box under a player's centre, at or below their
-// soles; -Infinity over nothing. Without boxes, wherever they stand.
+// Top of the highest map box under a player's footprint (as collision sees
+// it, so a player on a crate's edge stands on it), at or below their soles;
+// -Infinity over nothing. Without boxes, wherever they stand.
 function groundBelow(p, boxes) {
   if (!boxes) return p.y;
+  const r = PLAYER_WIDTH / 2;
   let top = -Infinity;
   for (const { min, max } of boxes) {
-    if (p.x >= min[0] && p.x <= max[0] && p.z >= min[2] && p.z <= max[2] && max[1] <= p.y + 0.05 && max[1] > top) top = max[1];
+    if (p.x + r > min[0] && p.x - r < max[0] && p.z + r > min[2] && p.z - r < max[2] && max[1] <= p.y + 0.05 && max[1] > top) top = max[1];
   }
   return top;
 }

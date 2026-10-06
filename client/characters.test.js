@@ -63,6 +63,17 @@ test('boots stand on the ground and nothing sinks into it', () => {
   }
 });
 
+test('a player on the edge of a crate stands on it; one above it tucks their feet', () => {
+  const crate = [...floor, { min: [1, -1, -1], max: [2, 1, 1] }];
+  for (const [y, tucked] of [[1, false], [1.5, true]]) {
+    const id = nextId++;
+    const p = { id, x: 0.85, y, z: 0, yaw: 0, pitch: 0, crouch: false, shielded: false, weapon: 'rifle' };
+    syncPlayers([p], new Map([[id, { name: 'edge', slot: 0 }]]), 1 / 60, crate);
+    const soles = bounds(shatter(id, Infinity).filter((c) => c.part.startsWith('boot'))).min.y;
+    assert.equal(soles - y > 0.1, tucked, `y ${y}: soles at ${soles}`);
+  }
+});
+
 test('hands hold their grips for every weapon at any aim, kicked or not', () => {
   for (const weapon of Object.keys(GUNS)) {
     const first = PARTS.find((p) => p.weapon === weapon);
