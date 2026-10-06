@@ -1,5 +1,5 @@
 // Boot: connect to the host, drive the screens, run the game loop.
-import { connect, self, predict, reconcile, bufferSnapshot, renderTick, others } from './net.js';
+import { connect, self, predict, reconcile, bufferSnapshot, syncClock, serverTick, renderTick, others } from './net.js';
 import * as ui from './ui.js';
 import * as render from './render.js';
 import * as input from './input.js';
@@ -19,6 +19,9 @@ let seed = 0; // the host's spread seed
 let inGame = false;
 let world = null; // prepared map, once loaded
 let roster = new Map(); // id → { name, slot, bot, kills, deaths } from the lobby list
+let lobby = { phase: 'lobby', end: 0, host: null, players: [] }; // the latest lobby message
+let winner = null; // name of the last match's winner, for the scoreboard
+let tabHeld = false;
 let prev = null; // own position before the last fixed step, for smooth rendering
 const nameOf = (id) => roster.get(id)?.name ?? '?';
 
@@ -31,8 +34,12 @@ const net = connect({
     if (ui.settings.primary !== 'rifle') net.send({ t: 'loadout', primary: ui.settings.primary });
   },
   lobby(m) {
+    syncClock(m.tick, performance.now());
     roster = new Map(m.players.map((p) => [p.id, p]));
+    lobby = m;
     ui.renderLobby(m, myId);
+    ui.showEndMatch(m.host === myId && m.phase === 'playing');
+    if (m.phase === 'playing') winner = null;
     if (!inGame && myId !== null && m.phase !== 'lobby') enterGame();
   },
   reject(m) { ui.showJoinError(m.reason); },
@@ -57,6 +64,10 @@ const net = connect({
       for (const end of m.h) render.addTracer(m.o, end);
     } else if (m.e === 'hit') {
       if (m.a === myId) ui.hitMarker(m.head);
+    } else if (m.e === 'match_end') {
+      winner = m.winner === null ? null : nameOf(m.winner);
+      ui.hideDeath();
+      ui.showPicker(false);
     } else if (m.e === 'kill') {
       ui.addKill(nameOf(m.k), nameOf(m.v), m.w, m.head, m.k === myId || m.v === myId);
       if (m.v === myId) {
@@ -75,6 +86,7 @@ ui.onJoin((raw) => {
   else ui.showJoinError('bad-name');
 });
 ui.onStart(() => net.send({ t: 'start' }));
+ui.onEndMatch(() => net.send({ t: 'end_match' }));
 
 // null toggles the picker; a primary is chosen for the next spawn.
 function pick(primary) {
@@ -93,7 +105,7 @@ function applySettings() {
 // One fixed 60 Hz step: sample input, predict locally, send to the host.
 function fixedStep() {
   const me = self.mover;
-  if (!me || !world || !self.alive) return;
+  if (!me || !world || !self.alive || lobby.phase !== 'playing') return;
   prev = { x: me.x, y: me.y, z: me.z };
   const inp = { ...input.sample(), rt: renderTick(performance.now()) };
   if (predict(inp, world.boxes)) ownShot(inp);
@@ -126,6 +138,7 @@ async function enterGame() {
     onNeutral: fixedStep, // one immediate step with no keys held
     onPicker: pick,
     pickerOpen: ui.pickerOpen,
+    onScoreboard: (held) => { tabHeld = held; },
   });
   ui.initPicker(pick);
   ui.initMenu({ onPlay: () => input.requestLock(canvas), onChange: applySettings });
@@ -163,6 +176,13 @@ async function enterGame() {
       ui.updateHud(self.hp, weaponOf(self.arsenal), self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0);
     }
     render.syncPlayers(others(now).filter((o) => o.alive && o.id !== myId), roster, frameMs / 1000);
+    // Match clock and leader; the scoreboard on Tab, and forced between matches.
+    const secondsLeft = (lobby.end - serverTick(now)) / TICK_RATE;
+    const leader = lobby.players.reduce((best, p) => (!best || p.kills > best.kills ? p : best), null);
+    ui.updateMatchInfo(lobby.phase === 'playing' ? secondsLeft : 0, leader?.kills ? leader : null);
+    const over = lobby.phase === 'scoreboard';
+    ui.showScoreboard(over || tabHeld);
+    if (over || tabHeld) ui.renderScoreboard(lobby.players, myId, over ? { winner, secondsLeft } : null);
     render.draw();
     frames++;
     if (debug && now - statsAt > 500) {

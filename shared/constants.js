@@ -58,6 +58,12 @@ export const SWITCH_SECONDS = 0.4;
 export const HEAD_SIZE = 0.3;
 export const MAX_HP = 100;
 export const RESPAWN_SECONDS = 3;
+export const SPAWN_PROTECT_SECONDS = 2; // ends early if you fire
+
+// Match: first to KILL_TARGET or MATCH_SECONDS, then a scoreboard.
+export const KILL_TARGET = 30;
+export const MATCH_SECONDS = 8 * 60;
+export const SCOREBOARD_SECONDS = 15;
 export const SPAWN_REUSE_SECONDS = 3; // a spawn point used this recently is skipped
 export const SHOT_RANGE = 200;
 

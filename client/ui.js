@@ -116,6 +116,35 @@ export function showPicker(open) {
 
 export const pickerOpen = () => !$('picker').hidden;
 
+// Match clock and leader, top centre.
+export function updateMatchInfo(secondsLeft, leader) {
+  const s = Math.max(0, Math.ceil(secondsLeft));
+  const clock = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  setText('matchinfo', leader ? `${clock}   ·   ${leader.name}  ${leader.kills}` : clock);
+}
+
+// players: the lobby list. over: { winner, secondsLeft } once a match ends.
+export function renderScoreboard(players, myId, over) {
+  const ranked = [...players].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+  $('sb-rows').replaceChildren(...ranked.map((p) => {
+    const tr = document.createElement('tr');
+    if (p.id === myId) tr.className = 'me';
+    for (const text of [p.name, p.kills, p.deaths, p.bot ? 'bot' : `${p.ping} ms`]) {
+      const td = document.createElement('td');
+      td.textContent = text;
+      tr.append(td);
+    }
+    return tr;
+  }));
+  setText('sb-title', over ? (over.winner ? `${over.winner} wins` : 'Match over') : 'Scoreboard');
+  setText('sb-sub', over ? `Next match in ${Math.max(0, Math.ceil(over.secondsLeft))} s` : '');
+}
+
+export const showScoreboard = (show) => { $('scoreboard').hidden = !show; };
+
+export function showEndMatch(show) { $('end-match').hidden = !show; }
+export const onEndMatch = (fn) => $('end-match').addEventListener('click', fn);
+
 export function showStats(text) {
   $('stats').hidden = false;
   $('stats').textContent = text;

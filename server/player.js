@@ -8,6 +8,7 @@ export class Player {
   hp = 0;
   alive = false;
   respawnAt = 0; // tick
+  protectedUntil = 0; // tick spawn protection ends
   kills = 0;
   deaths = 0;
   ack = 0; // seq of the last input simulated

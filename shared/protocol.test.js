@@ -43,6 +43,7 @@ test('loadout accepts only the two primaries', () => {
   for (const primary of ['pistol', 'bazooka', 1, null]) assert.equal(decodeClient(JSON.stringify({ t: 'loadout', primary })), null);
 });
 
-test('start carries no payload', () => {
+test('start and end_match carry no payload', () => {
   assert.deepEqual(decodeClient('{"t":"start","extra":1}'), { t: 'start' });
+  assert.deepEqual(decodeClient('{"t":"end_match","why":"x"}'), { t: 'end_match' });
 });

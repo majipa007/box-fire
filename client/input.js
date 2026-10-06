@@ -8,7 +8,7 @@ export const look = { yaw: 0, pitch: 0 };
 export const bindings = {
   forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD',
   jump: 'Space', walk: 'ShiftLeft', crouch: 'KeyC', reload: 'KeyR',
-  primary: 'Digit1', pistol: 'Digit2', picker: 'KeyB',
+  primary: 'Digit1', pistol: 'Digit2', picker: 'KeyB', scoreboard: 'Tab',
 };
 const SLOTS = { primary: 0, pistol: 1 };
 const BITS = {
@@ -56,7 +56,7 @@ export function sample() {
 // pointer lock): keyup never arrives for a background tab, so keys are
 // cleared and the caller sends a no-keys packet at once.
 // While the primary picker is open, 1 and 2 choose a loadout instead of a slot.
-export function init(target, { onLockChange, onLockError, onNeutral, onPicker, pickerOpen }) {
+export function init(target, { onLockChange, onLockError, onNeutral, onPicker, pickerOpen, onScoreboard }) {
   const neutral = () => {
     clearKeys();
     onNeutral();
@@ -70,6 +70,10 @@ export function init(target, { onLockChange, onLockError, onNeutral, onPicker, p
   });
   addEventListener('keydown', (e) => {
     if (e.code === 'Tab') e.preventDefault(); // keep focus on the game
+    if (e.code === bindings.scoreboard) {
+      e.preventDefault();
+      onScoreboard(true);
+    }
     if (locked && e.code === bindings.picker && !e.repeat) onPicker(null);
     for (const action in SLOTS) {
       if (!locked || bindings[action] !== e.code) continue;
@@ -83,7 +87,10 @@ export function init(target, { onLockChange, onLockError, onNeutral, onPicker, p
     held |= bit;
     latched |= bit & EDGES;
   });
-  addEventListener('keyup', (e) => { held &= ~bitFor(e.code); });
+  addEventListener('keyup', (e) => {
+    held &= ~bitFor(e.code);
+    if (e.code === bindings.scoreboard) onScoreboard(false);
+  });
   addEventListener('mousedown', (e) => {
     if (!locked || e.button !== 0) return;
     fireHeld = true;

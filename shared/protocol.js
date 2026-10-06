@@ -22,6 +22,7 @@ export function decodeClient(raw) {
       return name && { t: 'join', name, bot: m.bot === true };
     }
     case 'start': return { t: 'start' };
+    case 'end_match': return { t: 'end_match' };
     case 'loadout': return PRIMARIES.includes(m.primary) ? { t: 'loadout', primary: m.primary } : null;
     case 'input': {
       const { s, rt, k, y, p, n, w } = m;

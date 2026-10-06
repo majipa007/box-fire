@@ -2,7 +2,8 @@
 // Transport is in index.js.
 import {
   MAX_PLAYERS, PLAYER_COLORS, TICK_RATE, MAX_CATCHUP_TICKS, MAX_BUFFERED_BYTES,
-  MAX_HP, RESPAWN_SECONDS, SPAWN_REUSE_SECONDS,
+  MAX_HP, RESPAWN_SECONDS, SPAWN_REUSE_SECONDS, SPAWN_PROTECT_SECONDS,
+  KILL_TARGET, MATCH_SECONDS, SCOREBOARD_SECONDS,
 } from '../shared/constants.js';
 import { encode } from '../shared/protocol.js';
 import { createMover, step } from '../shared/movement.js';
@@ -17,7 +18,8 @@ const r3 = (v) => Math.round(v * 1000) / 1000;
 export class Game {
   players = new Map(); // id → Player
   nextId = 1;
-  phase = 'lobby';
+  phase = 'lobby'; // lobby → playing → scoreboard → playing …
+  phaseEndsAt = 0; // tick the current match or scoreboard ends
   hostId = null;
   tick = 0;
   seed = Math.floor(Math.random() * 2 ** 32); // one per server run, seeds every shot's spread
@@ -38,9 +40,9 @@ export class Game {
     } else if (msg.t === 'loadout') {
       p.primary = msg.primary; // takes effect at the next spawn
     } else if (msg.t === 'start' && p.id === this.hostId && this.phase === 'lobby') {
-      this.phase = 'playing';
-      for (const q of this.players.values()) this.spawn(q);
-      this.broadcastLobby();
+      this.startMatch();
+    } else if (msg.t === 'end_match' && p.id === this.hostId && this.phase === 'playing') {
+      this.endMatch();
     }
   }
 
@@ -68,6 +70,28 @@ export class Game {
     this.broadcastLobby();
   }
 
+  startMatch() {
+    this.phase = 'playing';
+    this.phaseEndsAt = this.tick + MATCH_SECONDS * TICK_RATE;
+    for (const p of this.players.values()) {
+      p.kills = 0;
+      p.deaths = 0;
+      p.alive = false;
+    }
+    for (const p of this.players.values()) this.spawn(p);
+    this.broadcastLobby();
+  }
+
+  // First to the kill target, the clock, or the host's End match: freeze the
+  // world and show the scoreboard, then go again on the same map.
+  endMatch() {
+    this.phase = 'scoreboard';
+    this.phaseEndsAt = this.tick + SCOREBOARD_SECONDS * TICK_RATE;
+    const ranked = [...this.players.values()].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+    this.broadcast({ t: 'event', e: 'match_end', winner: ranked[0]?.kills ? ranked[0].id : null }); // no kills, no winner
+    this.broadcastLobby();
+  }
+
   // Furthest from the nearest living enemy, skipping points used in the last
   // few seconds so two players who die together never spawn stacked.
   pickSpawn(p) {
@@ -88,6 +112,7 @@ export class Game {
     p.arsenal = createArsenal(p.primary);
     p.hp = MAX_HP;
     p.alive = true;
+    p.protectedUntil = this.tick + SPAWN_PROTECT_SECONDS * TICK_RATE;
     p.queue = []; // inputs sent before this life are stale
     p.buffering = true;
     p.yaw = Math.atan2(x, z); // face the arena centre
@@ -120,7 +145,10 @@ export class Game {
         }
         for (const input of inputs) {
           step(p.mover, input, this.map.boxes);
-          if (stepWeapon(p.arsenal, input)) this.fire(p, input);
+          if (stepWeapon(p.arsenal, input)) {
+            p.protectedUntil = 0; // firing ends spawn protection
+            this.fire(p, input);
+          }
         }
       }
       this.history.record(this.tick, [...this.players.values()].filter((p) => p.alive).map((p) => {
@@ -128,6 +156,10 @@ export class Game {
         return [p.id, { x, y, z, crouch }];
       }));
       this.sendSnapshots();
+      const top = Math.max(0, ...[...this.players.values()].map((p) => p.kills));
+      if (top >= KILL_TARGET || this.tick >= this.phaseEndsAt) this.endMatch();
+    } else if (this.phase === 'scoreboard' && this.tick >= this.phaseEndsAt) {
+      this.startMatch();
     }
     if (this.tick % TICK_RATE === 0) this.broadcastLobby(); // refresh pings
   }
@@ -156,6 +188,7 @@ export class Game {
   }
 
   damage(attacker, victim, dmg, head, weapon) {
+    if (this.tick < victim.protectedUntil) return; // spawn protection
     victim.hp = Math.max(0, victim.hp - dmg);
     const hit = encode({ t: 'event', e: 'hit', a: attacker.id, v: victim.id, dmg, head });
     sendRaw(attacker.conn, hit);
@@ -174,7 +207,8 @@ export class Game {
   sendSnapshots() {
     const ps = JSON.stringify([...this.players.values()].filter((p) => p.mover).map((p) => {
       const m = p.mover;
-      return [p.id, r3(m.x), r3(m.y), r3(m.z), r3(p.yaw), r3(p.pitch), (m.crouch ? 1 : 0) | (p.alive ? 2 : 0), p.hp];
+      const flags = (m.crouch ? 1 : 0) | (p.alive ? 2 : 0) | (this.tick < p.protectedUntil ? 4 : 0);
+      return [p.id, r3(m.x), r3(m.y), r3(m.z), r3(p.yaw), r3(p.pitch), flags, p.hp];
     }));
     for (const p of this.players.values()) {
       const { ws } = p.conn;
@@ -236,6 +270,8 @@ export class Game {
     this.broadcast({
       t: 'lobby',
       phase: this.phase,
+      tick: this.tick,
+      end: this.phaseEndsAt,
       host: this.hostId,
       players: [...this.players.values()].map((p) => ({
         id: p.id, name: p.name, slot: p.slot, ping: p.conn.rtt, bot: p.bot, kills: p.kills, deaths: p.deaths,

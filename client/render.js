@@ -154,6 +154,7 @@ export function syncPlayers(list, roster, dt) {
     seen.add(p.id);
     const rig = rigs.get(p.id) ?? rigs.set(p.id, makeRig(info.name, info.slot)).get(p.id);
     const d = p.crouch ? CROUCHED : STANDING;
+    rig.group.visible = !p.shielded || Math.floor(performance.now() / 100) % 2 === 0; // protected players blink
     rig.group.position.set(p.x, p.y, p.z);
     rig.group.rotation.y = p.yaw;
     // Legs swing with ground speed.

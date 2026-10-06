@@ -68,17 +68,24 @@ let clockBase = null; // performance.now() of server tick 0, smoothed
 export function bufferSnapshot(m, now) {
   buffer.push({ tick: m.tick, ps: m.ps });
   if (buffer.length > 60) buffer.shift();
-  const base = now - m.tick * STEP_MS;
+  syncClock(m.tick, now);
+}
+
+// Every message stamped with a server tick nudges our estimate of it.
+export function syncClock(tick, now) {
+  const base = now - tick * STEP_MS;
   clockBase = clockBase === null || Math.abs(base - clockBase) > 250 ? base : clockBase + (base - clockBase) * 0.05;
 }
 
+export const serverTick = (now) => (clockBase === null ? 0 : (now - clockBase) / STEP_MS);
+
 // The (fractional) server tick other players are being drawn at.
-export const renderTick = (now) => (clockBase === null ? 0 : (now - clockBase) / STEP_MS - INTERP_DELAY_TICKS);
+export const renderTick = (now) => serverTick(now) - INTERP_DELAY_TICKS;
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const lerpAngle = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
-// [{ id, x, y, z, yaw, pitch, crouch, alive, hp }] at the render tick.
+// [{ id, x, y, z, yaw, pitch, crouch, alive, hp, shielded }] at the render tick.
 export function others(now) {
   if (!buffer.length) return [];
   const rt = renderTick(now);
@@ -91,8 +98,9 @@ export function others(now) {
   return b.ps.map(([id, x, y, z, yaw, pitch, flags, hp]) => {
     const p = from.get(id);
     const alive = !!(flags & 2);
+    const shielded = !!(flags & 4); // spawn protection
     // Respawns and joins snap rather than streak across the map.
-    if (!p || Math.hypot(p[1] - x, p[3] - z) > 2) return { id, x, y, z, yaw, pitch, crouch: !!(flags & 1), alive, hp };
+    if (!p || Math.hypot(p[1] - x, p[3] - z) > 2) return { id, x, y, z, yaw, pitch, crouch: !!(flags & 1), alive, hp, shielded };
     return {
       id,
       x: lerp(p[1], x, t), y: lerp(p[2], y, t), z: lerp(p[3], z, t),
@@ -100,6 +108,7 @@ export function others(now) {
       crouch: !!((t < 0.5 ? p[6] : flags) & 1),
       alive,
       hp,
+      shielded,
     };
   });
 }
