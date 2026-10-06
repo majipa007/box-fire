@@ -10,15 +10,17 @@ export const bindings = {
   forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD',
   jump: 'Space', walk: 'ShiftLeft', crouch: 'KeyC', reload: 'KeyR',
   primary: 'Digit1', pistol: 'Digit2', picker: 'KeyB', scoreboard: 'Tab',
+  usePowerup: 'KeyQ', cyclePowerup: 'KeyE', // powerups
 };
 const SLOTS = { primary: 0, pistol: 1 };
 const BITS = {
   forward: KEY.FORWARD, back: KEY.BACK, left: KEY.LEFT, right: KEY.RIGHT,
   jump: KEY.JUMP, walk: KEY.WALK, crouch: KEY.CROUCH, reload: KEY.RELOAD,
+  usePowerup: KEY.USE, cyclePowerup: KEY.CYCLE, // powerups
 };
 // Press-once actions are latched until the next sample, so a tap shorter
 // than one step still counts.
-const EDGES = KEY.JUMP | KEY.RELOAD;
+const EDGES = KEY.JUMP | KEY.RELOAD | KEY.USE | KEY.CYCLE; // powerups: one use or cycle per press
 
 let radiansPerPixel = 0.002;
 let held = 0;

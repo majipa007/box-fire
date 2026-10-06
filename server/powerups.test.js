@@ -192,3 +192,31 @@ test('a new match refills every pad and clears the air and the slots', () => {
   assert.equal(game.powerups.pads[0].readyAt, 0);
   assert.deepEqual([game.powerups.ents, p.inv, p.shield], [[], [], 0]);
 });
+
+// The real client prediction (client/net.js) against the real server, over
+// the JSON snapshot: every predicted step must equal the server's, Nitro
+// included, except the few in flight when a knockback the client could not
+// foresee lands; after that one reconcile, prediction is exact again.
+test('client prediction matches the server step for step through Nitro, and re-converges after a knockback', async () => {
+  const { self, predict, reconcile } = await import('../client/net.js');
+  const { knock } = await import('../shared/powerups.js');
+  const { game, players: [p] } = match([[0, 0]]);
+  p.inv = ['nitro', 'mine'];
+  Object.assign(self, { mover: structuredClone(p.mover), arsenal: structuredClone(p.arsenal), hp: p.hp, alive: true, inv: [...p.inv], pending: [], seq: 0, shots: 0 });
+  const predicted = new Map(); // seq → the mover the client predicted after it, as JSON
+  const wrong = [];
+  for (let i = 1; i <= 300; i++) { // Nitro from input 5 to about 245, a knockback at 120
+    const input = { keys: KEY.FORWARD | (i === 5 ? KEY.USE : 0) | (i % 40 === 0 ? KEY.JUMP : 0), yaw: 0.01 * i, pitch: 0, fire: false, slot: 0, rt: 0 };
+    predict(input, game.map.boxes);
+    predicted.set(input.s, JSON.stringify(self.mover));
+    p.receive({ t: 'input', ...input }, performance.now());
+    if (i === 120) knock(p.mover, 1, 0, 10, 5);
+    game.step();
+    const snap = messages(p).filter((m) => m.t === 'snapshot').at(-1);
+    if (snap.ack && JSON.stringify(snap.me.mover) !== predicted.get(snap.ack)) wrong.push(snap.ack);
+    reconcile(snap, game.map.boxes);
+  }
+  assert.ok(p.mover.boost === 0 && p.inv.length === 1, 'Nitro was used and has run out');
+  assert.ok(wrong.length > 0 && wrong.length <= 2 && wrong.every((s) => s >= 118 && s <= 121), `mispredicted: ${wrong}`);
+  assert.deepEqual(self.inv, p.inv);
+});

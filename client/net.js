@@ -3,6 +3,7 @@
 import { encode, PLAYER_FLAGS, WEAPON_IDS } from '../shared/protocol.js';
 import { step } from '../shared/movement.js';
 import { stepWeapon } from '../shared/weapons.js';
+import { stepPowerups } from '../shared/powerups.js'; // powerups
 import { TICK_RATE, INTERP_DELAY_TICKS, SNAP_DISTANCE } from '../shared/constants.js';
 
 const STEP_MS = 1000 / TICK_RATE;
@@ -29,11 +30,13 @@ export function connect(handlers) {
 // once, and is kept until the server acknowledges it. Each snapshot snaps to
 // the server's state and silently replays what the server has not seen yet.
 // Look angles are never touched: the camera belongs to the client.
-export const self = { mover: null, arsenal: null, hp: 0, alive: false, pending: [], seq: 0, shots: 0 };
+// powerups: inv (power-up kinds, first fires next) and shield (damage it still soaks).
+export const self = { mover: null, arsenal: null, hp: 0, alive: false, pending: [], seq: 0, shots: 0, inv: [], shield: 0 };
 
 // Returns true when this input fires a shot.
 export function predict(input, boxes) {
   input.s = ++self.seq;
+  stepPowerups(self.inv, self.mover, input.keys); // powerups: before movement, as on the server
   step(self.mover, input, boxes);
   const fired = stepWeapon(self.arsenal, input);
   if (fired) self.shots++;
@@ -50,8 +53,11 @@ export function reconcile(snapshot, boxes) {
   Object.assign(self.arsenal, me.arsenal);
   self.hp = me.hp;
   self.alive = me.alive;
+  self.inv = me.inv ?? []; // powerups
+  self.shield = me.shield ?? 0; // powerups
   self.pending = me.alive ? self.pending.filter((i) => i.s > snapshot.ack) : [];
   for (const i of self.pending) {
+    stepPowerups(self.inv, self.mover, i.keys); // powerups
     step(self.mover, i, boxes);
     stepWeapon(self.arsenal, i);
   }
@@ -105,6 +111,7 @@ export function others(now) {
       shielded: !!(flags & PLAYER_FLAGS.SHIELDED), // spawn protection
       hp,
       weapon: WEAPON_IDS[w],
+      flags, // powerups: PU_NITRO and PU_SHIELD
     };
     // Respawns and joins snap rather than streak across the map.
     if (!p || Math.hypot(p[1] - x, p[3] - z) > SNAP_DISTANCE) {
