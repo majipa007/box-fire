@@ -9,7 +9,8 @@ const $ = (id) => document.getElementById(id);
 // guarded and the defaults always work.
 const SETTINGS_KEY = 'boxfire.settings';
 export const settings = {
-  sens: 2, fov: 90, scale: 100, shadows: false, xsize: 4, xcolor: '#00ff00', primary: 'rifle', ...loadSettings(),
+  // world: shadows default on; the sun shadow is baked once, so it is cheap.
+  sens: 2, fov: 90, scale: 100, shadows: true, xsize: 4, xcolor: '#00ff00', primary: 'rifle', ...loadSettings(),
 };
 
 function loadSettings() {

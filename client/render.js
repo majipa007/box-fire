@@ -1,11 +1,13 @@
 // The renderer and the player camera: the world pass, then the first-person
 // gun pass with the depth buffer cleared.
 import * as THREE from 'three';
-import { sun } from './world.js';
+import { sun, GRADE } from './world.js';
 import { viewScene, viewCamera, updateViewmodel } from './viewmodel.js';
 
 export const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.info.autoReset = false; // count both passes of a frame (reset in draw)
+renderer.toneMapping = THREE.CustomToneMapping; // world: Neutral plus the grade, patched in by world.js
+renderer.toneMappingExposure = GRADE.exposure; // world:
 export const scene = new THREE.Scene();
 export const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 200);
 camera.rotation.order = 'YXZ';
@@ -30,11 +32,12 @@ export function setRenderScale(scale) {
   resize();
 }
 
-// Shadows are off by default; turning them on recompiles the materials.
+// Turning shadows on or off recompiles the materials.
 export function setShadows(on) {
   if (renderer.shadowMap.enabled === on) return;
   renderer.shadowMap.enabled = on;
   sun.castShadow = on;
+  if (on) sun.shadow.needsUpdate = true; // world: re-bake the static sun shadow
   scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
 }
 
