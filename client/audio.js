@@ -120,7 +120,7 @@ export const FOOTSTEPS = {
   } },
 };
 // A landing after this long in the air: the footstep, louder and lower.
-export const LAND = { minAir: 0.2, gain: 1.8, rate: 0.82 };
+export const LAND = { minAir: 0.2, gain: 1.4, rate: 0.82 };
 
 // Your own confirmations: instant, dry, never jittered, so they read at once.
 const BELL = [[1, 1, 1], [2.756, 0.45, 0.55], [5.404, 0.25, 0.3]];
@@ -684,6 +684,7 @@ export const deathThud = safe(() => {
 export const respawn = safe(() => {
   play('confirm.respawn', { pri: PRI.self });
   muffleTo(MUFFLE.open);
+  airSince = -1; // a jump cut short by death is no landing
 });
 
 // name: a UI_SOUNDS key ('click', 'start', 'win', 'lose', 'error').
