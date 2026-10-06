@@ -25,6 +25,10 @@
   #menu { background: rgba(10, 12, 16, 0.55); }
   #menu label { display: grid; grid-template-columns: 9em 1fr 3em; align-items: center; gap: 10px; margin: 10px 0; }
   #menu output { color: var(--dim); text-align: right; }
+  #menu .card { max-height: 92vh; overflow-y: auto; }
+  #keys { display: grid; grid-template-columns: 1fr 9em; gap: 6px 12px; align-items: center; }
+  #keys button { background: #3a3f4a; padding: 4px 10px; }
+  #keys button.listening { background: var(--accent); }
   #hud { position: fixed; inset: 0; pointer-events: none; }
   #crosshair { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; background: #0f0; border-radius: 50%; }
   #hitmarker { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; opacity: 0; transition: opacity 0.15s; }
@@ -82,6 +86,11 @@
     <label>Crosshair size <input id="set-xsize" type="range" min="2" max="12" step="1"><output></output></label>
     <label>Crosshair colour <input id="set-xcolor" type="color"><output></output></label>
     <p><button id="low-end" type="button">Low-end preset</button> <span class="dim">50% scale, no shadows</span></p>
+    <details id="keys-panel"><summary>Keys</summary>
+      <p class="dim">Click an action, then press a key. Esc cancels.</p>
+      <div id="keys"></div>
+      <p id="keys-warning" class="error"></p>
+    </details>
     <p id="menu-error" class="error"></p>
     <button id="play">Click to play</button>
     <button id="end-match" hidden>End match</button>

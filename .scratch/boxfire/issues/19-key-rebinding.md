@@ -4,9 +4,9 @@
 
 **Blocked by:** 04
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Click an action, then press a key to bind it.
-- [ ] Esc cancels a rebind.
-- [ ] Binding Ctrl shows a warning, because Ctrl+W closes the tab.
-- [ ] Bindings persist in localStorage.
+- [x] Click an action, then press a key to bind it.
+- [x] Esc cancels a rebind.
+- [x] Binding Ctrl shows a warning, because Ctrl+W closes the tab.
+- [x] Bindings persist in localStorage.

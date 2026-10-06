@@ -213,6 +213,7 @@ async function enterGame() {
     },
     onChange: applySettings,
   });
+  ui.initKeys(input.bindings);
   applySettings();
   ui.showMenu(false);
 

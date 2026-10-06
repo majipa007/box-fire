@@ -217,7 +217,7 @@ Twelve things that are cheap to get right up front and expensive to discover mid
 
 ## Controls and HUD
 
-Keys are hard-coded in v1; rebinding arrives in M5. Sensitivity and FOV are set from the Esc menu from M1 onward and saved in the browser's localStorage.
+Every keyboard action can be rebound from the Esc menu (taking a key another action uses swaps them; binding Ctrl shows the Ctrl+W warning). Esc and the mouse buttons are fixed. Keys, sensitivity, FOV and the graphics settings are saved in the browser's localStorage.
 
 | Action | Key |
 | --- | --- |

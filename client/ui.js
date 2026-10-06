@@ -50,6 +50,55 @@ export function initMenu({ onPlay, onChange }) {
   $('play').addEventListener('click', onPlay);
 }
 
+// Key rebinding. bindings is input.js's action → KeyboardEvent.code map;
+// it is edited in place and saved with the settings.
+const ACTION_NAMES = {
+  forward: 'Move forward', back: 'Move back', left: 'Strafe left', right: 'Strafe right',
+  jump: 'Jump', walk: 'Walk', crouch: 'Crouch', reload: 'Reload',
+  primary: 'Primary weapon', pistol: 'Pistol', picker: 'Pick primary', scoreboard: 'Scoreboard',
+};
+const keyName = (code) => code.replace(/^Key|^Digit/, '').replace(/^(.+?)(Left|Right)$/, '$2 $1'); // ShiftLeft → Left Shift
+
+export function initKeys(bindings) {
+  Object.assign(bindings, settings.keys);
+  let listening = null; // action waiting for a key
+  const render = () => {
+    $('keys').replaceChildren(...Object.keys(ACTION_NAMES).flatMap((action) => {
+      const label = document.createElement('span');
+      label.textContent = ACTION_NAMES[action];
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = listening === action ? 'Press a key…' : keyName(bindings[action]);
+      button.className = listening === action ? 'listening' : '';
+      button.addEventListener('click', () => {
+        listening = action;
+        render();
+      });
+      return [label, button];
+    }));
+  };
+  // Capture phase, so the game never sees the key being bound.
+  addEventListener('keydown', (e) => {
+    if (!listening) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (e.code !== 'Escape') {
+      // Taking a key another action uses swaps the two, so nothing is left unbound.
+      const other = Object.keys(bindings).find((a) => bindings[a] === e.code);
+      if (other) bindings[other] = bindings[listening];
+      bindings[listening] = e.code;
+      settings.keys = { ...bindings };
+      saveSettings();
+    }
+    $('keys-warning').textContent = Object.values(bindings).some((c) => c.startsWith('Control'))
+      ? 'Careful: Ctrl+W closes the tab, so Ctrl plus W mid-game quits.'
+      : '';
+    listening = null;
+    render();
+  }, true);
+  render();
+}
+
 export function applyCrosshair() {
   const el = $('crosshair');
   const size = Number(settings.xsize) || 4;
