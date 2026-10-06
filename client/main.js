@@ -2,13 +2,15 @@
 import { connect, self, predict, reconcile, bufferSnapshot, syncClock, serverTick, renderTick, others } from './net.js';
 import * as ui from './ui.js';
 import * as render from './render.js';
+import { buildWorld } from './world.js';
+import { charactersGroup, syncPlayers } from './characters.js';
+import { setGun, gunKick } from './viewmodel.js';
+import { effectsGroup, addTracer, updateEffects } from './effects.js';
+import { recoilKick } from './feel.js';
 import * as input from './input.js';
 import * as audio from './audio.js';
 import { cleanName, encodeInput, byScore } from '../shared/protocol.js';
-import {
-  EYE_STAND, EYE_CROUCH, TICK_RATE, RESPAWN_SECONDS, WEAPONS, WALK_SPEED, NEUTRAL_MS,
-  KICK_SPRAY_GAP_MS, KICK_CLIMB_SHOTS, KICK_WOBBLE,
-} from '../shared/constants.js';
+import { EYE_STAND, EYE_CROUCH, TICK_RATE, RESPAWN_SECONDS, WALK_SPEED, NEUTRAL_MS } from '../shared/constants.js';
 import { prepareMap } from '../shared/collision.js';
 import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf } from '../shared/weapons.js';
 import { shotRng } from '../shared/rng.js';
@@ -61,7 +63,7 @@ const net = connect({
       ui.hideDeath();
       ui.showPicker(false);
     } else if (m.e === 'shot') {
-      for (const end of m.h) render.addTracer(m.o, end);
+      for (const end of m.h) addTracer(m.o, end);
       audio.gunshot(m.w, ...heard(m.o[0], m.o[2]));
     } else if (m.e === 'hit') {
       if (m.a === myId) {
@@ -160,18 +162,10 @@ function footsteps(id, p, dt, play) {
   strides.set(id, s);
 }
 
-// Recoil: the gun kicks and the camera climbs, more with each shot of a
-// spray. Client-side only: the next packet simply carries the new pitch.
-let spray = 0;
-let lastShotAt = -Infinity;
+// Recoil: the gun kicks and the camera climbs (client-side only).
 function recoil(weapon) {
-  const now = performance.now();
-  spray = now - lastShotAt < KICK_SPRAY_GAP_MS ? spray + 1 : 1;
-  lastShotAt = now;
-  const [base, climb] = WEAPONS[weapon].kick;
-  const rad = ((base + climb * Math.min(spray, KICK_CLIMB_SHOTS)) * Math.PI) / 180;
-  input.kick(rad, (Math.random() - 0.5) * rad * KICK_WOBBLE);
-  render.gunKick();
+  input.kick(...recoilKick(weapon, performance.now()));
+  gunKick();
 }
 
 // Draw our own tracers at once: the same seeded pellets the server will
@@ -185,7 +179,7 @@ function ownShot(inp) {
   const muzzle = origin.map((o, i) => o + right[i] * 0.15 + fwd[i] * 0.4 - (i === 1 ? 0.12 : 0));
   for (const dir of shotDirs(inp.yaw, inp.pitch, weaponOf(self.arsenal), self.mover, shotRng(seed, myId, self.shots))) {
     const { t } = traceShot(origin, dir, world.boxes, targets);
-    render.addTracer(muzzle, origin.map((o, i) => o + dir[i] * t));
+    addTracer(muzzle, origin.map((o, i) => o + dir[i] * t));
   }
 }
 
@@ -215,7 +209,8 @@ async function enterGame() {
   ui.showMenu(false);
 
   const map = await (await fetch(new URL(`../shared/maps/${mapId}.json`, import.meta.url))).json();
-  render.addMap(map);
+  buildWorld(render.scene, map);
+  render.scene.add(charactersGroup, effectsGroup);
   world = prepareMap(map);
 
   // Fixed 60 Hz steps on the wall clock, on their own timer so a slow frame
@@ -228,7 +223,10 @@ async function enterGame() {
     for (; steps < due; steps++) fixedStep();
   }, 4);
 
-  const debug = new URLSearchParams(location.search).has('debug');
+  const params = new URLSearchParams(location.search);
+  const debug = params.has('debug');
+  // Photo mode for comparing looks: ?debug&cam=x,y,z,yaw,pitch pins the camera.
+  const photo = debug && params.get('cam')?.split(',').map(Number);
   let frames = 0;
   let statsAt = performance.now();
   let last = performance.now();
@@ -242,11 +240,12 @@ async function enterGame() {
       const a = Math.min(1, Math.max(0, (now - start) / STEP_MS - steps)); // between the last two steps
       eye = lerp(eye, me.crouch ? EYE_CROUCH : EYE_STAND, Math.min(1, frameMs / 60)); // ease, don't snap
       render.setView(lerp(prev.x, me.x, a), lerp(prev.y, me.y, a) + eye, lerp(prev.z, me.z, a), input.look.yaw, input.look.pitch);
+      if (photo) render.setView(...photo);
       ui.updateHud(self.hp, weaponOf(self.arsenal), self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0);
-      render.setGun(weaponOf(self.arsenal), self.alive && lobby.phase === 'playing');
+      setGun(weaponOf(self.arsenal), self.alive && lobby.phase === 'playing');
     }
     const visible = others(now).filter((o) => o.alive && o.id !== myId);
-    render.syncPlayers(visible, roster, frameMs / 1000);
+    syncPlayers(visible, roster, frameMs / 1000);
     // Our own steps from our velocity, which is exact; frame-to-frame position
     // changes jump around because the mover only moves at 60 Hz.
     if (me && self.alive && me.grounded && Math.hypot(me.vx, me.vz) > WALK_SPEED + 0.3) {
@@ -264,6 +263,7 @@ async function enterGame() {
     const over = lobby.phase === 'scoreboard';
     ui.showScoreboard(over || tabHeld);
     if (over || tabHeld) ui.renderScoreboard(lobby.players, myId, over ? { winner, secondsLeft } : null);
+    updateEffects(now);
     render.draw();
     frames++;
     if (debug && now - statsAt > 500) {
