@@ -30,6 +30,9 @@ let lobby = { phase: 'lobby', end: 0, host: null, players: [] }; // the latest l
 let winner = null; // name of the last match's winner, for the scoreboard
 let tabHeld = false;
 let prev = null; // own position before the last fixed step, for smooth rendering
+let stage = null; // the world, built behind the lobby as soon as we are welcomed
+let stepStart = 0; // the fixed-step clock: started when the match view opens
+let steps = 0;
 const nameOf = (id) => roster.get(id)?.name ?? '?';
 
 const net = connect({
@@ -39,6 +42,7 @@ const net = connect({
     seed = m.seed;
     ui.showRoom();
     if (ui.settings.primary !== 'rifle') net.send({ t: 'loadout', primary: ui.settings.primary });
+    stage ??= buildStage();
   },
   lobby(m) {
     syncClock(m.tick, performance.now());
@@ -267,10 +271,28 @@ function remoteShot(id, o, ends) {
   casing(gun(0.2), right);
 }
 
+// Everything heavy happens behind the lobby: the map fetch, the AO bake, the
+// materials and the shader compile, so a match starts without a hitch. The
+// lobby watches the arena from a slow orbit until we spawn.
+async function buildStage() {
+  render.init();
+  applySettings();
+  const map = await (await fetch(new URL(`../shared/maps/${mapId}.json`, import.meta.url))).json();
+  audio.setWorld(map); // audio: surfaces for impacts and footsteps
+  buildWorld(render.scene, map);
+  powerups.init(render.scene, mapId); // powerups: meshes and HUD
+  render.scene.add(charactersGroup, effectsGroup);
+  world = prepareMap(map);
+  setMap(map); // effects: debris lands on the map; shots find the face they hit
+  render.renderer.compile(render.scene, render.camera); // build every shader now, not mid-fight
+  requestAnimationFrame(frame);
+}
+
+// The match view: input, menus and the fixed-step clock.
 async function enterGame() {
   inGame = true;
+  await stage;
   ui.enterGame();
-  render.init();
   const canvas = render.renderer.domElement;
   input.init(canvas, {
     onLockChange: (locked) => (locked ? ui.hideMenu() : ui.showMenu(true)),
@@ -292,67 +314,72 @@ async function enterGame() {
   applySettings();
   ui.showMenu(false);
 
-  const map = await (await fetch(new URL(`../shared/maps/${mapId}.json`, import.meta.url))).json();
-  audio.setWorld(map); // audio: surfaces for impacts and footsteps
-  buildWorld(render.scene, map);
-  powerups.init(render.scene, mapId); // powerups: meshes and HUD
-  render.scene.add(charactersGroup, effectsGroup);
-  world = prepareMap(map);
-  setMap(map); // effects: debris lands on the map; shots find the face they hit
-  render.renderer.compile(render.scene, render.camera); // effects: build the effect shaders now, not mid-fight
-
   // Fixed 60 Hz steps on the wall clock, on their own timer so a slow frame
   // on the GPU does not bunch inputs up.
-  const start = performance.now();
-  let steps = 0;
+  stepStart = performance.now();
+  steps = 0;
   setInterval(() => {
-    const due = Math.floor((performance.now() - start) / STEP_MS);
+    const due = Math.floor((performance.now() - stepStart) / STEP_MS);
     if ((due - steps) * STEP_MS > NEUTRAL_MS) steps = due - 1; // asleep that long: skip, the host has gone neutral
     for (; steps < due; steps++) fixedStep();
   }, 4);
+}
 
-  const params = new URLSearchParams(location.search);
-  const debug = params.has('debug');
-  // Photo mode for comparing looks: ?debug&cam=x,y,z,yaw,pitch pins the camera.
-  const photo = debug && params.get('cam')?.split(',').map(Number);
-  let frames = 0;
-  let statsAt = performance.now();
-  let last = performance.now();
-  let eye = EYE_STAND;
-  const hud = document.getElementById('hud'); // feel:
-  let shownGap = -1; // feel:
-  requestAnimationFrame(function frame(now) {
-    requestAnimationFrame(frame);
-    const frameMs = now - last;
-    last = now;
-    const me = self.mover;
-    if (me) {
-      const a = Math.min(1, Math.max(0, (now - start) / STEP_MS - steps)); // between the last two steps
-      eye = lerp(eye, me.crouch ? EYE_CROUCH : EYE_STAND, Math.min(1, frameMs / 60)); // ease, don't snap
-      const v = updateFeel(frameMs, now, input.look, self.alive && lobby.phase === 'playing' ? me : null, weaponOf(self.arsenal), self.arsenal.trigger); // feel:
-      render.setView(lerp(prev.x, me.x, a) + v.x, lerp(prev.y, me.y, a) + eye + v.y, lerp(prev.z, me.z, a) + v.z, input.look.yaw, input.look.pitch, v.roll); // feel: offsets, roll
-      // feel: the crosshair gap for the HUD, as --spread (CSS px) on #hud.
-      const gap = Math.round(spreadPixels(crosshair.spread, render.camera.fov, innerHeight));
-      if (gap !== shownGap) hud.style.setProperty('--spread', `${(shownGap = gap)}px`);
-      if (photo) render.setView(...photo);
-      ui.updateHud(self.hp, weaponOf(self.arsenal), self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0);
-      setGun(weaponOf(self.arsenal), self.alive && lobby.phase === 'playing');
-      setSunShade(ui.settings.shadows && sunBlocked(eyeOf(me), world.boxes) ? 1 : 0); // viewmodel: darker in the sun's shadow, when shadows are drawn
+// The lobby's camera: a slow orbit high over the arena.
+const ORBIT = { radius: 26, height: 11, pitch: -0.32, period: 90 };
+function orbitView(now) {
+  const a = ((now / 1000) * 2 * Math.PI) / ORBIT.period;
+  const x = Math.sin(a) * ORBIT.radius;
+  const z = Math.cos(a) * ORBIT.radius;
+  render.setView(x, ORBIT.height, z, Math.atan2(x, z), ORBIT.pitch);
+}
+
+const params = new URLSearchParams(location.search);
+const debug = params.has('debug');
+// Photo mode for comparing looks: ?debug&cam=x,y,z,yaw,pitch pins the camera.
+const photo = debug && params.get('cam')?.split(',').map(Number);
+let frames = 0;
+let statsAt = performance.now();
+let last = performance.now();
+let eye = EYE_STAND;
+let shownGap = -1; // feel:
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const frameMs = now - last;
+  last = now;
+  const me = inGame ? self.mover : null;
+  if (me) {
+    const a = Math.min(1, Math.max(0, (now - stepStart) / STEP_MS - steps)); // between the last two steps
+    eye = lerp(eye, me.crouch ? EYE_CROUCH : EYE_STAND, Math.min(1, frameMs / 60)); // ease, don't snap
+    const v = updateFeel(frameMs, now, input.look, self.alive && lobby.phase === 'playing' ? me : null, weaponOf(self.arsenal), self.arsenal.trigger); // feel:
+    render.setView(lerp(prev.x, me.x, a) + v.x, lerp(prev.y, me.y, a) + eye + v.y, lerp(prev.z, me.z, a) + v.z, input.look.yaw, input.look.pitch, v.roll); // feel: offsets, roll
+    // feel: the crosshair gap for the HUD, as --spread (CSS px) on #hud.
+    const gap = Math.round(spreadPixels(crosshair.spread, render.camera.fov, innerHeight));
+    if (gap !== shownGap) document.getElementById('hud').style.setProperty('--spread', `${(shownGap = gap)}px`);
+    ui.updateHud(self.hp, weaponOf(self.arsenal), self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0);
+    setGun(weaponOf(self.arsenal), self.alive && lobby.phase === 'playing');
+    setSunShade(ui.settings.shadows && sunBlocked(eyeOf(me), world.boxes) ? 1 : 0); // viewmodel: darker in the sun's shadow, when shadows are drawn
+  } else {
+    orbitView(now);
+    setGun('rifle', false);
+  }
+  if (photo) render.setView(...photo);
+  const visible = others(now).filter((o) => o.alive && o.id !== myId);
+  syncPlayers(visible, roster, frameMs / 1000, world.boxes); // characters: the ground under each player
+  powerups.update(now, visible); // powerups: draw this frame
+  // Our own steps from our velocity, which is exact; frame-to-frame position
+  // changes jump around because the mover only moves at 60 Hz.
+  if (me && self.alive && me.grounded && Math.hypot(me.vx, me.vz) > WALK_SPEED + 0.3) {
+    ownStride -= Math.hypot(me.vx, me.vz) * (frameMs / 1000);
+    if (ownStride <= 0) {
+      ownStride += STRIDE;
+      audio.footstep(0, 0, me); // audio: me for the surface underfoot
     }
-    const visible = others(now).filter((o) => o.alive && o.id !== myId);
-    syncPlayers(visible, roster, frameMs / 1000, world.boxes); // characters: the ground under each player
-    powerups.update(now, visible); // powerups: draw this frame
-    // Our own steps from our velocity, which is exact; frame-to-frame position
-    // changes jump around because the mover only moves at 60 Hz.
-    if (me && self.alive && me.grounded && Math.hypot(me.vx, me.vz) > WALK_SPEED + 0.3) {
-      ownStride -= Math.hypot(me.vx, me.vz) * (frameMs / 1000);
-      if (ownStride <= 0) {
-        ownStride += STRIDE;
-        audio.footstep(0, 0, me); // audio: me for the surface underfoot
-      }
-    }
-    if (me && self.alive) audio.ground(me.grounded, me); // audio: landings
-    for (const o of visible) footsteps(o.id, o, frameMs / 1000, () => audio.footstep(...heard(o.x, o.z), o)); // audio: o for the surface
+  }
+  if (me && self.alive) audio.ground(me.grounded, me); // audio: landings
+  for (const o of visible) footsteps(o.id, o, frameMs / 1000, () => audio.footstep(...heard(o.x, o.z), o)); // audio: o for the surface
+  if (inGame) {
     // Match clock and leader; the scoreboard on Tab, and forced between matches.
     const secondsLeft = (lobby.end - serverTick(now)) / TICK_RATE;
     const [leader] = [...lobby.players].sort(byScore);
@@ -360,15 +387,15 @@ async function enterGame() {
     const over = lobby.phase === 'scoreboard';
     ui.showScoreboard(over || tabHeld);
     if (over || tabHeld) ui.renderScoreboard(lobby.players, myId, over ? { winner, secondsLeft } : null);
-    updateEffects(now);
-    render.draw();
-    frames++;
-    if (debug && now - statsAt > 500) {
-      const { calls, triangles } = render.renderer.info.render;
-      const pos = me ? [me.x, me.y, me.z].map((v) => v.toFixed(2)).join(', ') : '-';
-      ui.showStats(`${Math.round((frames * 1000) / (now - statsAt))} fps · ${calls} draws · ${triangles} tris · ${pos} · pending ${self.pending.length} · ${feelStats()} · ${audio.stats().voices} voices`); // feel, audio: stats
-      frames = 0;
-      statsAt = now;
-    }
-  });
+  }
+  updateEffects(now);
+  render.draw();
+  frames++;
+  if (debug && now - statsAt > 500) {
+    const { calls, triangles } = render.renderer.info.render;
+    const pos = me ? [me.x, me.y, me.z].map((v) => v.toFixed(2)).join(', ') : '-';
+    ui.showStats(`${Math.round((frames * 1000) / (now - statsAt))} fps · ${calls} draws · ${triangles} tris · ${pos} · pending ${self.pending.length} · ${feelStats()} · ${audio.stats().voices} voices`); // feel, audio: stats
+    frames = 0;
+    statsAt = now;
+  }
 }
