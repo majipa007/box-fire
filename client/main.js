@@ -4,11 +4,13 @@ import * as ui from './ui.js';
 import * as render from './render.js';
 import * as input from './input.js';
 import * as audio from './audio.js';
-import { cleanName, encodeInput } from '../shared/protocol.js';
-import { EYE_STAND, EYE_CROUCH, TICK_RATE, MAX_HP, RESPAWN_SECONDS, WEAPONS, WALK_SPEED } from '../shared/constants.js';
-import { createMover } from '../shared/movement.js';
+import { cleanName, encodeInput, byScore } from '../shared/protocol.js';
+import {
+  EYE_STAND, EYE_CROUCH, TICK_RATE, RESPAWN_SECONDS, WEAPONS, WALK_SPEED, NEUTRAL_MS,
+  KICK_SPRAY_GAP_MS, KICK_CLIMB_SHOTS, KICK_WOBBLE,
+} from '../shared/constants.js';
 import { prepareMap } from '../shared/collision.js';
-import { createArsenal, eyeOf, aimDir, traceShot, shotDirs, weaponOf } from '../shared/weapons.js';
+import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf } from '../shared/weapons.js';
 import { shotRng } from '../shared/rng.js';
 
 const STEP_MS = 1000 / TICK_RATE;
@@ -23,13 +25,11 @@ let roster = new Map(); // id → { name, slot, bot, kills, deaths } from the lo
 let lobby = { phase: 'lobby', end: 0, host: null, players: [] }; // the latest lobby message
 let winner = null; // name of the last match's winner, for the scoreboard
 let tabHeld = false;
-let pendingName = ''; // the name we asked to join with
 let prev = null; // own position before the last fixed step, for smooth rendering
 const nameOf = (id) => roster.get(id)?.name ?? '?';
 
 const net = connect({
   welcome(m) {
-    ui.rememberName(pendingName);
     myId = m.id;
     mapId = m.map;
     seed = m.seed;
@@ -52,10 +52,7 @@ const net = connect({
   },
   event(m) {
     if (m.e === 'spawn' && m.id === myId) {
-      self.mover = { ...createMover(m.x, m.y, m.z), grounded: true }; // as the server does
-      self.arsenal = createArsenal(m.primary);
-      self.hp = MAX_HP;
-      self.alive = true;
+      Object.assign(self, freshLife(m.x, m.y, m.z, m.primary)); // exactly as the server builds it
       self.pending = [];
       prev = { x: m.x, y: m.y, z: m.z };
       input.look.yaw = m.yaw;
@@ -99,7 +96,6 @@ const net = connect({
 ui.onJoin((raw) => {
   const name = cleanName(raw);
   if (!name) return ui.showJoinError('bad-name');
-  pendingName = name;
   net.send({ t: 'join', name });
 });
 ui.onStart(() => net.send({ t: 'start' }));
@@ -151,6 +147,7 @@ function heard(x, z) {
 // crouching are silent, as the plan says.
 const STRIDE = 2.2;
 const strides = new Map(); // player id → { x, y, z, left }
+let ownStride = STRIDE;
 function footsteps(id, p, dt, play) {
   const s = strides.get(id) ?? { x: p.x, y: p.y, z: p.z, left: STRIDE };
   const d = Math.hypot(p.x - s.x, p.z - s.z);
@@ -169,11 +166,11 @@ let spray = 0;
 let lastShotAt = -Infinity;
 function recoil(weapon) {
   const now = performance.now();
-  spray = now - lastShotAt < 300 ? spray + 1 : 1;
+  spray = now - lastShotAt < KICK_SPRAY_GAP_MS ? spray + 1 : 1;
   lastShotAt = now;
   const [base, climb] = WEAPONS[weapon].kick;
-  const deg = base + climb * Math.min(spray, 8);
-  input.kick((deg * Math.PI) / 180, ((Math.random() - 0.5) * deg * Math.PI) / 180 / 4);
+  const rad = ((base + climb * Math.min(spray, KICK_CLIMB_SHOTS)) * Math.PI) / 180;
+  input.kick(rad, (Math.random() - 0.5) * rad * KICK_WOBBLE);
   render.gunKick();
 }
 
@@ -227,7 +224,7 @@ async function enterGame() {
   let steps = 0;
   setInterval(() => {
     const due = Math.floor((performance.now() - start) / STEP_MS);
-    if (due - steps > 15) steps = due - 1; // asleep for > 250 ms: skip, the host has gone neutral
+    if ((due - steps) * STEP_MS > NEUTRAL_MS) steps = due - 1; // asleep that long: skip, the host has gone neutral
     for (; steps < due; steps++) fixedStep();
   }, 4);
 
@@ -250,11 +247,19 @@ async function enterGame() {
     }
     const visible = others(now).filter((o) => o.alive && o.id !== myId);
     render.syncPlayers(visible, roster, frameMs / 1000);
-    if (me && self.alive) footsteps(myId, me, frameMs / 1000, () => audio.footstep());
+    // Our own steps from our velocity, which is exact; frame-to-frame position
+    // changes jump around because the mover only moves at 60 Hz.
+    if (me && self.alive && me.grounded && Math.hypot(me.vx, me.vz) > WALK_SPEED + 0.3) {
+      ownStride -= Math.hypot(me.vx, me.vz) * (frameMs / 1000);
+      if (ownStride <= 0) {
+        ownStride += STRIDE;
+        audio.footstep();
+      }
+    }
     for (const o of visible) footsteps(o.id, o, frameMs / 1000, () => audio.footstep(...heard(o.x, o.z)));
     // Match clock and leader; the scoreboard on Tab, and forced between matches.
     const secondsLeft = (lobby.end - serverTick(now)) / TICK_RATE;
-    const leader = lobby.players.reduce((best, p) => (!best || p.kills > best.kills ? p : best), null);
+    const [leader] = [...lobby.players].sort(byScore);
     ui.updateMatchInfo(lobby.phase === 'playing' ? secondsLeft : 0, leader?.kills ? leader : null);
     const over = lobby.phase === 'scoreboard';
     ui.showScoreboard(over || tabHeld);

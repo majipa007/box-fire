@@ -1,6 +1,7 @@
 // Pointer lock, mouse look and keys. The camera turns on every mouse event;
 // the fixed 60 Hz step only samples it.
 import { KEY } from '../shared/movement.js';
+import { PITCH_LIMIT, PRIMARIES } from '../shared/constants.js';
 
 export const look = { yaw: 0, pitch: 0 };
 
@@ -19,7 +20,6 @@ const BITS = {
 // than one step still counts.
 const EDGES = KEY.JUMP | KEY.RELOAD;
 
-const PITCH_LIMIT = (89 * Math.PI) / 180;
 let radiansPerPixel = 0.002;
 let held = 0;
 let latched = 0;
@@ -83,7 +83,7 @@ export function init(target, { onLockChange, onLockError, onNeutral, onPicker, p
     if (locked && e.code === bindings.picker && !e.repeat) onPicker(null);
     for (const action in SLOTS) {
       if (!locked || bindings[action] !== e.code) continue;
-      if (pickerOpen()) onPicker(action === 'primary' ? 'rifle' : 'shotgun');
+      if (pickerOpen()) onPicker(PRIMARIES[SLOTS[action]]); // 1 → first primary, 2 → second
       else slot = SLOTS[action];
     }
     const bit = locked && bitFor(e.code);

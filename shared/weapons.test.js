@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createArsenal, stepWeapon, traceShot, spreadDegrees, shotDirs, aimDir, damageAt } from './weapons.js';
+import { createArsenal, stepWeapon, traceShot, spreadDegrees, shotDirs, aimDir, damageAt, freshLife } from './weapons.js';
 import { KEY } from './movement.js';
 import { prepareMap } from './collision.js';
 import { shotRng } from './rng.js';
@@ -176,6 +176,13 @@ test('shotgun damage falls off beyond 8 m; the rifle has no falloff', () => {
   assert.ok(close(damageAt('shotgun', false, 40), 2));
   assert.equal(damageAt('shotgun', true, 5), 16);
   assert.equal(damageAt('rifle', true, 40), 160);
+});
+
+test('a fresh life starts grounded at the spawn with full HP, magazines and the primary drawn', () => {
+  const life = freshLife(1, 1.2, -3, 'shotgun');
+  assert.deepEqual([life.mover.x, life.mover.y, life.mover.z, life.mover.grounded], [1, 1.2, -3, true]);
+  assert.deepEqual([life.hp, life.alive], [100, true]);
+  assert.deepEqual([life.arsenal.primary, life.arsenal.slot, life.arsenal.mags], ['shotgun', 0, [5, 12]]);
 });
 
 test('R reloads a partly used magazine, but not a full one', () => {

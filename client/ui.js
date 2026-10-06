@@ -1,6 +1,7 @@
 // DOM screens. Player names come from the network, so they are only ever
 // inserted with textContent.
-import { PLAYER_COLORS } from '../shared/constants.js';
+import { PLAYER_COLORS, NAME_MAX, PRIMARIES } from '../shared/constants.js';
+import { byScore } from '../shared/protocol.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -189,12 +190,12 @@ export function hideDeath() {
 
 // The primary picker: B toggles it, the respawn screen shows it.
 export function initPicker(onPick) {
-  for (const primary of ['rifle', 'shotgun']) $(`pick-${primary}`).addEventListener('click', () => onPick(primary));
+  for (const primary of PRIMARIES) $(`pick-${primary}`).addEventListener('click', () => onPick(primary));
 }
 
 export function showPicker(open) {
   $('picker').hidden = !open;
-  for (const primary of ['rifle', 'shotgun']) $(`pick-${primary}`).classList.toggle('chosen', settings.primary === primary);
+  for (const primary of PRIMARIES) $(`pick-${primary}`).classList.toggle('chosen', settings.primary === primary);
 }
 
 export const pickerOpen = () => !$('picker').hidden;
@@ -208,7 +209,7 @@ export function updateMatchInfo(secondsLeft, leader) {
 
 // players: the lobby list. over: { winner, secondsLeft } once a match ends.
 export function renderScoreboard(players, myId, over) {
-  const ranked = [...players].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+  const ranked = [...players].sort(byScore);
   $('sb-rows').replaceChildren(...ranked.map((p) => {
     const tr = document.createElement('tr');
     if (p.id === myId) tr.className = 'me';
@@ -237,21 +238,17 @@ export function showStats(text) {
 const REJECT_TEXT = {
   'name-taken': 'That name is already taken.',
   'full': 'The game is full.',
-  'bad-name': 'Use 1 to 16 characters.',
+  'bad-name': `Use 1 to ${NAME_MAX} characters.`,
 };
 
-// The last name used here is offered again, so a rejoin keeps your score.
 export function onJoin(fn) {
-  try { $('name').value = localStorage.getItem('boxfire.name') ?? ''; } catch { /* no storage */ }
+  $('name').maxLength = NAME_MAX;
   $('join-form').addEventListener('submit', (e) => {
     e.preventDefault();
     fn($('name').value);
   });
 }
 
-export function rememberName(name) {
-  try { localStorage.setItem('boxfire.name', name); } catch { /* not remembered */ }
-}
 
 export const onStart = (fn) => $('start').addEventListener('click', fn);
 

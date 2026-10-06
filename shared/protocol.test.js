@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeClient } from './protocol.js';
+import { decodeClient, byScore } from './protocol.js';
 
 test('malformed or untyped messages decode to null', () => {
   for (const raw of ['', '{', 'null', '42', '[]', '"join"', '{"t":"nope"}', '{"name":"Sam"}']) {
@@ -41,6 +41,11 @@ test('loadout accepts only the two primaries', () => {
   assert.deepEqual(decodeClient('{"t":"loadout","primary":"shotgun"}'), { t: 'loadout', primary: 'shotgun' });
   assert.deepEqual(decodeClient('{"t":"loadout","primary":"rifle"}'), { t: 'loadout', primary: 'rifle' });
   for (const primary of ['pistol', 'bazooka', 1, null]) assert.equal(decodeClient(JSON.stringify({ t: 'loadout', primary })), null);
+});
+
+test('players rank by kills, then by fewer deaths', () => {
+  const players = [{ id: 1, kills: 3, deaths: 5 }, { id: 2, kills: 7, deaths: 1 }, { id: 3, kills: 3, deaths: 2 }];
+  assert.deepEqual([...players].sort(byScore).map((p) => p.id), [2, 3, 1]);
 });
 
 test('start and end_match carry no payload', () => {

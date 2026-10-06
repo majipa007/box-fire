@@ -1,7 +1,9 @@
 // Three.js scene: the merged static map, lights, fog and the player camera.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { MAP_COLORS, SKY_COLOR, PLAYER_COLORS } from '../shared/constants.js';
+import {
+  MAP_COLORS, SKY_COLOR, PLAYER_COLORS, STAND_HEIGHT, CROUCH_HEIGHT, HEAD_SIZE, RUN_SPEED,
+} from '../shared/constants.js';
 
 export const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.info.autoReset = false; // count both passes of a frame (reset in draw)
@@ -148,8 +150,10 @@ export function draw() {
 
 // Other players: four boxes plus a gun, tinted with their slot colour, and
 // a name tag. Standing is 1.8 m tall and crouched 1.2 m, matching the hitboxes.
-const STANDING = { leg: 0.75, torso: 0.75 };
-const CROUCHED = { leg: 0.35, torso: 0.55 };
+const BODY_STANDING = STAND_HEIGHT - HEAD_SIZE;
+const BODY_CROUCHED = CROUCH_HEIGHT - HEAD_SIZE;
+const STANDING = { leg: BODY_STANDING / 2, torso: BODY_STANDING / 2 };
+const CROUCHED = { leg: 0.35, torso: BODY_CROUCHED - 0.35 }; // the legs fold, the torso stays upright
 const legBox = new THREE.BoxGeometry(1, 1, 1).translate(0, -0.5, 0); // pivots at the hip
 const slotMaterials = new Map();
 const rigs = new Map(); // player id → rig
@@ -195,8 +199,7 @@ function makeRig(name, slot) {
     phase: 0,
     last: null,
   };
-  rig.head.scale.setScalar(0.3);
-  rig.gun.scale.set(0.08, 0.08, 0.5);
+  rig.head.scale.setScalar(HEAD_SIZE);
   rig.group.add(...rig.legs, rig.torso, rig.head, rig.gun, rig.tag);
   for (const mesh of [...rig.legs, rig.torso, rig.head, rig.gun]) mesh.castShadow = true;
   scene.add(rig.group);
@@ -227,7 +230,7 @@ export function syncPlayers(list, roster, dt) {
     const speed = rig.last && dt > 0 ? Math.hypot(p.x - rig.last.x, p.z - rig.last.z) / dt : 0;
     rig.last = { x: p.x, z: p.z };
     rig.phase += speed * dt * 2.5;
-    const swing = Math.sin(rig.phase) * Math.min(1, speed / 5.5) * 0.7;
+    const swing = Math.sin(rig.phase) * Math.min(1, speed / RUN_SPEED) * 0.7;
     rig.legs.forEach((leg, i) => {
       leg.scale.set(0.22, d.leg, 0.22);
       leg.position.set(i ? 0.13 : -0.13, d.leg, 0);
@@ -235,8 +238,10 @@ export function syncPlayers(list, roster, dt) {
     });
     rig.torso.scale.set(0.5, d.torso, 0.3);
     rig.torso.position.y = d.leg + d.torso / 2;
-    rig.head.position.y = d.leg + d.torso + 0.15;
+    rig.head.position.y = d.leg + d.torso + HEAD_SIZE / 2;
     rig.head.rotation.x = p.pitch;
+    const [gw, gh, gl] = GUN_SHAPES[p.weapon] ?? GUN_SHAPES.rifle;
+    rig.gun.scale.set(gw * 1.6, gh * 1.6, gl * 1.6);
     rig.gun.position.set(0.3, d.leg + d.torso * 0.8, -0.2);
     rig.gun.rotation.x = p.pitch;
     rig.tag.position.y = d.leg + d.torso + 0.55;

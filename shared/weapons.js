@@ -1,13 +1,13 @@
 // Weapon state, stepped once per input exactly like movement, so the client
 // predicts shots, ammo and reloads and the server agrees.
 import {
-  DT, WEAPONS, SWITCH_SECONDS, SHOT_RANGE, EYE_STAND, EYE_CROUCH, STAND_HEIGHT, CROUCH_HEIGHT, PLAYER_WIDTH, HEAD_SIZE, RUN_SPEED,
+  DT, WEAPONS, SWITCH_SECONDS, SHOT_RANGE, MAX_HP, SPREAD_AIR_FACTOR, SPREAD_CROUCH_FACTOR, EYE_STAND, EYE_CROUCH, STAND_HEIGHT, CROUCH_HEIGHT, PLAYER_WIDTH, HEAD_SIZE, RUN_SPEED,
 } from './constants.js';
-import { KEY } from './movement.js';
+import { KEY, createMover } from './movement.js';
 import { rayBox } from './collision.js';
 
 // slot 0 is the primary, slot 1 the pistol.
-export const createArsenal = (primary = 'rifle') => ({
+export const createArsenal = (primary) => ({
   primary,
   slot: 0,
   mags: [WEAPONS[primary].mag, WEAPONS.pistol.mag],
@@ -19,6 +19,15 @@ export const createArsenal = (primary = 'rifle') => ({
 
 export const weaponOf = (a) => (a.slot === 0 ? a.primary : 'pistol');
 
+// Everything a player's state holds at the moment they spawn. Server and
+// client both build it here, so a new life starts identical on both sides.
+export const freshLife = (x, y, z, primary) => ({
+  mover: { ...createMover(x, y, z), grounded: true }, // spawns sit on a surface
+  arsenal: createArsenal(primary),
+  hp: MAX_HP,
+  alive: true,
+});
+
 // Where a player's shot starts and which way it goes (yaw 0 faces -z).
 export const eyeOf = (m) => [m.x, m.y + (m.crouch ? EYE_CROUCH : EYE_STAND), m.z];
 export const aimDir = (yaw, pitch) => [-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)];
@@ -27,8 +36,8 @@ export const aimDir = (yaw, pitch) => [-Math.sin(yaw) * Math.cos(pitch), Math.si
 // ground speed, doubled in the air, tightened when crouched.
 export function spreadDegrees(weapon, m) {
   const w = WEAPONS[weapon];
-  if (!m.grounded) return 2 * w.spreadMove;
-  if (m.crouch) return 0.8 * w.spreadStand;
+  if (!m.grounded) return SPREAD_AIR_FACTOR * w.spreadMove;
+  if (m.crouch) return SPREAD_CROUCH_FACTOR * w.spreadStand;
   const t = Math.min(1, Math.hypot(m.vx, m.vz) / RUN_SPEED);
   return w.spreadStand + (w.spreadMove - w.spreadStand) * t;
 }

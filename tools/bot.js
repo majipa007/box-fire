@@ -3,7 +3,7 @@
 //   npm run bot -- --count 8 [--url ws://localhost:3000]
 import { KEY } from '../shared/movement.js';
 import { encodeInput } from '../shared/protocol.js';
-import { TICK_RATE, PORT } from '../shared/constants.js';
+import { TICK_RATE, PORT, INTERP_DELAY_TICKS } from '../shared/constants.js';
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -38,7 +38,7 @@ function input(bot, i) {
   const phase = Math.floor((i + bot.n * 17) / TICK_RATE) % 2;
   const keys = (phase ? KEY.LEFT : KEY.RIGHT) | ((i + bot.n * 29) % (2 * TICK_RATE) === 0 ? KEY.JUMP : 0);
   bot.yaw += 0.004;
-  return { s: ++bot.seq, rt: bot.tick - 2, keys, yaw: bot.yaw, pitch: 0, fire: false, shot: 0, slot: 0 };
+  return { s: ++bot.seq, rt: bot.tick - INTERP_DELAY_TICKS, keys, yaw: bot.yaw, pitch: 0, fire: false, shot: 0, slot: 0 };
 }
 
 const bots = Array.from({ length: count }, (_, i) => startBot(i + 1));

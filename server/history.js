@@ -1,6 +1,6 @@
 // The last second of hitbox positions, so a shot can be tested against the
 // world its shooter was looking at (rewind), not the one the server has now.
-import { HISTORY_TICKS } from '../shared/constants.js';
+import { HISTORY_TICKS, SNAP_DISTANCE } from '../shared/constants.js';
 
 const SIZE = HISTORY_TICKS + 1;
 
@@ -36,7 +36,7 @@ export class History {
       const q = f1.get(id);
       const near = a < 0.5 ? p : q;
       // Not alive at both ticks, or respawned between them: use the nearer tick.
-      if (!p || !q || Math.hypot(q.x - p.x, q.z - p.z) > 2) {
+      if (!p || !q || Math.hypot(q.x - p.x, q.z - p.z) > SNAP_DISTANCE) {
         if (near) out.push({ id, ...near });
         continue;
       }

@@ -1,9 +1,9 @@
 // WebSocket to the host that served this page, own-player prediction, and
 // the snapshot buffer other players are interpolated from.
-import { encode } from '../shared/protocol.js';
+import { encode, PLAYER_FLAGS, WEAPON_IDS } from '../shared/protocol.js';
 import { step } from '../shared/movement.js';
 import { stepWeapon } from '../shared/weapons.js';
-import { TICK_RATE, INTERP_DELAY_TICKS } from '../shared/constants.js';
+import { TICK_RATE, INTERP_DELAY_TICKS, SNAP_DISTANCE } from '../shared/constants.js';
 
 const STEP_MS = 1000 / TICK_RATE;
 
@@ -79,13 +79,16 @@ export function syncClock(tick, now) {
 
 export const serverTick = (now) => (clockBase === null ? 0 : (now - clockBase) / STEP_MS);
 
-// The (fractional) server tick other players are being drawn at.
-export const renderTick = (now) => serverTick(now) - INTERP_DELAY_TICKS;
+// The (fractional) server tick other players are being drawn at. Never
+// past the newest snapshot: when they run dry, others freeze on it, and the
+// inputs' render tick must name that frozen tick so rewound shots match
+// what was on screen.
+export const renderTick = (now) => Math.min(serverTick(now) - INTERP_DELAY_TICKS, buffer.at(-1)?.tick ?? Infinity);
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const lerpAngle = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
-// [{ id, x, y, z, yaw, pitch, crouch, alive, hp, shielded }] at the render tick.
+// [{ id, x, y, z, yaw, pitch, crouch, alive, shielded, hp, weapon }] at the render tick.
 export function others(now) {
   if (!buffer.length) return [];
   const rt = renderTick(now);
@@ -95,20 +98,24 @@ export function others(now) {
   const a = i > 0 && buffer[i - 1].tick <= rt ? buffer[i - 1] : b;
   const t = a === b ? 0 : Math.min(1, (rt - a.tick) / (b.tick - a.tick));
   const from = new Map(a.ps.map((p) => [p[0], p]));
-  return b.ps.map(([id, x, y, z, yaw, pitch, flags, hp]) => {
+  return b.ps.map(([id, x, y, z, yaw, pitch, flags, hp, w]) => {
     const p = from.get(id);
-    const alive = !!(flags & 2);
-    const shielded = !!(flags & 4); // spawn protection
+    const state = {
+      alive: !!(flags & PLAYER_FLAGS.ALIVE),
+      shielded: !!(flags & PLAYER_FLAGS.SHIELDED), // spawn protection
+      hp,
+      weapon: WEAPON_IDS[w],
+    };
     // Respawns and joins snap rather than streak across the map.
-    if (!p || Math.hypot(p[1] - x, p[3] - z) > 2) return { id, x, y, z, yaw, pitch, crouch: !!(flags & 1), alive, hp, shielded };
+    if (!p || Math.hypot(p[1] - x, p[3] - z) > SNAP_DISTANCE) {
+      return { id, x, y, z, yaw, pitch, crouch: !!(flags & PLAYER_FLAGS.CROUCH), ...state };
+    }
     return {
       id,
       x: lerp(p[1], x, t), y: lerp(p[2], y, t), z: lerp(p[3], z, t),
       yaw: lerpAngle(p[4], yaw, t), pitch: lerp(p[5], pitch, t),
-      crouch: !!((t < 0.5 ? p[6] : flags) & 1),
-      alive,
-      hp,
-      shielded,
+      crouch: !!((t < 0.5 ? p[6] : flags) & PLAYER_FLAGS.CROUCH),
+      ...state,
     };
   });
 }

@@ -65,7 +65,7 @@ How each side works:
 Input hygiene. Every input is one fixed step, applied in order exactly once, so the client's prediction always replays the same steps the server ran:
 
 - A queue more than 2 deep (`INPUT_BUFFER` + 1) gets two inputs applied in that tick to catch up, never more; beyond 8 queued (`MAX_INPUT_QUEUE`) the oldest are dropped, so a stalled client does not teleport when it wakes.
-- Whenever an input is dropped by that overflow, its fire press carries into the next applied input together with its shot number and render tick. Fire events are processed in order and the cooldown still gates each one; the dropped input's movement is lost. Without this, a long stall eats clicks the client already showed as shots.
+- Whenever inputs are dropped by that overflow, the earliest fire press among them carries into the next applied input together with its shot number and render tick (with several clicks inside one overflow, only that first one survives: a stall of over 130 ms with repeated clicking). Fire events are processed in order and the cooldown still gates each one; the dropped input's movement is lost. Without this, a long stall eats clicks the client already showed as shots.
 - An empty tick applies nothing: the player stands still for that tick, and the jitter buffer refills before inputs are applied again. Nothing is ever invented or dropped for being late. (The first design repeated the last input on an empty tick and dropped the late input when it arrived; measured with a 20–40 fps client, that threw away 260–430 inputs per 10 s and lost direction changes, so it was replaced on 05/10/2026.)
 - After 250 ms without input the server treats the player as neutral, no keys held. The client also clears its key state and sends a neutral packet on window blur, tab hide and pointer-lock loss, because keyup events never arrive for a background tab.
 - The host's 10 s tick log also counts buffer underflows and overflow drops, the numbers to watch when tuning `INPUT_BUFFER` in the first session.
@@ -98,9 +98,9 @@ Movement is Valorant-style: no sprint, no air strafing.
 - Player collider: axis-aligned box 0.6 × 1.8 × 0.6 m standing, 0.6 × 1.2 × 0.6 m crouched, swept against the map's boxes. Crouching shrinks the collider from the top, in the air too, so there is no crouch-jump in v1 and the ledge rules above hold. Standing up is blocked while anything is above the head.
 - Players pass through each other. There is no player-vs-player collision, because predicting collisions against players drawn 33 ms in the past rubber-bands both of them.
 
-Health is 100 with no armour. Dying respawns you after 3 s at the spawn point furthest from any enemy, skipping any point used in the last 3 s so two players who die together never spawn stacked, with 2 s of invulnerability that ends early if you fire. Everyone carries the pistol plus one primary. Press B at any time, or use the same two-button panel on the respawn screen, to pick rifle or shotgun; the choice applies on the next spawn and defaults to the rifle, so drop-in players never need the lobby.
+Health is 100 with no armour. Dying respawns you after 3 s at the spawn point furthest from any enemy, skipping any point used in the last 3 s so two players who die together never spawn stacked, with 2 s of invulnerability that ends early if you fire; protected players blink so everyone can see it. Everyone carries the pistol plus one primary. Press B at any time, or use the same two-button panel on the respawn screen, to pick rifle or shotgun; the choice applies on the next spawn and defaults to the rifle, so drop-in players never need the lobby.
 
-Scores are keyed by name for the length of the match: if a tab dies, reopening the URL with the same name gets the kills back. Names are compared case-insensitively, so rejoining as "sam" after playing as "Sam" still works. A name already in use is rejected, unless that slot has been silent (no heartbeat pong) for over 2 s, in which case the newcomer takes it over as a reconnect. Disconnected players stay on the scoreboard, greyed out, until the match ends.
+Scores are keyed by name for the length of the match: if a tab dies, reopening the URL with the same name gets the kills back. Names are compared case-insensitively, so rejoining as "sam" after playing as "Sam" still works. A name already in use is rejected, unless that slot has been silent (no heartbeat pong) for over 2 s, in which case the newcomer takes it over as a reconnect. Disconnected players stay on the scoreboard, greyed out, until the match ends, and keep their slot even if the game is full. Leaving mid-life counts as a death without a kill: a rejoin waits out the 3 s respawn, so refreshing the page never heals.
 
 | Weapon | Body dmg | Head mult | Fire rate | Mag | Reload (s) | Spread stand / move (°) | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -132,7 +132,8 @@ Flat-shaded boxes, no textures, no post-processing. Two palettes: a muted six-co
 - Player model: four boxes (head, torso, two legs) plus a gun box, tinted with the colour of the player's slot. Name tag drawn on a canvas sprite above the head. Legs swing with movement speed; crouch scales the torso down.
 - Weapon viewmodel: a box gun bottom-right with a recoil kick (translate back, rotate up, ease back over 80 ms). Muzzle flash is an emissive box shown for two frames. Tracer is a thin line from muzzle to hit point for 60 ms.
 - Audio: Web Audio API synthesis only in v1 (gunshot = noise burst with a fast envelope, hit tick, footsteps, death thud), so there are zero asset files. Swap in .ogg later if wanted. The `AudioContext` starts on the click-to-play click (gotcha 3).
-- Settings exposed: render scale 50–100%, FOV 70–110, shadows on/off, sensitivity, crosshair colour and size.
+- Settings exposed: render scale 50–100%, FOV 70–110, shadows on/off, sensitivity, crosshair colour and size, and a low-end preset (50% scale, no shadows).
+- `?debug` on the URL shows fps, draw calls, triangles, your position and unacknowledged inputs, for checking the 60 fps budget on the real laptops.
 
 ## Stack and repo layout
 
@@ -162,11 +163,10 @@ boxfire/
 │     └─ arena_01.json
 ├─ client/
 │  ├─ index.html           # import map → three, three/addons/
-│  ├─ main.js              # boot, render loop, 60 Hz input timer
+│  ├─ main.js              # boot, render loop, 60 Hz input timer, own shots, recoil, footsteps
 │  ├─ net.js               # ws client, snapshot buffer, prediction + reconcile, freeze on starvation
 │  ├─ input.js             # pointer lock, latched fire / jump, key state → input packets, neutral on blur
-│  ├─ render.js            # scene, merged map geometry, player meshes
-│  ├─ weapons.js           # viewmodel, camera kick, tracers, muzzle flash
+│  ├─ render.js            # scene, merged map, player meshes, first-person gun, tracers, muzzle flash
 │  ├─ ui.js                # lobby, HUD, kill feed, scoreboard, Esc menu, weapon picker; names via textContent
 │  ├─ audio.js             # Web Audio synth
 │  └─ vendor/
@@ -217,7 +217,7 @@ Twelve things that are cheap to get right up front and expensive to discover mid
 
 ## Controls and HUD
 
-Every keyboard action can be rebound from the Esc menu (taking a key another action uses swaps them; binding Ctrl shows the Ctrl+W warning). Esc and the mouse buttons are fixed. Keys, sensitivity, FOV and the graphics settings are saved in the browser's localStorage.
+Every keyboard action can be rebound from the Esc menu (taking a key another action uses swaps them; binding Ctrl shows the Ctrl+W warning). Esc and the mouse buttons are fixed. Keys, sensitivity, FOV, the graphics settings and your primary pick are saved in the browser's localStorage; nothing personal is, not even your name.
 
 | Action | Key |
 | --- | --- |

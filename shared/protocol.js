@@ -1,8 +1,18 @@
 // Wire format: JSON objects tagged by `t`. Client messages are validated
 // here because they arrive from the network; server messages are trusted.
-import { NAME_MAX, PRIMARIES } from './constants.js';
+import { NAME_MAX, PRIMARIES, PITCH_LIMIT } from './constants.js';
 
 export const encode = (msg) => JSON.stringify(msg);
+
+// A snapshot's public entry per player:
+//   [id, x, y, z, yaw, pitch, flags, hp, weapon]
+// flags are PLAYER_FLAGS bits; weapon indexes WEAPON_IDS.
+export const PLAYER_FLAGS = { CROUCH: 1, ALIVE: 2, SHIELDED: 4 };
+export const WEAPON_IDS = ['rifle', 'pistol', 'shotgun'];
+
+// The one ranking of a lobby list: most kills, then fewest deaths. Used for
+// the winner, the scoreboard and the HUD leader alike.
+export const byScore = (a, b) => b.kills - a.kills || a.deaths - b.deaths;
 
 // Display names: trimmed, 1..NAME_MAX characters, no control characters.
 export function cleanName(name) {
@@ -34,7 +44,6 @@ export function decodeClient(raw) {
   }
 }
 
-const PITCH_LIMIT = (89 * Math.PI) / 180;
 const uint = (v) => Number.isSafeInteger(v) && v >= 0;
 
 // Client → server input packet, in short wire keys.

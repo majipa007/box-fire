@@ -6,7 +6,7 @@
 
 **Status:** done
 
-Since ticket 07, inputs are only ever dropped by queue overflow; nothing is dropped for being late.
+Since ticket 07, inputs are only ever dropped by queue overflow; nothing is dropped for being late. Known limit (from the review): with several clicks inside one overflow, only the earliest survives.
 
 - [x] An overflow-dropped input's fire press carries into the next applied input, along with its shot number and render tick.
 - [x] The cooldown still gates every shot.

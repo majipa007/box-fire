@@ -23,6 +23,7 @@ export const MAX_CATCHUP_TICKS = 5; // after a stall, never run more than this a
 export const INTERP_DELAY_TICKS = 2;
 export const INPUT_BUFFER = 1;
 export const HISTORY_TICKS = 60; // rewind window: 1 s of hitbox positions
+export const SNAP_DISTANCE = 2; // m between two ticks: a respawn, so snap instead of blending
 export const MAX_INPUT_QUEUE = 8; // inputs; beyond this the oldest are dropped
 export const NEUTRAL_MS = 250; // no input for this long: the player stops
 export const MAX_BUFFERED_BYTES = 64 * 1024; // skip snapshots to a backed-up socket
@@ -40,6 +41,7 @@ export const STAND_HEIGHT = 1.8;
 export const CROUCH_HEIGHT = 1.2;
 export const EYE_STAND = 1.6;
 export const EYE_CROUCH = 1.1;
+export const PITCH_LIMIT = (89 * Math.PI) / 180; // look no further up or down than this
 
 // Weapons: damage per hit (per pellet for the shotgun), head multiplier,
 // shots per second, magazine, reload seconds (per shell for the shotgun),
@@ -57,6 +59,13 @@ export const WEAPONS = {
 };
 export const PRIMARIES = ['rifle', 'shotgun'];
 export const SWITCH_SECONDS = 0.4;
+export const SPREAD_AIR_FACTOR = 2; // airborne spread: times the moving value
+export const SPREAD_CROUCH_FACTOR = 0.8; // crouched spread: times the standing value
+// Camera kick: a spray is shots less than KICK_SPRAY_GAP_MS apart; the climb
+// stops growing after KICK_CLIMB_SHOTS; sideways wobble is this share of it.
+export const KICK_SPRAY_GAP_MS = 300;
+export const KICK_CLIMB_SHOTS = 8;
+export const KICK_WOBBLE = 0.25;
 export const HEAD_SIZE = 0.3;
 export const MAX_HP = 100;
 export const RESPAWN_SECONDS = 3;

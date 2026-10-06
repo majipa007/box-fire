@@ -2,13 +2,13 @@
 // Transport is in index.js.
 import {
   MAX_PLAYERS, PLAYER_COLORS, TICK_RATE, MAX_CATCHUP_TICKS, MAX_BUFFERED_BYTES,
-  MAX_HP, RESPAWN_SECONDS, SPAWN_REUSE_SECONDS, SPAWN_PROTECT_SECONDS,
+  RESPAWN_SECONDS, SPAWN_REUSE_SECONDS, SPAWN_PROTECT_SECONDS,
   KILL_TARGET, MATCH_SECONDS, SCOREBOARD_SECONDS, SILENT_MS, EMPTY_RESET_SECONDS,
 } from '../shared/constants.js';
-import { encode } from '../shared/protocol.js';
-import { createMover, step } from '../shared/movement.js';
+import { encode, byScore, PLAYER_FLAGS, WEAPON_IDS } from '../shared/protocol.js';
+import { step } from '../shared/movement.js';
 import { prepareMap } from '../shared/collision.js';
-import { createArsenal, stepWeapon, weaponOf, eyeOf, shotDirs, traceShot, damageAt } from '../shared/weapons.js';
+import { freshLife, stepWeapon, weaponOf, eyeOf, shotDirs, traceShot, damageAt } from '../shared/weapons.js';
 import { shotRng } from '../shared/rng.js';
 import { Player } from './player.js';
 import { History } from './history.js';
@@ -62,11 +62,8 @@ export class Game {
       }
       return this.attach(existing, conn);
     }
-    if (this.players.size >= MAX_PLAYERS) {
-      const gone = [...this.players.values()].find((p) => !p.conn); // free a greyed-out slot
-      if (!gone) return send(conn, { t: 'reject', reason: 'full' });
-      this.players.delete(gone.id);
-    }
+    // Greyed-out players keep their slot until the match ends.
+    if (this.players.size >= MAX_PLAYERS) return send(conn, { t: 'reject', reason: 'full' });
     const p = new Player(this.nextId++, name, this.freeSlot(), conn, bot);
     this.players.set(p.id, p);
     this.attach(p, conn);
@@ -78,13 +75,17 @@ export class Game {
     p.joinedAt = Date.now();
     p.resetInput(); // a new tab numbers its inputs from 1 again
     send(conn, { t: 'welcome', id: p.id, map: this.mapId, tickRate: TICK_RATE, seed: this.seed });
-    if (this.phase === 'playing') this.spawn(p);
+    // New to this match: spawn now. Back from a disconnect: the respawn timer
+    // that started when they left still applies.
+    if (this.phase === 'playing' && !p.mover) this.spawn(p);
     this.electHost();
     this.broadcastLobby();
   }
 
   // Mid-match, a player who leaves stays on the scoreboard, greyed out and
   // out of the world, until the match ends; in the lobby they just go.
+  // Leaving counts as dying without a kill: a rejoin waits out the respawn
+  // timer, so refreshing the page is no way to heal.
   disconnect(conn) {
     const p = conn.player;
     if (!p || p.conn !== conn) return;
@@ -93,8 +94,8 @@ export class Game {
       this.players.delete(p.id);
     } else {
       p.conn = null;
+      if (p.alive) p.respawnAt = this.tick + RESPAWN_SECONDS * TICK_RATE;
       p.alive = false;
-      p.mover = null;
     }
     this.electHost();
     this.broadcastLobby();
@@ -118,7 +119,7 @@ export class Game {
   endMatch() {
     this.phase = 'scoreboard';
     this.phaseEndsAt = this.tick + SCOREBOARD_SECONDS * TICK_RATE;
-    const ranked = [...this.players.values()].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+    const ranked = [...this.players.values()].sort(byScore);
     this.broadcast({ t: 'event', e: 'match_end', winner: ranked[0]?.kills ? ranked[0].id : null }); // no kills, no winner
     this.broadcastLobby();
   }
@@ -139,13 +140,11 @@ export class Game {
   spawn(p) {
     const { pos: [x, y, z], i } = this.pickSpawn(p);
     this.spawnUsedAt[i] = this.tick;
-    p.mover = { ...createMover(x, y, z), grounded: true }; // spawns sit on a surface
-    p.arsenal = createArsenal(p.primary);
-    p.hp = MAX_HP;
-    p.alive = true;
+    Object.assign(p, freshLife(x, y, z, p.primary));
     p.protectedUntil = this.tick + SPAWN_PROTECT_SECONDS * TICK_RATE;
     p.queue = []; // inputs sent before this life are stale
     p.buffering = true;
+    p.last = null; // nor may the last one leak a weapon slot into this life
     p.yaw = Math.atan2(x, z); // face the arena centre
     p.pitch = 0;
     this.broadcast({ t: 'event', e: 'spawn', id: p.id, x, y, z, yaw: p.yaw, primary: p.primary });
@@ -180,7 +179,7 @@ export class Game {
         if (!p.mover) continue;
         const inputs = p.nextInputs(now);
         if (!p.alive) {
-          if (this.tick >= p.respawnAt) this.spawn(p);
+          if (p.conn && this.tick >= p.respawnAt) this.spawn(p);
           continue;
         }
         for (const input of inputs) {
@@ -247,8 +246,9 @@ export class Game {
   sendSnapshots() {
     const ps = JSON.stringify([...this.players.values()].filter((p) => p.mover).map((p) => {
       const m = p.mover;
-      const flags = (m.crouch ? 1 : 0) | (p.alive ? 2 : 0) | (this.tick < p.protectedUntil ? 4 : 0);
-      return [p.id, r3(m.x), r3(m.y), r3(m.z), r3(p.yaw), r3(p.pitch), flags, p.hp];
+      const flags = (m.crouch ? PLAYER_FLAGS.CROUCH : 0) | (p.alive ? PLAYER_FLAGS.ALIVE : 0)
+        | (this.tick < p.protectedUntil ? PLAYER_FLAGS.SHIELDED : 0);
+      return [p.id, r3(m.x), r3(m.y), r3(m.z), r3(p.yaw), r3(p.pitch), flags, p.hp, WEAPON_IDS.indexOf(weaponOf(p.arsenal))];
     }));
     for (const p of this.players.values()) {
       if (!p.conn) continue;
