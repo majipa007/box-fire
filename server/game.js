@@ -223,7 +223,7 @@ export class Game {
       }
       return origin.map((o, i) => r3(o + dir[i] * hit.t));
     });
-    this.broadcast({ t: 'event', e: 'shot', id: p.id, o: origin.map(r3), h: ends }, p);
+    this.broadcast({ t: 'event', e: 'shot', id: p.id, w: weapon, o: origin.map(r3), h: ends }, p);
     for (const [id, { dmg, head }] of hits) this.damage(p, this.players.get(id), dmg, head, weapon);
   }
 

@@ -3,8 +3,9 @@ import { connect, self, predict, reconcile, bufferSnapshot, syncClock, serverTic
 import * as ui from './ui.js';
 import * as render from './render.js';
 import * as input from './input.js';
+import * as audio from './audio.js';
 import { cleanName, encodeInput } from '../shared/protocol.js';
-import { EYE_STAND, EYE_CROUCH, TICK_RATE, MAX_HP, RESPAWN_SECONDS, WEAPONS } from '../shared/constants.js';
+import { EYE_STAND, EYE_CROUCH, TICK_RATE, MAX_HP, RESPAWN_SECONDS, WEAPONS, WALK_SPEED } from '../shared/constants.js';
 import { createMover } from '../shared/movement.js';
 import { prepareMap } from '../shared/collision.js';
 import { createArsenal, eyeOf, aimDir, traceShot, shotDirs, weaponOf } from '../shared/weapons.js';
@@ -64,8 +65,12 @@ const net = connect({
       ui.showPicker(false);
     } else if (m.e === 'shot') {
       for (const end of m.h) render.addTracer(m.o, end);
+      audio.gunshot(m.w, ...heard(m.o[0], m.o[2]));
     } else if (m.e === 'hit') {
-      if (m.a === myId) ui.hitMarker(m.head);
+      if (m.a === myId) {
+        ui.hitMarker(m.head);
+        audio.hitTick(m.head);
+      }
       const attacker = m.v === myId && self.mover && others(performance.now()).find((o) => o.id === m.a);
       if (attacker) {
         // Direction to the attacker relative to where we look: 0 ahead, + to the right.
@@ -81,6 +86,7 @@ const net = connect({
     } else if (m.e === 'kill') {
       ui.addKill(nameOf(m.k), nameOf(m.v), m.w, m.head, m.k === myId || m.v === myId);
       if (m.v === myId) {
+        audio.deathThud();
         self.alive = false;
         ui.showDeath(nameOf(m.k), RESPAWN_SECONDS);
         ui.showPicker(true);
@@ -122,8 +128,36 @@ function fixedStep() {
   if (predict(inp, world.boxes)) {
     ownShot(inp); // along this packet's angles, before the kick moves them
     recoil(weaponOf(self.arsenal));
+    audio.gunshot(weaponOf(self.arsenal));
   }
   net.send(encodeInput(inp));
+}
+
+// [distance, pan] of a sound at (x, z) as we hear it.
+function heard(x, z) {
+  if (!self.mover) return [0, 0];
+  const dx = x - self.mover.x;
+  const dz = z - self.mover.z;
+  const { yaw } = input.look;
+  const right = dx * Math.cos(yaw) - dz * Math.sin(yaw); // + to our right
+  const dist = Math.hypot(dx, dz);
+  return [dist, dist > 0.5 ? Math.max(-1, Math.min(1, right / dist)) : 0];
+}
+
+// Footsteps: one every 2.2 m on the ground, only when running. Walking and
+// crouching are silent, as the plan says.
+const STRIDE = 2.2;
+const strides = new Map(); // player id → { x, y, z, left }
+function footsteps(id, p, dt, play) {
+  const s = strides.get(id) ?? { x: p.x, y: p.y, z: p.z, left: STRIDE };
+  const d = Math.hypot(p.x - s.x, p.z - s.z);
+  const running = dt > 0 && d / dt > WALK_SPEED + 0.3 && d < 1 && Math.abs(p.y - s.y) < 0.02;
+  if (running && (s.left -= d) <= 0) {
+    s.left += STRIDE;
+    play();
+  }
+  Object.assign(s, { x: p.x, y: p.y, z: p.z });
+  strides.set(id, s);
 }
 
 // Recoil: the gun kicks and the camera climbs, more with each shot of a
@@ -169,7 +203,13 @@ async function enterGame() {
     onScoreboard: (held) => { tabHeld = held; },
   });
   ui.initPicker(pick);
-  ui.initMenu({ onPlay: () => input.requestLock(canvas), onChange: applySettings });
+  ui.initMenu({
+    onPlay: () => {
+      audio.start(); // the same click unmutes audio
+      input.requestLock(canvas);
+    },
+    onChange: applySettings,
+  });
   applySettings();
   ui.showMenu(false);
 
@@ -204,7 +244,10 @@ async function enterGame() {
       ui.updateHud(self.hp, weaponOf(self.arsenal), self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0);
       render.setGun(weaponOf(self.arsenal), self.alive && lobby.phase === 'playing');
     }
-    render.syncPlayers(others(now).filter((o) => o.alive && o.id !== myId), roster, frameMs / 1000);
+    const visible = others(now).filter((o) => o.alive && o.id !== myId);
+    render.syncPlayers(visible, roster, frameMs / 1000);
+    if (me && self.alive) footsteps(myId, me, frameMs / 1000, () => audio.footstep());
+    for (const o of visible) footsteps(o.id, o, frameMs / 1000, () => audio.footstep(...heard(o.x, o.z)));
     // Match clock and leader; the scoreboard on Tab, and forced between matches.
     const secondsLeft = (lobby.end - serverTick(now)) / TICK_RATE;
     const leader = lobby.players.reduce((best, p) => (!best || p.kills > best.kills ? p : best), null);

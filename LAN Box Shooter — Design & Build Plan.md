@@ -83,7 +83,7 @@ Trust boundary: one bad packet must never crash the host or put NaN into the sha
 | `loadout` | client → server | primary: rifle or shotgun | on change |
 | `input` | client → server | seq, render tick (fractional), keys bitmask, yaw, pitch, fire, shot number, weapon slot | 60 Hz |
 | `snapshot` | server → client | tick, your last acked seq, players\[ id, pos, yaw, pitch, crouch, hp, weapon, state \], plus your own velocity, on-ground, both magazines, cooldown, reload and switch timers | 60 Hz |
-| `event` | server → client | kill (killer, victim, weapon, headshot), hit (attacker, victim, damage, headshot: hit marker for the attacker, red arc for the victim), shot (shooter, origin, impact: everyone but the shooter draws the tracer and hears it), spawn, match\_end | on occurrence |
+| `event` | server → client | kill (killer, victim, weapon, headshot), hit (attacker, victim, damage, headshot: hit marker for the attacker, red arc for the victim), shot (shooter, weapon, origin, one impact per pellet: everyone but the shooter draws the tracers and hears it), spawn, match\_end | on occurrence |
 
 ## Gameplay v1: deathmatch
 
