@@ -42,6 +42,7 @@ const net = connect({
   },
   lobby(m) {
     syncClock(m.tick, performance.now());
+    if (m.phase === 'playing' && lobby.phase !== 'playing') audio.ui('start'); // audio: a match begins
     roster = new Map(m.players.map((p) => [p.id, p]));
     lobby = m;
     ui.renderLobby(m, myId);
@@ -49,7 +50,10 @@ const net = connect({
     if (m.phase === 'playing') winner = null;
     if (!inGame && myId !== null && m.phase !== 'lobby') enterGame();
   },
-  reject(m) { ui.showJoinError(m.reason); },
+  reject(m) {
+    ui.showJoinError(m.reason);
+    audio.ui('error'); // audio:
+  },
   snapshot(m) {
     bufferSnapshot(m, performance.now());
     // feel: shift the drawn path by the correction, then hide it behind an offset that fades.
@@ -74,15 +78,18 @@ const net = connect({
       resetFeel(); // feel: no kick owed, no offsets
       ui.hideDeath();
       ui.showPicker(false);
+      audio.respawn(); // audio: un-muffles the world
     } else if (m.e === 'shot') {
       remoteShot(m.id, m.o, m.h); // their gun kicks; tracers from its muzzle, impacts, a casing
       audio.gunshot(m.w, ...heard(m.o[0], m.o[2]));
+      audio.impacts(m.o, m.h, heard); // audio: surface hits and ricochets
     } else if (m.e === 'hit') {
       hitFlash(m.v); // characters: the victim flashes white
       if (m.a === myId) {
         ui.hitMarker(m.head);
         audio.hitTick(m.head);
       }
+      if (m.v === myId) audio.hurt(); // audio:
       const attacker = m.v === myId && self.mover && others(performance.now()).find((o) => o.id === m.a);
       if (attacker) {
         // Direction to the attacker relative to where we look: 0 ahead, + to the right.
@@ -93,11 +100,13 @@ const net = connect({
       }
     } else if (m.e === 'match_end') {
       winner = m.winner === null ? null : nameOf(m.winner);
+      audio.ui(m.winner === myId ? 'win' : 'lose'); // audio:
       ui.hideDeath();
       ui.showPicker(false);
     } else if (m.e === 'kill') {
       ui.addKill(nameOf(m.k), nameOf(m.v), m.w, m.head, m.k === myId || m.v === myId);
       deathBurst(m.k, m.v);
+      if (m.k === myId) audio.kill(m.head); // audio: layers over the hit tick
       if (m.v === myId) {
         audio.deathThud();
         self.alive = false;
@@ -110,6 +119,7 @@ const net = connect({
 });
 
 ui.onJoin((raw) => {
+  audio.start(); // audio: the join is the first user gesture, so lobby sounds work and rendering starts early
   const name = cleanName(raw);
   if (!name) return ui.showJoinError('bad-name');
   net.send({ t: 'join', name });
@@ -192,12 +202,15 @@ function ownShot(inp) {
   const fwd = aimDir(inp.yaw, inp.pitch);
   const muzzle = origin.map((o, i) => o + right[i] * 0.15 + fwd[i] * 0.4 - (i === 1 ? 0.12 : 0));
   const dirs = shotDirs(inp.yaw, inp.pitch, weaponOf(self.arsenal), self.mover, shotRng(seed, myId, self.shots)); // effects: named, for the count
+  const ends = []; // audio: world hits only; the host confirms player hits
   for (const dir of dirs) {
-    const { t } = traceShot(origin, dir, world.boxes, targets);
+    const { t, id } = traceShot(origin, dir, world.boxes, targets);
     const end = origin.map((o, i) => o + dir[i] * t); // effects: named, for the impact
     addTracer(muzzle, end);
     hitEffects(origin, end, targets, 1 / Math.sqrt(dirs.length)); // effects:
+    if (id === null) ends.push(end);
   }
+  audio.impacts(origin, ends, heard); // audio:
   // effects: the case flies out right of the gun, carried along with us.
   casing(origin.map((o, i) => o + right[i] * 0.3 + fwd[i] * 0.35 - (i === 1 ? 0.2 : 0)), right, [self.mover.vx, self.mover.vy, self.mover.vz]);
 }
@@ -278,6 +291,7 @@ async function enterGame() {
   ui.showMenu(false);
 
   const map = await (await fetch(new URL(`../shared/maps/${mapId}.json`, import.meta.url))).json();
+  audio.setWorld(map); // audio: surfaces for impacts and footsteps
   buildWorld(render.scene, map);
   powerups.init(render.scene, mapId); // powerups: meshes and HUD
   render.scene.add(charactersGroup, effectsGroup);
@@ -332,10 +346,11 @@ async function enterGame() {
       ownStride -= Math.hypot(me.vx, me.vz) * (frameMs / 1000);
       if (ownStride <= 0) {
         ownStride += STRIDE;
-        audio.footstep();
+        audio.footstep(0, 0, me); // audio: me for the surface underfoot
       }
     }
-    for (const o of visible) footsteps(o.id, o, frameMs / 1000, () => audio.footstep(...heard(o.x, o.z)));
+    if (me && self.alive) audio.ground(me.grounded, me); // audio: landings
+    for (const o of visible) footsteps(o.id, o, frameMs / 1000, () => audio.footstep(...heard(o.x, o.z), o)); // audio: o for the surface
     // Match clock and leader; the scoreboard on Tab, and forced between matches.
     const secondsLeft = (lobby.end - serverTick(now)) / TICK_RATE;
     const [leader] = [...lobby.players].sort(byScore);
@@ -349,7 +364,7 @@ async function enterGame() {
     if (debug && now - statsAt > 500) {
       const { calls, triangles } = render.renderer.info.render;
       const pos = me ? [me.x, me.y, me.z].map((v) => v.toFixed(2)).join(', ') : '-';
-      ui.showStats(`${Math.round((frames * 1000) / (now - statsAt))} fps · ${calls} draws · ${triangles} tris · ${pos} · pending ${self.pending.length} · ${feelStats()}`); // feel: stats
+      ui.showStats(`${Math.round((frames * 1000) / (now - statsAt))} fps · ${calls} draws · ${triangles} tris · ${pos} · pending ${self.pending.length} · ${feelStats()} · ${audio.stats().voices} voices`); // feel, audio: stats
       frames = 0;
       statsAt = now;
     }
