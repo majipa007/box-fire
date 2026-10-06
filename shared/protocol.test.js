@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeClient, byScore } from './protocol.js';
+import { decodeClient, byScore, entityTuple, readEntity, POWERUP_IDS } from './protocol.js';
+import { KEY } from './movement.js';
 
 test('malformed or untyped messages decode to null', () => {
   for (const raw of ['', '{', 'null', '42', '[]', '"join"', '{"t":"nope"}', '{"name":"Sam"}']) {
@@ -46,6 +47,21 @@ test('loadout accepts only the two primaries', () => {
 test('players rank by kills, then by fewer deaths', () => {
   const players = [{ id: 1, kills: 3, deaths: 5 }, { id: 2, kills: 7, deaths: 1 }, { id: 3, kills: 3, deaths: 2 }];
   assert.deepEqual([...players].sort(byScore).map((p) => p.id), [2, 3, 1]);
+});
+
+test('power-up use and cycle ride the input keys and still fit the 16-bit check', () => {
+  const keys = KEY.FORWARD | KEY.USE | KEY.CYCLE;
+  assert.equal(decodeClient(JSON.stringify({ ...input, k: keys })).keys, keys);
+  assert.ok(KEY.USE <= 0xffff && KEY.CYCLE <= 0xffff && KEY.USE !== KEY.CYCLE);
+  for (const bit of Object.values(KEY)) assert.ok(bit === KEY.USE || bit === KEY.CYCLE || !(bit & (KEY.USE | KEY.CYCLE)));
+});
+
+test('a power-up entity survives the snapshot tuple, rounded to the centimetre', () => {
+  const mine = { id: 4, kind: 'mine', owner: 7, x: 1.23456, y: 0.004, z: -9.8765, vx: 0, vy: -0.26, vz: 0, armed: true };
+  assert.deepEqual(readEntity(entityTuple(mine)), { id: 4, kind: 'mine', owner: 7, x: 1.23, y: 0, z: -9.88, vx: 0, vy: -0.3, vz: 0, armed: true });
+  const shunt = readEntity(JSON.parse(JSON.stringify(entityTuple({ id: 9, kind: 'shunt', owner: 2, x: 0, y: 1.6, z: 0, vx: 16, vy: 0, vz: 0 }))));
+  assert.deepEqual([shunt.kind, shunt.armed, shunt.vx], ['shunt', false, 16]);
+  assert.deepEqual(POWERUP_IDS.map((k) => readEntity(entityTuple({ id: 1, kind: k, owner: 1, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 })).kind), POWERUP_IDS);
 });
 
 test('start and end_match carry no payload', () => {
