@@ -12,8 +12,8 @@ import { freshLife, stepWeapon, weaponOf, eyeOf, shotDirs, traceShot, damageAt }
 import { shotRng } from '../shared/rng.js';
 import { Player } from './player.js';
 import { History } from './history.js';
-import { Powerups } from './powerups.js'; // powerups
-import { stepPowerups } from '../shared/powerups.js'; // powerups
+import { Powerups } from './powerups.js'; // powerups: pads and entities
+import { stepPowerups } from '../shared/powerups.js'; // powerups: slot queue
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
@@ -261,10 +261,10 @@ export class Game {
       const m = p.mover;
       const flags = (m.crouch ? PLAYER_FLAGS.CROUCH : 0) | (p.alive ? PLAYER_FLAGS.ALIVE : 0)
         | (this.tick < p.protectedUntil ? PLAYER_FLAGS.SHIELDED : 0)
-        | (m.boost > 0 ? PLAYER_FLAGS.PU_NITRO : 0) | (p.shield > 0 ? PLAYER_FLAGS.PU_SHIELD : 0); // powerups
+        | (m.boost > 0 ? PLAYER_FLAGS.PU_NITRO : 0) | (p.shield > 0 ? PLAYER_FLAGS.PU_SHIELD : 0); // powerups: active effects
       return [p.id, r3(m.x), r3(m.y), r3(m.z), r3(p.yaw), r3(p.pitch), flags, p.hp, WEAPON_IDS.indexOf(weaponOf(p.arsenal))];
     }));
-    const pu = this.powerups.snapshot(); // powerups
+    const pu = this.powerups.snapshot(); // powerups: pads and entities, once per tick
     for (const p of this.players.values()) {
       if (!p.conn) continue;
       const { ws } = p.conn;

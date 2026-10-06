@@ -38,7 +38,7 @@ export function step(s, input, boxes) {
   if (keys & KEY.CROUCH) s.crouch = true;
   else if (s.crouch && !overlaps(s, half, STAND_HEIGHT, boxes)) s.crouch = false;
   const height = s.crouch ? CROUCH_HEIGHT : STAND_HEIGHT;
-  const nitro = s.boost > 0 ? POWERUPS.nitro.speed : 1; // powerups
+  const nitro = s.boost > 0 ? POWERUPS.nitro.speed : 1; // powerups: Nitro boost
   const speed = (s.crouch ? CROUCH_SPEED : keys & KEY.WALK ? WALK_SPEED : RUN_SPEED) * nitro;
   const [wx, wz] = wishVelocity(keys, input.yaw, speed);
 

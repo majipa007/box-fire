@@ -9,7 +9,7 @@ import { effectsGroup, addTracer, updateEffects } from './effects.js';
 import { recoilKick } from './feel.js';
 import * as input from './input.js';
 import * as audio from './audio.js';
-import * as powerups from './powerups.js'; // powerups
+import * as powerups from './powerups.js'; // powerups: pads, entities, HUD
 import { cleanName, encodeInput, byScore } from '../shared/protocol.js';
 import { EYE_STAND, EYE_CROUCH, TICK_RATE, RESPAWN_SECONDS, WALK_SPEED, NEUTRAL_MS } from '../shared/constants.js';
 import { prepareMap } from '../shared/collision.js';
@@ -213,7 +213,7 @@ async function enterGame() {
 
   const map = await (await fetch(new URL(`../shared/maps/${mapId}.json`, import.meta.url))).json();
   buildWorld(render.scene, map);
-  powerups.init(render.scene, mapId); // powerups
+  powerups.init(render.scene, mapId); // powerups: meshes and HUD
   render.scene.add(charactersGroup, effectsGroup);
   world = prepareMap(map);
 
@@ -250,7 +250,7 @@ async function enterGame() {
     }
     const visible = others(now).filter((o) => o.alive && o.id !== myId);
     syncPlayers(visible, roster, frameMs / 1000);
-    powerups.update(now, visible); // powerups
+    powerups.update(now, visible); // powerups: draw this frame
     // Our own steps from our velocity, which is exact; frame-to-frame position
     // changes jump around because the mover only moves at 60 Hz.
     if (me && self.alive && me.grounded && Math.hypot(me.vx, me.vz) > WALK_SPEED + 0.3) {

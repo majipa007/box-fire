@@ -3,7 +3,7 @@
 import { encode, PLAYER_FLAGS, WEAPON_IDS } from '../shared/protocol.js';
 import { step } from '../shared/movement.js';
 import { stepWeapon } from '../shared/weapons.js';
-import { stepPowerups } from '../shared/powerups.js'; // powerups
+import { stepPowerups } from '../shared/powerups.js'; // powerups: slot queue
 import { TICK_RATE, INTERP_DELAY_TICKS, SNAP_DISTANCE } from '../shared/constants.js';
 
 const STEP_MS = 1000 / TICK_RATE;
@@ -53,11 +53,11 @@ export function reconcile(snapshot, boxes) {
   Object.assign(self.arsenal, me.arsenal);
   self.hp = me.hp;
   self.alive = me.alive;
-  self.inv = me.inv ?? []; // powerups
-  self.shield = me.shield ?? 0; // powerups
+  self.inv = me.inv ?? []; // powerups: server's slots
+  self.shield = me.shield ?? 0; // powerups: for the HUD
   self.pending = me.alive ? self.pending.filter((i) => i.s > snapshot.ack) : [];
   for (const i of self.pending) {
-    stepPowerups(self.inv, self.mover, i.keys); // powerups
+    stepPowerups(self.inv, self.mover, i.keys); // powerups: replayed like movement
     step(self.mover, i, boxes);
     stepWeapon(self.arsenal, i);
   }
