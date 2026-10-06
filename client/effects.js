@@ -34,6 +34,7 @@ const IMPACT = {
   chipColor: null, // null: the hit box's colour, lightened by chipLighten so chips show against it
   chipLighten: 0.3,
   sparks: 3, sparkSize: 0.025, sparkSpeed: [3, 7], sparkLife: [0.08, 0.22], sparkColor: '#ffd28a',
+  flashSize: 0.16, flashLife: 0.05, // a glow on the spot for a frame or three, so a hit reads at range
   dust: 2, dustSize: [0.12, 0.5], dustSpeed: [0.3, 0.9], dustLife: [0.5, 1], dustAlpha: 0.5,
   dustColor: null, // null: the hit box's colour, lightened by dustLighten
   dustLighten: 0.45,
@@ -639,6 +640,8 @@ export function impact(point, normal, surface, scale = 1) {
     _v.y += look.chipPop;
     spawnCube(_p, _v, _s.setScalar(size), look.chipColor, rand(look.chipLife), look.chipSpin, true);
   }
+  _p.set(point[0] + nx * 0.02, point[1] + ny * 0.02, point[2] + nz * 0.02);
+  spawnPoint(sparks, _p, _v.set(0, 0, 0), look.sparkColor, 1, look.flashSize, look.flashSize * 0.5, look.flashLife);
   for (let k = count(look.sparks * scale); k > 0; k--) {
     randomUnit(_v).multiplyScalar(0.8).add(_u.set(nx, ny, nz)).normalize().multiplyScalar(rand(look.sparkSpeed));
     spawnPoint(sparks, _p.fromArray(point), _v, look.sparkColor, 1, look.sparkSize, look.sparkSize * 0.5, rand(look.sparkLife));
