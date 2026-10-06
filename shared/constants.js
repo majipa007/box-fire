@@ -84,3 +84,29 @@ export const PLAYER_COLORS = [
   '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231',
   '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabed4',
 ];
+
+// powerups: Blur-style power-ups. Provisional numbers for the design panel.
+// Each pad (shared/powerups.js) holds one kind and refills `respawn` seconds
+// after a pickup. A player carries up to POWERUP_SLOTS in a queue: use fires
+// the first, cycle rotates them. dmg is a direct hit; splash falls off
+// linearly to nothing at `radius` m; knock (m/s sideways) and lift (m/s up)
+// fall off with it. Power-ups never hurt or push their owner.
+export const POWERUP_SLOTS = 3;
+export const PICKUP_RADIUS = 0.9; // m from a pad's centre to the player's centre
+export const PICKUP_REACH = 1.5; // m: feet this far above the pad still collect it (a jump over it)
+export const POWERUPS = {
+  nitro: { respawn: 15, seconds: 4, speed: 1.6 }, // movement speed multiplier
+  shield: { respawn: 20, hp: 60, seconds: 10 }, // soaks this much damage until spent or expired
+  repair: { respawn: 15, hp: 50 },
+  // Homing: locks onto the enemy nearest its heading within `cone` degrees
+  // and in sight, turning at most `turn` rad/s; explodes on contact or after `life` s.
+  shunt: { respawn: 25, speed: 16, turn: 2.5, cone: 30, life: 5, dmg: 70, splash: 35, radius: 2.5, knock: 9, lift: 5 },
+  bolt: { respawn: 15, count: 3, gap: 0.12, speed: 55, life: 1.2, dmg: 34, splash: 0, radius: 0, knock: 3, lift: 0 },
+  barge: { respawn: 20, splash: 20, radius: 7, knock: 14, lift: 6 }, // a blast centred on the user
+  // Dropped at the feet; arms after `arm` s, then any enemy within `trigger` m sets it off.
+  mine: { respawn: 15, arm: 1, trigger: 1.5, life: 30, max: 3, splash: 90, radius: 3.5, knock: 10, lift: 7 },
+};
+export const PROJECTILE_RADIUS = 0.2; // m of slack around a player for a projectile hit
+// Knockback is its own velocity on the mover, bleeding off at these m/s².
+export const KNOCK_DRAG_GROUND = 30;
+export const KNOCK_DRAG_AIR = 3;

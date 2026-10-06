@@ -9,6 +9,7 @@ import { effectsGroup, addTracer, updateEffects } from './effects.js';
 import { recoilKick } from './feel.js';
 import * as input from './input.js';
 import * as audio from './audio.js';
+import * as powerups from './powerups.js'; // powerups: pads, entities, HUD
 import { cleanName, encodeInput, byScore } from '../shared/protocol.js';
 import { EYE_STAND, EYE_CROUCH, TICK_RATE, RESPAWN_SECONDS, WALK_SPEED, NEUTRAL_MS } from '../shared/constants.js';
 import { prepareMap } from '../shared/collision.js';
@@ -51,8 +52,10 @@ const net = connect({
   snapshot(m) {
     bufferSnapshot(m, performance.now());
     if (world) reconcile(m, world.boxes);
+    powerups.onSnapshot(m); // powerups: pads and entities
   },
   event(m) {
+    powerups.onEvent(m, myId); // powerups: pickups, uses, blasts
     if (m.e === 'spawn' && m.id === myId) {
       Object.assign(self, freshLife(m.x, m.y, m.z, m.primary)); // exactly as the server builds it
       self.pending = [];
@@ -210,6 +213,7 @@ async function enterGame() {
 
   const map = await (await fetch(new URL(`../shared/maps/${mapId}.json`, import.meta.url))).json();
   buildWorld(render.scene, map);
+  powerups.init(render.scene, mapId); // powerups: meshes and HUD
   render.scene.add(charactersGroup, effectsGroup);
   world = prepareMap(map);
 
@@ -246,6 +250,7 @@ async function enterGame() {
     }
     const visible = others(now).filter((o) => o.alive && o.id !== myId);
     syncPlayers(visible, roster, frameMs / 1000);
+    powerups.update(now, visible); // powerups: draw this frame
     // Our own steps from our velocity, which is exact; frame-to-frame position
     // changes jump around because the mover only moves at 60 Hz.
     if (me && self.alive && me.grounded && Math.hypot(me.vx, me.vz) > WALK_SPEED + 0.3) {
