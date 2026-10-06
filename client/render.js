@@ -54,7 +54,7 @@ export function setView(x, y, z, yaw, pitch) {
 export function draw() {
   renderer.info.reset();
   renderer.render(scene, camera);
-  updateViewmodel(performance.now(), camera, scene); // viewmodel: follows the camera's turn, mirrors the scene's lights
+  updateViewmodel(performance.now(), camera, scene, renderer); // viewmodel: follows the camera's turn, mirrors the scene's lights, prewarms its shaders
   renderer.autoClear = false;
   renderer.clearDepth();
   renderer.render(viewScene, viewCamera);

@@ -54,6 +54,7 @@ export const LAND_MIN_SPEED = 2;
 export const JUMP_DIP = 0.012;
 // Switching: the old gun lowers to this pose, swaps at the bottom, the new one rises.
 export const SWITCH_POSE = [0.03, -0.24, 0.06, -0.7, 0.12, 0.35];
+export const KICK_VARIANCE = 0.3; // each shot's kick scales by 1 ± half this
 // Muzzle flash: crossed additive star quads at a random roll, a glow sprite,
 // and a one-frame emissive pulse on the arms and gun.
 export const FLASH_COLOR = '#ffd08a';
@@ -61,7 +62,11 @@ export const FLASH_GLOW_COLOR = '#ff9f45';
 export const FLASH_GLOW_SIZE = 2; // times the weapon's flash size
 export const FLASH_SECONDS = 0.035; // and never less than one frame
 export const FLASH_JITTER = 0.3; // random spread of the flash size
-export const FLASH_POINTS = 6;
+export const FLASH_TONGUE = [0.6, 1.4]; // width and length of the quads along the barrel, times the flash size
+export const FLASH_POINTS = 6; // the star mask: points,
+export const FLASH_RAYS = 6; // sharpness of its rays,
+export const FLASH_CORE = 1.6; // brightness of its core,
+export const FLASH_MASK_SIZE = 64; // and its texture size in pixels, as the glow's
 export const FLASH_PULSE = '#ffb469';
 export const FLASH_PULSE_STRENGTH = 0.08;
 
@@ -312,21 +317,21 @@ function maskTexture(size, f) {
   return tex;
 }
 const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false };
-const starTexture = maskTexture(64, (r, a) => {
+const starTexture = maskTexture(FLASH_MASK_SIZE, (r, a) => {
   const k = Math.max(0, 1 - r);
-  return 1.6 * k ** 3 + Math.abs(Math.cos((a * FLASH_POINTS) / 2)) ** 6 * k * k;
+  return FLASH_CORE * k ** 3 + Math.abs(Math.cos((a * FLASH_POINTS) / 2)) ** FLASH_RAYS * k * k;
 });
-const glowTexture = maskTexture(32, (r) => Math.max(0, 1 - r) ** 2);
+const glowTexture = maskTexture(FLASH_MASK_SIZE, (r) => Math.max(0, 1 - r) ** 2);
 
 // The flash: one quad facing the camera and two crossed along the barrel,
 // showing the star's upper half as a tongue of flame; plus the glow.
 const flash = new THREE.Group();
 flash.name = 'flash';
 {
-  const tongue = new THREE.PlaneGeometry(0.6, 1.4);
+  const tongue = new THREE.PlaneGeometry(...FLASH_TONGUE);
   const uv = tongue.attributes.uv;
   for (let i = 0; i < uv.count; i++) uv.setY(i, 0.5 + uv.getY(i) / 2);
-  tongue.rotateX(-Math.PI / 2).translate(0, 0, -0.7);
+  tongue.rotateX(-Math.PI / 2).translate(0, 0, -FLASH_TONGUE[1] / 2);
   const quads = mergeGeometries([new THREE.PlaneGeometry(1, 1), tongue, tongue.clone().rotateZ(Math.PI / 2)]);
   const star = new THREE.Mesh(quads, new THREE.MeshBasicMaterial({ map: starTexture, color: FLASH_COLOR, side: THREE.DoubleSide, ...additive }));
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture, color: FLASH_GLOW_COLOR, ...additive }));
@@ -341,7 +346,7 @@ const pulse = new THREE.Color(FLASH_PULSE).multiplyScalar(FLASH_PULSE_STRENGTH);
 // it has any, then copied every frame so a retune of the world carries over.
 const standIn = new THREE.HemisphereLight('#ffffff', '#555555', 2.5);
 viewScene.add(standIn);
-let mirrors = null; // [world light, viewmodel copy]
+let mirrors = null; // { src: world light, copy: its viewmodel twin }
 let sunCopy = null;
 const shade = spring(1);
 const shadeGoal = new Float64Array(1);
@@ -350,10 +355,10 @@ const target = new THREE.Vector3();
 function mirrorLights(scene) {
   const found = [];
   scene.traverse((o) => { if (o.isHemisphereLight || o.isDirectionalLight || o.isAmbientLight) found.push(o); });
-  mirrors = found.map((src) => [src, new src.constructor()]);
+  mirrors = found.map((src) => ({ src, copy: new src.constructor() }));
   if (!mirrors.length) return;
   viewScene.remove(standIn);
-  for (const [src, copy] of mirrors) {
+  for (const { src, copy } of mirrors) {
     viewScene.add(copy);
     if (src.isDirectionalLight) sunCopy ??= copy;
   }
@@ -361,8 +366,8 @@ function mirrorLights(scene) {
 
 function syncLights(dt) {
   springStep(shade, shadeGoal, SHADE_HALFLIFE, dt);
-  if (!mirrors) return;
-  for (const [src, copy] of mirrors) {
+  for (let i = 0; i < (mirrors?.length ?? 0); i++) {
+    const { src, copy } = mirrors[i];
     copy.color.copy(src.color);
     copy.intensity = src.intensity;
     copy.position.setFromMatrixPosition(src.matrixWorld);
@@ -389,7 +394,7 @@ export function sunBlocked(point, boxes) {
   toSun[0] = d.x / len;
   toSun[1] = d.y / len;
   toSun[2] = d.z / len;
-  for (const b of boxes) if (rayBox(point, toSun, b.min, b.max) < Infinity) return true;
+  for (let i = 0; i < boxes.length; i++) if (rayBox(point, toSun, boxes[i].min, boxes[i].max) < Infinity) return true;
   return false;
 }
 
@@ -445,12 +450,17 @@ function place(mesh, pivot, x) {
   mesh.rotation.set(x[3], x[4], x[5]);
 }
 
-// Once per frame, after the world pass and before the viewmodel's: the
-// world camera and scene, to follow its turn and mirror its lights.
-export function updateViewmodel(now, camera, scene) {
+// Once per frame, after the world pass (it reads the world lights'
+// matrices) and before the viewmodel's: the world camera and scene, to
+// follow its turn and mirror its lights, and the renderer, to compile every
+// viewmodel shader, hidden flash included, before the first shot needs it.
+export function updateViewmodel(now, camera, scene, renderer) {
   const dt = lastNow === null ? 0 : Math.min(0.05, Math.max(0, (now - lastNow) / 1000));
   lastNow = now;
-  if (!mirrors && scene?.children.length) mirrorLights(scene);
+  if (!mirrors && scene?.children.length) {
+    mirrorLights(scene);
+    renderer?.compile(viewScene, viewCamera);
+  }
   syncLights(dt);
   viewCamera.quaternion.copy(camera.quaternion);
   if (viewCamera.aspect !== camera.aspect) {
@@ -522,7 +532,7 @@ export function updateViewmodel(now, camera, scene) {
   // Recoil: each shot kicks back, up and a little aside.
   const k = m.kick;
   for (; shots > 0; shots--) {
-    const r = 0.85 + Math.random() * 0.3;
+    const r = 1 + (Math.random() - 0.5) * KICK_VARIANCE;
     kick.v[1] += impulse(k.lift * r, k.halflife);
     kick.v[2] += impulse(k.back * r, k.halflife);
     kick.v[3] += impulse(k.up * r, k.halflife);
