@@ -249,7 +249,7 @@ async function enterGame() {
     if (me) {
       const a = Math.min(1, Math.max(0, (now - start) / STEP_MS - steps)); // between the last two steps
       eye = lerp(eye, me.crouch ? EYE_CROUCH : EYE_STAND, Math.min(1, frameMs / 60)); // ease, don't snap
-      const v = updateFeel(frameMs, now, input.look, self.alive && lobby.phase === 'playing' ? me : null, weaponOf(self.arsenal)); // feel:
+      const v = updateFeel(frameMs, now, input.look, self.alive && lobby.phase === 'playing' ? me : null, weaponOf(self.arsenal), self.arsenal.trigger); // feel:
       render.setView(lerp(prev.x, me.x, a) + v.x, lerp(prev.y, me.y, a) + eye + v.y, lerp(prev.z, me.z, a) + v.z, input.look.yaw, input.look.pitch, v.roll); // feel: offsets, roll
       // feel: the crosshair gap for the HUD, as --spread (CSS px) on #hud.
       const gap = Math.round(spreadPixels(crosshair.spread, render.camera.fov, innerHeight));

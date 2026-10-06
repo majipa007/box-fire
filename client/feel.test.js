@@ -6,7 +6,7 @@ import {
 } from './feel.js';
 import { self, reconcile } from './net.js';
 import { WEAPONS, SNAP_DISTANCE, RUN_SPEED, GRAVITY, JUMP_HEIGHT } from '../shared/constants.js';
-import { spreadDegrees, createArsenal } from '../shared/weapons.js';
+import { spreadDegrees, createArsenal, stepWeapon } from '../shared/weapons.js';
 import { createMover } from '../shared/movement.js';
 
 const DEG = Math.PI / 180;
@@ -106,17 +106,27 @@ test('recovery only returns the kick the player has not already pulled down', ()
 
 test('a held spray climbs without recovering, and only RECOVER_MAX_DEG of it comes back', () => {
   const look = fresh();
-  const interval = 1000 / WEAPONS.rifle.rps;
-  let peak = 0;
-  for (let shot = 0; shot < 20; shot++) {
-    addRecoil('rifle', now);
-    frames(look, null, interval, interval / 6);
-    assert.ok(look.pitch >= peak, `shot ${shot} dropped the aim`);
-    peak = look.pitch;
+  // Real cadence: shots land on 60 Hz steps (gaps of 6 or 7 steps), late by
+  // a few ms of timer jitter; frames run on their own clock in between.
+  const arsenal = createArsenal('rifle');
+  const shots = [];
+  for (let i = 0; shots.length < 20; i++) {
+    if (stepWeapon(arsenal, { fire: true, slot: 0, keys: 0 })) shots.push(now + i * (1000 / 60) + ((i * 37) % 7));
   }
+  const start = now;
+  let last = look.pitch;
+  for (let t = start + 5; shots.length || t < start + 2500; t += 1000 / 60) {
+    while (shots.length && shots[0] <= t) addRecoil('rifle', shots.shift());
+    updateFeel(1000 / 60, (now = t), look, null, 'rifle', true); // trigger held throughout
+    assert.ok(look.pitch >= last, `the aim dropped mid-spray at ${Math.round(now - start)} ms`);
+    last = look.pitch;
+  }
+  const peak = look.pitch;
   assert.ok(peak / DEG > RECOVER_MAX_DEG + 4, `climbed ${peak / DEG}°`);
-  frames(look, null, 1500);
-  near(look.pitch, peak - RECOVER_MAX_DEG * DEG, 0.05 * DEG, 'after the spray');
+  updateFeel(16, (now += 16), look, null, 'rifle', true);
+  near(look.pitch, peak, 1e-9, 'still held');
+  for (let t = 0; t < 1500; t += 16) updateFeel(16, (now += 16), look, null, 'rifle', false);
+  near(look.pitch, peak - RECOVER_MAX_DEG * DEG, 0.05 * DEG, 'after release');
 });
 
 test('the crosshair shows the true cone at rest, blooms on a shot, and settles back', () => {

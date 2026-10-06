@@ -17,7 +17,7 @@ export const CORRECTION_HALF_LIFE_MS = 50;
 // Recoil: each shot's kick eases into the real aim. Once the trigger rests,
 // it eases back out, but only the part the player has not pulled down.
 export const KICK_HALF_LIFE_MS = 12; // ~95% of a kick lands within 50 ms
-export const RECOVER_DELAY_MS = 120; // over the rifle's 103 ms between shots, so a spray still climbs
+export const RECOVER_DELAY_MS = 120; // after the last shot; a held automatic never recovers mid-spray
 export const RECOVER_HALF_LIFE_MS = 80;
 export const RECOVER_MAX_DEG = 8; // owed kick beyond this stays: a long uncontrolled spray is not undone
 
@@ -99,17 +99,20 @@ export function resetFeel() {
 
 // Once per frame, before the camera is placed. look is the live aim
 // ({ yaw, pitch }), which this kicks and recovers; me is our mover, or null
-// when we are not playing. Returns view.
-export function updateFeel(frameMs, now, look, me, weapon) {
+// when we are not playing; trigger is whether the last step held fire.
+// Returns view.
+export function updateFeel(frameMs, now, look, me, weapon, trigger) {
   const dt = Math.min(frameMs, MAX_DT_MS);
   me ??= STILL;
 
   // Recoil. Only the mouse moves the aim between our calls, so whatever moved
-  // it pulled against the kick or not.
+  // it pulled against the kick or not. Shots land on 60 Hz steps with timer
+  // jitter, so a held automatic is a spray however late its next shot is.
   owedPitch = payOff(owedPitch, look.pitch - seenPitch);
   owedYaw = payOff(owedYaw, look.yaw - seenYaw);
   const k = ease(KICK_HALF_LIFE_MS, dt);
-  const r = now - lastShotAt > RECOVER_DELAY_MS ? ease(RECOVER_HALF_LIFE_MS, dt) : 0;
+  const spraying = trigger && WEAPONS[weapon].auto;
+  const r = !spraying && now - lastShotAt > RECOVER_DELAY_MS ? ease(RECOVER_HALF_LIFE_MS, dt) : 0;
   const pitch = clamp(look.pitch + kickPitch * k - owedPitch * r, -PITCH_LIMIT, PITCH_LIMIT);
   const yaw = look.yaw + kickYaw * k - owedYaw * r;
   kickPitch -= kickPitch * k;
