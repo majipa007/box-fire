@@ -4,7 +4,7 @@ import * as ui from './ui.js';
 import * as render from './render.js';
 import { buildWorld } from './world.js';
 import { charactersGroup, syncPlayers, hitFlash, fireKick, shatter as breakRig } from './characters.js'; // characters: rig events
-import { setGun, gunKick, setSunShade, sunBlocked } from './viewmodel.js'; // viewmodel: sun shade
+import { setGun, gunKick, setSunShade, sunBlocked, muzzleWorld } from './viewmodel.js'; // viewmodel: sun shade, drawn muzzle
 import { effectsGroup, addTracer, updateEffects, setMap, classifyHit, impact, playerHit, shatter as explode, casing } from './effects.js'; // effects: impacts, hits, shatter, casings
 import { addRecoil, correct, resetFeel, updateFeel, crosshair, spreadPixels, feelStats } from './feel.js'; // feel:
 import * as input from './input.js';
@@ -200,7 +200,7 @@ function ownShot(inp) {
   const targets = others(performance.now()).filter((o) => o.alive && o.id !== myId);
   const right = [Math.cos(inp.yaw), 0, -Math.sin(inp.yaw)];
   const fwd = aimDir(inp.yaw, inp.pitch);
-  const muzzle = origin.map((o, i) => o + right[i] * 0.15 + fwd[i] * 0.4 - (i === 1 ? 0.12 : 0));
+  const muzzle = muzzleWorld(render.camera, ownMuzzle).toArray(); // where the drawn gun's muzzle shows
   const dirs = shotDirs(inp.yaw, inp.pitch, weaponOf(self.arsenal), self.mover, shotRng(seed, myId, self.shots)); // effects: named, for the count
   const ends = []; // audio: world hits only; the host confirms player hits
   for (const dir of dirs) {
@@ -223,9 +223,7 @@ function hitEffects(origin, end, players, scale) {
   else if (hit.kind === 'player' && hit.id !== myId) playerHit(end, hit.dir, PLAYER_COLORS[roster.get(hit.id)?.slot], hit.head, scale);
 }
 
-// effects: someone else's shot. The host sends their eye; the tracers start
-// at their gun, 0.3 m right of it, 0.25 m down and 0.6 m out (as
-// characters.js draws it), and a case flies out to their right.
+const ownMuzzle = new Vector3();
 const remoteMuzzle = new Vector3();
 
 // A kill: the victim's drawn body breaks into cubes pushed away from the
@@ -248,6 +246,10 @@ function deathBurst(killerId, victimId) {
   else if (victim) explode(Object.values(hitboxes(victim)), color, push);
 }
 
+// Someone else's shot. The host sends their eye; the tracers start at the
+// drawn shooter's muzzle, or where it would be (0.3 m right of the eye,
+// 0.25 m down, 0.6 m out) when we can't see them, and a case flies out to
+// their right.
 function remoteShot(id, o, ends) {
   if (!world) return; // the map is still loading: nothing to hit, nothing drawn
   const dx = ends[0][0] - o[0];

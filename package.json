@@ -5,7 +5,7 @@
   "description": "Boxy LAN first-person shooter for friends on the same WiFi",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.15"
   },
   "scripts": {
     "start": "node server/index.js",
