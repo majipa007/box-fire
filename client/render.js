@@ -46,9 +46,9 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 
-export function setView(x, y, z, yaw, pitch) {
+export function setView(x, y, z, yaw, pitch, roll = 0) { // feel: roll
   camera.position.set(x, y, z);
-  camera.rotation.set(pitch, yaw, 0);
+  camera.rotation.set(pitch, yaw, roll);
 }
 
 export function draw() {
