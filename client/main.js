@@ -4,7 +4,7 @@ import * as ui from './ui.js';
 import * as render from './render.js';
 import { buildWorld } from './world.js';
 import { charactersGroup, syncPlayers } from './characters.js';
-import { setGun, gunKick } from './viewmodel.js';
+import { setGun, gunKick, setSunShade, sunBlocked } from './viewmodel.js'; // viewmodel: sun shade
 import { effectsGroup, addTracer, updateEffects } from './effects.js';
 import { recoilKick } from './feel.js';
 import * as input from './input.js';
@@ -243,6 +243,7 @@ async function enterGame() {
       if (photo) render.setView(...photo);
       ui.updateHud(self.hp, weaponOf(self.arsenal), self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0);
       setGun(weaponOf(self.arsenal), self.alive && lobby.phase === 'playing');
+      setSunShade(ui.settings.shadows && sunBlocked(eyeOf(me), world.boxes) ? 1 : 0); // viewmodel: darker in the sun's shadow, when shadows are drawn
     }
     const visible = others(now).filter((o) => o.alive && o.id !== myId);
     syncPlayers(visible, roster, frameMs / 1000);
