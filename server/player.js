@@ -1,11 +1,17 @@
 // Per-player server state: identity, connection, movement and input queue.
 import { INPUT_BUFFER, MAX_INPUT_QUEUE, NEUTRAL_MS } from '../shared/constants.js';
+import { KEY } from '../shared/movement.js';
+
+const PRESSES = KEY.USE | KEY.CYCLE; // powerups: press-once bits carried past an overflow drop
 
 export class Player {
   mover = null; // null until spawned
   arsenal = null;
   primary = 'rifle';
   hp = 0;
+  inv = []; // powerups: power-up kinds held, the first fires next
+  shield = 0; // powerups: damage a Shield still soaks
+  shieldUntil = 0; // powerups: tick it expires
   alive = false;
   respawnAt = 0; // tick
   protectedUntil = 0; // tick spawn protection ends
@@ -53,6 +59,9 @@ export class Player {
       // with the shot number and render tick it was fired with.
       const click = dropped.find((i) => i.fire);
       if (click && !this.queue[0].fire) this.queue[0] = { ...this.queue[0], fire: true, shot: click.shot, rt: click.rt };
+      // powerups: so do power-up presses (one of each at most).
+      const presses = dropped.reduce((bits, i) => bits | (i.keys & PRESSES), 0);
+      if (presses & ~this.queue[0].keys) this.queue[0] = { ...this.queue[0], keys: this.queue[0].keys | presses };
     }
   }
 

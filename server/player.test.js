@@ -68,6 +68,16 @@ test('a click inside inputs dropped by overflow still fires on the next applied 
   assert.equal(second.fire, false);
 });
 
+test('power-up presses inside inputs dropped by overflow still land on the next applied input', () => {
+  const p = player();
+  const now = steady(p, 3);
+  for (let s = 4; s <= 20; s++) p.receive(input(s, s === 6 ? { keys: KEY.USE } : s === 8 ? { keys: KEY.CYCLE | KEY.LEFT } : {}), now);
+  const [first, second] = p.nextInputs(now); // 4..12 were dropped
+  assert.equal(first.s, 13);
+  assert.equal(first.keys, KEY.FORWARD | KEY.USE | KEY.CYCLE); // the movement of 6 and 8 is not carried
+  assert.equal(second.keys, KEY.FORWARD);
+});
+
 test('after 250 ms without input the player goes neutral, then picks up where the client left off', () => {
   const p = player();
   const now = steady(p, 3); // last input received at 2 ticks

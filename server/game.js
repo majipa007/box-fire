@@ -12,6 +12,8 @@ import { freshLife, stepWeapon, weaponOf, eyeOf, shotDirs, traceShot, damageAt }
 import { shotRng } from '../shared/rng.js';
 import { Player } from './player.js';
 import { History } from './history.js';
+import { Powerups } from './powerups.js'; // powerups
+import { stepPowerups } from '../shared/powerups.js'; // powerups
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
@@ -30,6 +32,7 @@ export class Game {
     this.map = prepareMap(mapJson);
     this.spawnUsedAt = this.map.spawns.map(() => -Infinity); // tick each spawn was last used
     this.history = new History();
+    this.powerups = new Powerups(this, mapId); // powerups: pads, projectiles, mines
   }
 
   handle(conn, msg) {
@@ -113,6 +116,7 @@ export class Game {
       p.deaths = 0;
       p.alive = false;
     }
+    this.powerups.reset(); // powerups: full pads, nothing in flight
     for (const p of this.players.values()) this.spawn(p);
     this.broadcastLobby();
   }
@@ -145,6 +149,7 @@ export class Game {
     this.spawnUsedAt[i] = this.tick;
     Object.assign(p, freshLife(x, y, z, p.primary));
     p.protectedUntil = this.tick + SPAWN_PROTECT_SECONDS * TICK_RATE;
+    this.powerups.spawned(p); // powerups: empty slots, no shield
     p.queue = []; // inputs sent before this life are stale
     p.buffering = true;
     p.last = null; // nor may the last one leak a weapon slot into this life
@@ -186,6 +191,9 @@ export class Game {
           continue;
         }
         for (const input of inputs) {
+          // powerups: use / cycle first, so Nitro boosts this very step, as predicted.
+          const used = stepPowerups(p.inv, p.mover, input.keys);
+          if (used) this.powerups.use(p, used, input);
           step(p.mover, input, this.map.boxes);
           if (stepWeapon(p.arsenal, input)) {
             p.protectedUntil = 0; // firing ends spawn protection
@@ -193,6 +201,7 @@ export class Game {
           }
         }
       }
+      this.powerups.step(); // powerups: pickups, flight, mines; before the snapshot and the kill check
       this.history.record(this.tick, [...this.players.values()].filter((p) => p.alive).map((p) => {
         const { x, y, z, crouch } = p.mover;
         return [p.id, { x, y, z, crouch }];
@@ -231,6 +240,7 @@ export class Game {
 
   damage(attacker, victim, dmg, head, weapon) {
     if (this.tick < victim.protectedUntil) return; // spawn protection
+    dmg = this.powerups.absorb(victim, dmg); // powerups: a Shield soaks it first
     victim.hp = Math.max(0, victim.hp - dmg);
     const hit = encode({ t: 'event', e: 'hit', a: attacker.id, v: victim.id, dmg, head });
     sendRaw(attacker.conn, hit);
@@ -250,16 +260,19 @@ export class Game {
     const ps = JSON.stringify([...this.players.values()].filter((p) => p.mover).map((p) => {
       const m = p.mover;
       const flags = (m.crouch ? PLAYER_FLAGS.CROUCH : 0) | (p.alive ? PLAYER_FLAGS.ALIVE : 0)
-        | (this.tick < p.protectedUntil ? PLAYER_FLAGS.SHIELDED : 0);
+        | (this.tick < p.protectedUntil ? PLAYER_FLAGS.SHIELDED : 0)
+        | (m.boost > 0 ? PLAYER_FLAGS.PU_NITRO : 0) | (p.shield > 0 ? PLAYER_FLAGS.PU_SHIELD : 0); // powerups
       return [p.id, r3(m.x), r3(m.y), r3(m.z), r3(p.yaw), r3(p.pitch), flags, p.hp, WEAPON_IDS.indexOf(weaponOf(p.arsenal))];
     }));
+    const pu = this.powerups.snapshot(); // powerups
     for (const p of this.players.values()) {
       if (!p.conn) continue;
       const { ws } = p.conn;
       // A backed-up socket would only get a burst of stale snapshots.
       if (ws.readyState !== ws.OPEN || ws.bufferedAmount > MAX_BUFFERED_BYTES) continue;
-      const me = p.mover ? JSON.stringify({ mover: p.mover, arsenal: p.arsenal, hp: p.hp, alive: p.alive }) : 'null';
-      ws.send(`{"t":"snapshot","tick":${this.tick},"ack":${p.ack},"me":${me},"ps":${ps}}`);
+      // powerups: inv and shield in `me`, pads and entities in `pu`.
+      const me = p.mover ? JSON.stringify({ mover: p.mover, arsenal: p.arsenal, hp: p.hp, alive: p.alive, inv: p.inv, shield: p.shield }) : 'null';
+      ws.send(`{"t":"snapshot","tick":${this.tick},"ack":${p.ack},"me":${me},"ps":${ps},"pu":${pu}}`);
     }
   }
 
