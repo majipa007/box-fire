@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { shotRng } from '../shared/rng.js';
 import {
-  SOUNDS, REVERB, renderSound, renderIR, distGain, distCutoff, wetSend, surfacesOf, classify, surfaceUnder, pickVariant,
+  SOUNDS, REVERB, renderSound, renderIR, distGain, distCutoff, wetSend, surfacesOf, classify, surfaceUnder, pickVariant, clipCurve,
 } from './audio.js';
 
 const FS = 48000;
@@ -106,4 +106,15 @@ test('the variant picker never repeats the last variant, and uses them all', () 
   }
   assert.equal(seen.size, 4);
   assert.equal(pickVariant(1, 0, rand), 0);
+});
+
+test('the output clipper leaves normal levels alone and never reaches full scale', () => {
+  const [n, knee, range] = [4097, 0.6, 4];
+  const curve = clipCurve(n, knee, range);
+  const at = (x) => curve[Math.round(((x / range + 1) / 2) * (n - 1))];
+  assert.equal(at(0), 0);
+  assert.ok(Math.abs(at(0.5) - 0.5) < 0.005 && Math.abs(at(-0.5) + 0.5) < 0.005, 'identity below the knee');
+  assert.ok(curve.every((v) => Math.abs(v) < 1), 'never full scale');
+  assert.ok(at(1) > 0.8 && at(range) > 0.99, 'loud peaks still read as loud');
+  for (let i = 1; i < n; i++) assert.ok(curve[i] >= curve[i - 1], 'monotonic');
 });

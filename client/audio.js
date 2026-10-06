@@ -87,8 +87,10 @@ export const RICOCHET = { n: 3, gain: 0.3, vary: 0.15, layers: {
   whine: { src: 'sine', f: 2800, f1: 1100, glide: 0.2, a: 0.01, d: 0.12, g: 1, fm: [0.5, 0.3] },
   hiss: { src: 'noise', mode: 'bp', f: 4000, f1: 1800, glide: 0.2, q: 4, a: 0.005, d: 0.08, g: 0.3 },
 } };
-// Chance a hit throws a ricochet, times how grazing it is (0 head-on, 1 parallel).
+// Chance a hit throws a ricochet, times how grazing it is (0 head-on, 1 parallel),
+// and its pitch by surface: metal sings higher, concrete whines lower.
 export const RICOCHET_CHANCE = { metal: 0.6, concrete: 0.3 };
+export const RICOCHET_RATE = { metal: 1.25, concrete: 0.85 };
 export const IMPACTS_PER_SHOT = 3; // a shotgun's 12 pellets play at most this many
 export const IMPACT_SCATTER = 0.015; // the extra impacts land up to this much later
 
@@ -226,8 +228,12 @@ export const BOOST = { fade: 0.06, timeout: 0.2 }; // a loop not refreshed this 
 
 // Mix: buses, reverb, distance, ducking.
 export const MIX = { master: 0.7, sfx: 1, confirm: 0.9, reverb: 0.6 };
-export const COMPRESSOR = { threshold: -14, knee: 10, ratio: 6, attack: 0.003, release: 0.15 }; // glues the world bus
-export const LIMITER = { threshold: -3, knee: 0, ratio: 20, attack: 0.001, release: 0.1 }; // the last stage: a pile-up never clips
+// Glues the world bus. The Web Audio compressor always adds its own makeup
+// gain (about +7 dB at these settings), so the world sits hotter than its gains say.
+export const COMPRESSOR = { threshold: -14, knee: 10, ratio: 6, attack: 0.003, release: 0.15 };
+// The last stage, a soft clipper: untouched below knee, then bending toward
+// full scale, so a pile-up can never clip. Inputs up to ±range are shaped.
+export const CLIP = { knee: 0.6, range: 4 };
 export const REVERB = { seconds: 1.5, rt60: 1.2, predelay: 0.01, early: 10, earlySpread: 0.06, earlyGain: 0.4, bright: 8000, dark: 900 };
 // Others are quieter (half the level at halfGainDist), darker and relatively
 // wetter with distance, and culled past maxDist.
@@ -384,6 +390,16 @@ export function renderIR(fs, r, rand) {
   });
 }
 
+// The output soft clipper as a WaveShaper curve over inputs -range..range:
+// the identity up to knee, then a tanh bend that never reaches 1.
+export function clipCurve(n, knee, range) {
+  return Float32Array.from({ length: n }, (_, i) => {
+    const x = ((2 * i) / (n - 1) - 1) * range;
+    const a = Math.abs(x);
+    return Math.sign(x) * (a <= knee ? a : knee + (1 - knee) * Math.tanh((a - knee) / (1 - knee)));
+  });
+}
+
 /* ---------------------------------------------------------------------------
  * Space and surfaces: pure.
  * ------------------------------------------------------------------------ */
@@ -436,7 +452,7 @@ export function pickVariant(n, last, rand = Math.random) {
  * Runtime.
  * ------------------------------------------------------------------------ */
 let ctx = null; // set last in init(), so every export stays a no-op until audio fully works
-let out; // master gain → limiter → speakers
+let out; // master gain → soft clipper → speakers
 let sfx; // the world: ducked, muffled while dead, compressed
 let confirm; // your own feedback and UI: dry and never ducked
 let send; // → the convolution reverb
@@ -478,15 +494,15 @@ function init() {
   const c = new AudioContext({ latencyHint: 'interactive' });
   const t0 = performance.now();
   const fs = c.sampleRate;
-  const dynamics = (settings) => {
-    const d = c.createDynamicsCompressor();
-    for (const [k, v] of Object.entries(settings)) d[k].value = v;
-    return d;
-  };
   out = c.createGain();
   out.gain.value = MIX.master * volume;
-  out.connect(dynamics(LIMITER)).connect(c.destination);
-  const comp = dynamics(COMPRESSOR);
+  const pre = c.createGain();
+  pre.gain.value = 1 / CLIP.range; // the curve spans ±range
+  const clip = c.createWaveShaper();
+  clip.curve = clipCurve(4097, CLIP.knee, CLIP.range);
+  out.connect(pre).connect(clip).connect(c.destination);
+  const comp = c.createDynamicsCompressor();
+  for (const [k, v] of Object.entries(COMPRESSOR)) comp[k].value = v;
   muffle = c.createBiquadFilter();
   muffle.frequency.value = MUFFLE.open;
   sfx = c.createGain();
@@ -623,7 +639,7 @@ export const impacts = safe((origin, ends, heard) => {
     if (!played && hit.axis >= 0) {
       const len = Math.hypot(end[0] - origin[0], end[1] - origin[1], end[2] - origin[2]) || 1;
       const graze = 1 - Math.abs(end[hit.axis] - origin[hit.axis]) / len;
-      if (Math.random() < (RICOCHET_CHANCE[hit.surface] ?? 0) * graze) play('ricochet', { dist, pan, pri: PRI.impact });
+      if (Math.random() < (RICOCHET_CHANCE[hit.surface] ?? 0) * graze) play('ricochet', { dist, pan, rate: RICOCHET_RATE[hit.surface] ?? 1, pri: PRI.impact });
     }
     played++;
   }
