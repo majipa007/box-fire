@@ -106,15 +106,15 @@ test('bullet holes fill a ring of 256 slots, and fit on their face', () => {
   frame();
   assert.ok(decals.visible);
   assert.equal(liveSlots(decals).length, 256);
-  // 1 cm from the crate top's edge there is no room for a hole; 3 cm has room
-  // for a small one.
+  // 1 mm from the crate top's edge there is no room for a hole; 5 cm has
+  // room for one at most 10 cm across.
   const before = decals.instanceMatrix.array.slice();
-  fx.impact([5, 1.2, 0.59], [0, 1, 0], 2);
+  fx.impact([5, 1.2, 0.599], [0, 1, 0], 2);
   assert.deepEqual(decals.instanceMatrix.array, before);
-  fx.impact([5, 1.2, 0.57], [0, 1, 0], 2);
+  fx.impact([5, 1.2, 0.55], [0, 1, 0], 2);
   const changed = [...Array(decals.count).keys()].filter((i) => matrix(decals, i).some((v, k) => v !== before[i * 16 + k]));
   assert.equal(changed.length, 1);
-  assert.ok(column(matrix(decals, changed[0]), 0) <= 0.06 + 1e-6);
+  assert.ok(column(matrix(decals, changed[0]), 0) <= 0.1 + 1e-6);
   run(2);
 });
 

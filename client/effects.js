@@ -143,7 +143,11 @@ const cube = {
 };
 
 function spawnCube(p, v, s, color, life, spin, tumble) {
-  const i = cube.next;
+  // The next free slot a little ahead, sparing long-lived casings and
+  // voxels under heavy fire; failing that, the oldest goes.
+  let i = cube.next;
+  for (let k = 0; k < 32 && cube.life[i] !== 0; k++) i = (i + 1) % CUBES.pool;
+  if (cube.life[i] !== 0) i = cube.next;
   cube.next = (i + 1) % CUBES.pool;
   const i3 = i * 3;
   put(cube.pos, i3, p);
@@ -328,7 +332,7 @@ function spawnPoint(pool, p, v, color, alpha, size0, size1, life) {
   pool.alpha[i] = alpha;
   pool.size0[i] = size0;
   pool.size1[i] = size1;
-  pool.age[i] = 0;
+  pool.age[i] = -1; // not drawn yet
   pool.life[i] = life;
 }
 
@@ -338,7 +342,7 @@ function updatePoints(pool, dt) {
   let live = 0;
   for (let i = 0; i < cfg.pool; i++) {
     if (life[i] === 0) continue;
-    age[i] += dt;
+    age[i] = age[i] < 0 ? 0 : age[i] + dt; // a new point is drawn once, however slow the frame
     if (age[i] >= life[i]) {
       life[i] = 0;
       size[i] = 0;

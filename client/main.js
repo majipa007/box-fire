@@ -206,6 +206,7 @@ function hitEffects(origin, end, players, scale) {
 // at their gun, 0.3 m right of it, 0.25 m down and 0.6 m out (as
 // characters.js draws it), and a case flies out to their right.
 function remoteShot(o, ends) {
+  if (!world) return; // the map is still loading: nothing to hit, nothing drawn
   const dx = ends[0][0] - o[0];
   const dz = ends[0][2] - o[2];
   const k = 1 / (Math.hypot(dx, dz) || 1);
