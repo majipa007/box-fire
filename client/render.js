@@ -4,9 +4,14 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MAP_COLORS, SKY_COLOR, PLAYER_COLORS } from '../shared/constants.js';
 
 export const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.info.autoReset = false; // count both passes of a frame (reset in draw)
 export const scene = new THREE.Scene();
 export const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 200);
 camera.rotation.order = 'YXZ';
+
+// Shared by the player models and the first-person gun.
+const unitBox = new THREE.BoxGeometry(1, 1, 1);
+const gunMaterial = new THREE.MeshLambertMaterial({ color: '#2b2d33' });
 
 let hfov = 90; // horizontal degrees; the vertical fov follows the aspect ratio
 
@@ -69,23 +74,63 @@ export function addTracer(from, to) {
   tracers.push({ line, until: performance.now() + 60 });
 }
 
+// First-person gun: its own scene and camera, drawn after the world with
+// the depth buffer cleared, so it never clips into a wall and keeps its
+// shape whatever FOV the player picks.
+const viewScene = new THREE.Scene();
+const viewCamera = new THREE.PerspectiveCamera(60, 1, 0.01, 10);
+const gun = new THREE.Group();
+const gunBody = new THREE.Mesh(unitBox, gunMaterial);
+const flash = new THREE.Mesh(unitBox, new THREE.MeshBasicMaterial({ color: '#ffd76a' }));
+const GUN_SHAPES = { rifle: [0.045, 0.06, 0.5], pistol: [0.04, 0.07, 0.2], shotgun: [0.065, 0.065, 0.46] };
+const GUN_REST = new THREE.Vector3(0.2, -0.19, -0.6);
+let recoilAt = -Infinity;
+let flashFrames = 0;
+flash.scale.setScalar(0.05);
+gun.add(gunBody, flash);
+gun.visible = false; // until we have spawned
+viewScene.add(gun, new THREE.HemisphereLight('#ffffff', '#555555', 2.5));
+
+export function setGun(weapon, visible) {
+  gun.visible = visible;
+  const [w, h, l] = GUN_SHAPES[weapon] ?? GUN_SHAPES.rifle;
+  gunBody.scale.set(w, h, l);
+  gunBody.position.z = -l / 2;
+  flash.position.set(0, 0.01, -l - 0.05);
+}
+
+// A shot: kick the gun back and up, and flash the muzzle for two frames.
+export function gunKick() {
+  recoilAt = performance.now();
+  flashFrames = 2;
+}
+
 export function draw() {
   const now = performance.now();
+  renderer.info.reset();
   while (tracers.length && tracers[0].until <= now) {
     const { line } = tracers.shift();
     scene.remove(line);
     line.geometry.dispose();
   }
   renderer.render(scene, camera);
+  const k = Math.max(0, 1 - (now - recoilAt) / 80); // eases back over 80 ms
+  gun.position.set(GUN_REST.x, GUN_REST.y, GUN_REST.z + 0.06 * k * k);
+  gun.rotation.x = 0.15 * k * k;
+  flash.visible = flashFrames-- > 0;
+  viewCamera.aspect = camera.aspect;
+  viewCamera.updateProjectionMatrix();
+  renderer.autoClear = false;
+  renderer.clearDepth();
+  renderer.render(viewScene, viewCamera);
+  renderer.autoClear = true;
 }
 
 // Other players: four boxes plus a gun, tinted with their slot colour, and
 // a name tag. Standing is 1.8 m tall and crouched 1.2 m, matching the hitboxes.
 const STANDING = { leg: 0.75, torso: 0.75 };
 const CROUCHED = { leg: 0.35, torso: 0.55 };
-const unitBox = new THREE.BoxGeometry(1, 1, 1);
 const legBox = new THREE.BoxGeometry(1, 1, 1).translate(0, -0.5, 0); // pivots at the hip
-const gunMaterial = new THREE.MeshLambertMaterial({ color: '#2b2d33' });
 const slotMaterials = new Map();
 const rigs = new Map(); // player id → rig
 

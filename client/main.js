@@ -4,7 +4,7 @@ import * as ui from './ui.js';
 import * as render from './render.js';
 import * as input from './input.js';
 import { cleanName, encodeInput } from '../shared/protocol.js';
-import { EYE_STAND, EYE_CROUCH, TICK_RATE, MAX_HP, RESPAWN_SECONDS } from '../shared/constants.js';
+import { EYE_STAND, EYE_CROUCH, TICK_RATE, MAX_HP, RESPAWN_SECONDS, WEAPONS } from '../shared/constants.js';
 import { createMover } from '../shared/movement.js';
 import { prepareMap } from '../shared/collision.js';
 import { createArsenal, eyeOf, aimDir, traceShot, shotDirs, weaponOf } from '../shared/weapons.js';
@@ -66,6 +66,14 @@ const net = connect({
       for (const end of m.h) render.addTracer(m.o, end);
     } else if (m.e === 'hit') {
       if (m.a === myId) ui.hitMarker(m.head);
+      const attacker = m.v === myId && self.mover && others(performance.now()).find((o) => o.id === m.a);
+      if (attacker) {
+        // Direction to the attacker relative to where we look: 0 ahead, + to the right.
+        const dx = attacker.x - self.mover.x;
+        const dz = attacker.z - self.mover.z;
+        const { yaw } = input.look;
+        ui.damageArc(Math.atan2(dx * Math.cos(yaw) - dz * Math.sin(yaw), -dx * Math.sin(yaw) - dz * Math.cos(yaw)));
+      }
     } else if (m.e === 'match_end') {
       winner = m.winner === null ? null : nameOf(m.winner);
       ui.hideDeath();
@@ -111,8 +119,25 @@ function fixedStep() {
   if (!me || !world || !self.alive || lobby.phase !== 'playing') return;
   prev = { x: me.x, y: me.y, z: me.z };
   const inp = { ...input.sample(), rt: renderTick(performance.now()) };
-  if (predict(inp, world.boxes)) ownShot(inp);
+  if (predict(inp, world.boxes)) {
+    ownShot(inp); // along this packet's angles, before the kick moves them
+    recoil(weaponOf(self.arsenal));
+  }
   net.send(encodeInput(inp));
+}
+
+// Recoil: the gun kicks and the camera climbs, more with each shot of a
+// spray. Client-side only: the next packet simply carries the new pitch.
+let spray = 0;
+let lastShotAt = -Infinity;
+function recoil(weapon) {
+  const now = performance.now();
+  spray = now - lastShotAt < 300 ? spray + 1 : 1;
+  lastShotAt = now;
+  const [base, climb] = WEAPONS[weapon].kick;
+  const deg = base + climb * Math.min(spray, 8);
+  input.kick((deg * Math.PI) / 180, ((Math.random() - 0.5) * deg * Math.PI) / 180 / 4);
+  render.gunKick();
 }
 
 // Draw our own tracers at once: the same seeded pellets the server will
@@ -177,6 +202,7 @@ async function enterGame() {
       eye = lerp(eye, me.crouch ? EYE_CROUCH : EYE_STAND, Math.min(1, frameMs / 60)); // ease, don't snap
       render.setView(lerp(prev.x, me.x, a), lerp(prev.y, me.y, a) + eye, lerp(prev.z, me.z, a), input.look.yaw, input.look.pitch);
       ui.updateHud(self.hp, weaponOf(self.arsenal), self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0);
+      render.setGun(weaponOf(self.arsenal), self.alive && lobby.phase === 'playing');
     }
     render.syncPlayers(others(now).filter((o) => o.alive && o.id !== myId), roster, frameMs / 1000);
     // Match clock and leader; the scoreboard on Tab, and forced between matches.

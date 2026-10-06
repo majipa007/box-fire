@@ -32,6 +32,12 @@ export const setSlot = (s) => { slot = s; };
 
 export const setSensitivity = (s) => { radiansPerPixel = s * 0.001; };
 
+// Camera kick from recoil: moves the real aim, which the player pulls back down.
+export function kick(pitch, yaw) {
+  look.pitch = Math.min(PITCH_LIMIT, look.pitch + pitch);
+  look.yaw += yaw;
+}
+
 function bitFor(code) {
   for (const action in bindings) if (bindings[action] === code) return BITS[action];
   return 0;

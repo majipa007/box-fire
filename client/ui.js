@@ -84,6 +84,17 @@ export function addKill(killer, victim, weapon, head, mine) {
   setTimeout(() => li.remove(), 6000);
 }
 
+// A red arc on a ring around the crosshair, toward whoever just hit you.
+// angle: radians clockwise from straight ahead.
+let damageTimer = 0;
+export function damageArc(angle) {
+  const el = $('damage');
+  el.style.transform = `rotate(${angle}rad)`;
+  el.classList.add('show');
+  clearTimeout(damageTimer);
+  damageTimer = setTimeout(() => el.classList.remove('show'), 50);
+}
+
 let deathTimer = 0;
 export function showDeath(killer, seconds) {
   const el = $('death');

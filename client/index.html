@@ -48,6 +48,8 @@
   #scoreboard th:first-child, #scoreboard td:first-child { text-align: left; }
   #scoreboard tr.me td { color: var(--accent); }
   #scoreboard tr.gone td { color: var(--dim); }
+  #damage { position: absolute; left: 50%; top: 50%; width: 150px; height: 150px; margin: -75px 0 0 -75px; border-radius: 50%; border: 5px solid transparent; border-top-color: rgba(255, 40, 40, 0.85); opacity: 0; transition: opacity 1s; }
+  #damage.show { opacity: 1; transition: none; }
   #death { position: absolute; left: 50%; top: 38%; transform: translateX(-50%); font: 600 26px system-ui, sans-serif; text-shadow: 0 1px 4px #000; text-align: center; }
   #stats { position: fixed; left: 8px; top: 8px; font: 12px monospace; color: #fff; background: rgba(0, 0, 0, 0.5); padding: 2px 6px; }
 </style>
@@ -60,6 +62,7 @@
   <div id="crosshair"></div>
   <div id="matchinfo"></div>
   <div id="hitmarker"></div>
+  <div id="damage"></div>
   <div id="hp" class="hud-big"></div>
   <div id="ammo" class="hud-big"></div>
   <ul id="killfeed"></ul>

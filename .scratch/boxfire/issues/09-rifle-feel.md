@@ -4,9 +4,9 @@
 
 **Blocked by:** 08
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The gun model recoils (translates back and rotates up) and eases back over 80 ms. It is drawn in its own pass so it never clips into walls.
-- [ ] The muzzle flash shows for two frames.
-- [ ] The camera kick is client-side and climbs over 8 shots.
-- [ ] The damage-direction arc points toward the attacker.
+- [x] The gun model recoils (translates back and rotates up) and eases back over 80 ms. It is drawn in its own pass so it never clips into walls.
+- [x] The muzzle flash shows for two frames.
+- [x] The camera kick is client-side and climbs over 8 shots.
+- [x] The damage-direction arc points toward the attacker.

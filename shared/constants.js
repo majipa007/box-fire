@@ -43,14 +43,16 @@ export const EYE_CROUCH = 1.1;
 
 // Weapons: damage per hit (per pellet for the shotgun), head multiplier,
 // shots per second, magazine, reload seconds (per shell for the shotgun),
-// spread in degrees standing still and moving at run speed.
+// spread in degrees standing still and moving at run speed, and the
+// client-only camera kick: degrees per shot, plus extra per shot of a
+// spray, climbing for 8 shots.
 export const WEAPONS = {
-  pistol: { dmg: 26, head: 3, rps: 6.75, auto: false, mag: 12, reload: 1.75, spreadStand: 0.3, spreadMove: 1.5 },
-  rifle: { dmg: 40, head: 4, rps: 9.75, auto: true, mag: 25, reload: 2.5, spreadStand: 0.4, spreadMove: 2.5 },
+  pistol: { dmg: 26, head: 3, rps: 6.75, auto: false, mag: 12, reload: 1.75, spreadStand: 0.3, spreadMove: 1.5, kick: [0.9, 0] },
+  rifle: { dmg: 40, head: 4, rps: 9.75, auto: true, mag: 25, reload: 2.5, spreadStand: 0.4, spreadMove: 2.5, kick: [0.3, 0.12] },
   // Pellet damage falls from full at 8 m to a quarter at 20 m and beyond.
   shotgun: {
     dmg: 8, head: 2, rps: 1.1, auto: false, mag: 5, reload: 0.5, perShell: true,
-    spreadStand: 4, spreadMove: 4, pellets: 12, falloff: { from: 8, to: 20, min: 0.25 },
+    spreadStand: 4, spreadMove: 4, pellets: 12, falloff: { from: 8, to: 20, min: 0.25 }, kick: [2.5, 0],
   },
 };
 export const PRIMARIES = ['rifle', 'shotgun'];
