@@ -382,9 +382,12 @@ function pose(rig, p, now) {
   // Chest: up the waist, turned into the weapon's stance and against the stride.
   _m.makeRotationY(gun.twist + TWIST * move * Math.sin(rig.phase)).setPosition(0, WAIST, 0);
   bones[B.chest].multiplyMatrices(bones[B.pelvis], _m);
-  // Head: level on the neck, nodding with the aim.
+  // Head: level on the neck, nodding with the aim about its own centre, so
+  // it stays in its hitbox (which never rotates).
   _v.set(0, NECK, 0).applyMatrix4(bones[B.chest]);
-  bones[B.head].makeRotationX(Math.max(-HEAD_PITCH_MAX, Math.min(HEAD_PITCH_MAX, p.pitch * HEAD_PITCH))).setPosition(_v);
+  bones[B.head].makeRotationX(Math.max(-HEAD_PITCH_MAX, Math.min(HEAD_PITCH_MAX, p.pitch * HEAD_PITCH)))
+    .setPosition(_v.x, _v.y + HEAD_SIZE / 2, _v.z)
+    .multiply(_m.makeTranslation(0, -HEAD_SIZE / 2, 0));
   // Gun: pivots between the shoulders with the full aim pitch, kicks back and
   // up after a shot and rolls with the stride.
   const t = (now - rig.kickAt) / KICK_MS;

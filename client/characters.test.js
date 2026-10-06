@@ -40,7 +40,7 @@ function bounds(cubes) {
   return box;
 }
 
-test('the head tops out on the head hitbox, standing and crouched', () => {
+test('the head tops out on the head hitbox, standing and crouched, and nods inside it', () => {
   for (const crouch of [false, true]) {
     const at = { x: 3, y: 0, z: -2, crouch };
     const cubes = shatter(show(at).id, Infinity);
@@ -51,6 +51,13 @@ test('the head tops out on the head hitbox, standing and crouched', () => {
     ['x', 'y', 'z'].forEach((a, i) => {
       assert.ok(drawnHead.min[a] > head.min[i] - 0.02 && drawnHead.max[a] < head.max[i] + 0.02, `crouch ${crouch}: head ${a} outside its hitbox`);
     });
+    // Nodding with the aim, the head and helmet stay centred on the head box.
+    for (const pitch of [-1.2, -0.6, 0.6, 1.2]) {
+      for (const c of shatter(show({ ...at, pitch }).id, Infinity).filter((c) => ['head', 'helmet'].includes(c.part))) {
+        const off = Math.hypot(c.position.x - (head.min[0] + head.max[0]) / 2, c.position.z - (head.min[2] + head.max[2]) / 2);
+        assert.ok(off < 0.06, `crouch ${crouch} pitch ${pitch}: ${c.part} ${off.toFixed(3)} m off the head box centre`);
+      }
+    }
   }
 });
 
