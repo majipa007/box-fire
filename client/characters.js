@@ -94,7 +94,7 @@ const SWAY = 0.08; // gun roll with the stride
 const TUCK = 0.22; // feet pulled up in the air
 const AIR_GAP = 0.06; // soles this far above the ground count as airborne
 const SMOOTH_VELOCITY = 0.08; // seconds to ~63% of a change, per signal
-const SMOOTH_CROUCH = 0.06;
+const SMOOTH_CROUCH = 0.03; // short: the hitbox itself drops at once
 const SMOOTH_AIR = 0.05;
 
 // Feedback.
