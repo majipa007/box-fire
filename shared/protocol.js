@@ -1,6 +1,6 @@
 // Wire format: JSON objects tagged by `t`. Client messages are validated
 // here because they arrive from the network; server messages are trusted.
-import { NAME_MAX } from './constants.js';
+import { NAME_MAX, PRIMARIES } from './constants.js';
 
 export const encode = (msg) => JSON.stringify(msg);
 
@@ -22,6 +22,7 @@ export function decodeClient(raw) {
       return name && { t: 'join', name, bot: m.bot === true };
     }
     case 'start': return { t: 'start' };
+    case 'loadout': return PRIMARIES.includes(m.primary) ? { t: 'loadout', primary: m.primary } : null;
     case 'input': {
       const { s, rt, k, y, p, n, w } = m;
       if (!uint(s) || !uint(n) || !uint(k) || k > 0xffff || (w !== 0 && w !== 1)) return null;

@@ -28,6 +28,7 @@ const net = connect({
     mapId = m.map;
     seed = m.seed;
     ui.showRoom();
+    if (ui.settings.primary !== 'rifle') net.send({ t: 'loadout', primary: ui.settings.primary });
   },
   lobby(m) {
     roster = new Map(m.players.map((p) => [p.id, p]));
@@ -42,7 +43,7 @@ const net = connect({
   event(m) {
     if (m.e === 'spawn' && m.id === myId) {
       self.mover = { ...createMover(m.x, m.y, m.z), grounded: true }; // as the server does
-      self.arsenal = createArsenal();
+      self.arsenal = createArsenal(m.primary);
       self.hp = MAX_HP;
       self.alive = true;
       self.pending = [];
@@ -51,6 +52,7 @@ const net = connect({
       input.look.pitch = 0;
       input.setSlot(0); // every life starts on the primary
       ui.hideDeath();
+      ui.showPicker(false);
     } else if (m.e === 'shot') {
       for (const end of m.h) render.addTracer(m.o, end);
     } else if (m.e === 'hit') {
@@ -60,6 +62,7 @@ const net = connect({
       if (m.v === myId) {
         self.alive = false;
         ui.showDeath(nameOf(m.k), RESPAWN_SECONDS);
+        ui.showPicker(true);
       }
     }
   },
@@ -72,6 +75,15 @@ ui.onJoin((raw) => {
   else ui.showJoinError('bad-name');
 });
 ui.onStart(() => net.send({ t: 'start' }));
+
+// null toggles the picker; a primary is chosen for the next spawn.
+function pick(primary) {
+  if (!primary) return ui.showPicker(!ui.pickerOpen());
+  ui.settings.primary = primary;
+  ui.saveSettings();
+  net.send({ t: 'loadout', primary });
+  ui.showPicker(!self.alive); // stays up on the respawn screen
+}
 
 function applySettings() {
   input.setSensitivity(ui.settings.sens);
@@ -112,7 +124,10 @@ async function enterGame() {
     onLockChange: (locked) => (locked ? ui.hideMenu() : ui.showMenu(true)),
     onLockError: ui.showLockError,
     onNeutral: fixedStep, // one immediate step with no keys held
+    onPicker: pick,
+    pickerOpen: ui.pickerOpen,
   });
+  ui.initPicker(pick);
   ui.initMenu({ onPlay: () => input.requestLock(canvas), onChange: applySettings });
   applySettings();
   ui.showMenu(false);

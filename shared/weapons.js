@@ -49,6 +49,14 @@ export function shotDirs(yaw, pitch, weapon, m, rand) {
   });
 }
 
+// Damage of one hit (one pellet for the shotgun) at a distance in metres.
+export function damageAt(weapon, head, dist) {
+  const w = WEAPONS[weapon];
+  const f = w.falloff;
+  const scale = !f || dist <= f.from ? 1 : Math.max(f.min, 1 - ((1 - f.min) * (dist - f.from)) / (f.to - f.from));
+  return w.dmg * (head ? w.head : 1) * scale;
+}
+
 // Two boxes per player, matching the drawn model: a 0.3 m head cube on top of
 // a 1.5 m body standing, or a 0.9 m body crouched.
 export function hitboxes({ x, y, z, crouch }) {
@@ -89,14 +97,16 @@ export function stepWeapon(a, input) {
   if (a.reload > 0) {
     a.reload -= DT;
     if (a.reload <= 1e-9) {
-      a.reload = 0;
-      a.mags[a.slot] = w.mag;
+      // Shell-by-shell weapons load one at a time and keep going until full.
+      a.mags[a.slot] = w.perShell ? a.mags[a.slot] + 1 : w.mag;
+      a.reload = w.perShell && a.mags[a.slot] < w.mag ? w.reload : 0;
     }
   }
   a.cooldown -= DT;
   let fired = false;
   // Automatic weapons fire while held; semi-automatic ones once per click.
   const pull = input.fire && (w.auto || !a.trigger);
+  if (pull && w.perShell && a.reload > 0 && a.mags[a.slot] > 0) a.reload = 0; // a shot interrupts loading
   if (pull && a.switching < 1e-9 && a.reload === 0 && a.cooldown <= 0) {
     if (a.mags[a.slot] > 0) {
       a.mags[a.slot]--;

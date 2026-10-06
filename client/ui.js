@@ -7,13 +7,13 @@ const $ = (id) => document.getElementById(id);
 // Per-browser settings. Storage can be missing or blocked, so every access is
 // guarded and the defaults always work.
 const SETTINGS_KEY = 'boxfire.settings';
-export const settings = { sens: 2, fov: 90, ...loadSettings() };
+export const settings = { sens: 2, fov: 90, primary: 'rifle', ...loadSettings() };
 
 function loadSettings() {
   try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) ?? {}; } catch { return {}; }
 }
 
-function saveSettings() {
+export function saveSettings() {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* not persisted */ }
 }
 
@@ -103,6 +103,18 @@ export function hideDeath() {
   clearTimeout(deathTimer);
   $('death').hidden = true;
 }
+
+// The primary picker: B toggles it, the respawn screen shows it.
+export function initPicker(onPick) {
+  for (const primary of ['rifle', 'shotgun']) $(`pick-${primary}`).addEventListener('click', () => onPick(primary));
+}
+
+export function showPicker(open) {
+  $('picker').hidden = !open;
+  for (const primary of ['rifle', 'shotgun']) $(`pick-${primary}`).classList.toggle('chosen', settings.primary === primary);
+}
+
+export const pickerOpen = () => !$('picker').hidden;
 
 export function showStats(text) {
   $('stats').hidden = false;

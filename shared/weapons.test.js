@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createArsenal, stepWeapon, traceShot, spreadDegrees, shotDirs, aimDir } from './weapons.js';
+import { createArsenal, stepWeapon, traceShot, spreadDegrees, shotDirs, aimDir, damageAt } from './weapons.js';
 import { KEY } from './movement.js';
 import { prepareMap } from './collision.js';
 import { shotRng } from './rng.js';
@@ -128,6 +128,54 @@ test('each weapon keeps its own magazine', () => {
   shots(a, pistol(true), 1);
   shots(a, idle, 30); // back to the rifle
   assert.deepEqual(a.mags, [20, 11]);
+});
+
+test('the shotgun fires 12 pellets inside a 4° cone', () => {
+  const dirs = shotDirs(0, 0, 'shotgun', mover(0), shotRng(7, 1, 1));
+  assert.equal(dirs.length, 12);
+  for (const d of dirs) assert.ok((Math.acos(Math.min(1, -d[2])) * 180) / Math.PI <= 4 + 1e-9);
+});
+
+test('the shotgun pumps at 1.1 shots per second and holds 5 shells', () => {
+  const a = createArsenal('shotgun');
+  let n = 0;
+  for (let i = 0; i < 600 && a.mags[0] > 0; i++) if (stepWeapon(a, { ...hold, fire: i % 2 === 0 })) n++;
+  assert.equal(n, 5);
+  const b = createArsenal('shotgun');
+  b.mags[0] = 1000;
+  let m = 0;
+  for (let i = 0; i < 600; i++) if (stepWeapon(b, { ...hold, fire: i % 2 === 0 })) m++;
+  assert.ok(m === 11 || m === 12, `${m} pumps in 10 s`);
+});
+
+test('the shotgun reloads one shell every 0.5 s until full', () => {
+  const a = createArsenal('shotgun');
+  a.mags[0] = 0;
+  stepWeapon(a, { ...idle, keys: KEY.RELOAD });
+  shots(a, idle, 30);
+  assert.equal(a.mags[0], 1);
+  shots(a, idle, 120);
+  assert.equal(a.mags[0], 5);
+  assert.equal(a.reload, 0);
+});
+
+test('firing interrupts a shell-by-shell reload', () => {
+  const a = createArsenal('shotgun');
+  a.mags[0] = 0;
+  stepWeapon(a, { ...idle, keys: KEY.RELOAD });
+  shots(a, idle, 60); // two shells in
+  assert.equal(stepWeapon(a, hold), true);
+  assert.equal(a.reload, 0);
+  assert.equal(a.mags[0], 1);
+});
+
+test('shotgun damage falls off beyond 8 m; the rifle has no falloff', () => {
+  assert.equal(damageAt('shotgun', false, 5), 8);
+  assert.equal(damageAt('shotgun', false, 8), 8);
+  assert.ok(close(damageAt('shotgun', false, 14), 5));
+  assert.ok(close(damageAt('shotgun', false, 40), 2));
+  assert.equal(damageAt('shotgun', true, 5), 16);
+  assert.equal(damageAt('rifle', true, 40), 160);
 });
 
 test('R reloads a partly used magazine, but not a full one', () => {

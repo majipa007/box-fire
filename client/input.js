@@ -8,7 +8,7 @@ export const look = { yaw: 0, pitch: 0 };
 export const bindings = {
   forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD',
   jump: 'Space', walk: 'ShiftLeft', crouch: 'KeyC', reload: 'KeyR',
-  primary: 'Digit1', pistol: 'Digit2',
+  primary: 'Digit1', pistol: 'Digit2', picker: 'KeyB',
 };
 const SLOTS = { primary: 0, pistol: 1 };
 const BITS = {
@@ -55,7 +55,8 @@ export function sample() {
 // onNeutral fires when the game loses the keyboard (blur, hidden tab, lost
 // pointer lock): keyup never arrives for a background tab, so keys are
 // cleared and the caller sends a no-keys packet at once.
-export function init(target, { onLockChange, onLockError, onNeutral }) {
+// While the primary picker is open, 1 and 2 choose a loadout instead of a slot.
+export function init(target, { onLockChange, onLockError, onNeutral, onPicker, pickerOpen }) {
   const neutral = () => {
     clearKeys();
     onNeutral();
@@ -69,7 +70,12 @@ export function init(target, { onLockChange, onLockError, onNeutral }) {
   });
   addEventListener('keydown', (e) => {
     if (e.code === 'Tab') e.preventDefault(); // keep focus on the game
-    for (const action in SLOTS) if (locked && bindings[action] === e.code) slot = SLOTS[action];
+    if (locked && e.code === bindings.picker && !e.repeat) onPicker(null);
+    for (const action in SLOTS) {
+      if (!locked || bindings[action] !== e.code) continue;
+      if (pickerOpen()) onPicker(action === 'primary' ? 'rifle' : 'shotgun');
+      else slot = SLOTS[action];
+    }
     const bit = locked && bitFor(e.code);
     if (!bit) return;
     e.preventDefault();

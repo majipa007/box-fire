@@ -4,8 +4,8 @@
 
 **Blocked by:** 11, 13
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The shotgun fires 12 seeded pellets with falloff beyond 8 m. It pumps at 1.1 shots per second and holds 5 shells.
-- [ ] It reloads shell by shell, and firing interrupts the reload.
-- [ ] The picker panel opens on B and appears on the respawn screen. The choice applies at the next spawn, and the default is rifle.
+- [x] The shotgun fires 12 seeded pellets with falloff beyond 8 m. It pumps at 1.1 shots per second and holds 5 shells.
+- [x] It reloads shell by shell, and firing interrupts the reload.
+- [x] The picker panel opens on B and appears on the respawn screen. The choice applies at the next spawn, and the default is rifle.

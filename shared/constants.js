@@ -47,7 +47,13 @@ export const EYE_CROUCH = 1.1;
 export const WEAPONS = {
   pistol: { dmg: 26, head: 3, rps: 6.75, auto: false, mag: 12, reload: 1.75, spreadStand: 0.3, spreadMove: 1.5 },
   rifle: { dmg: 40, head: 4, rps: 9.75, auto: true, mag: 25, reload: 2.5, spreadStand: 0.4, spreadMove: 2.5 },
+  // Pellet damage falls from full at 8 m to a quarter at 20 m and beyond.
+  shotgun: {
+    dmg: 8, head: 2, rps: 1.1, auto: false, mag: 5, reload: 0.5, perShell: true,
+    spreadStand: 4, spreadMove: 4, pellets: 12, falloff: { from: 8, to: 20, min: 0.25 },
+  },
 };
+export const PRIMARIES = ['rifle', 'shotgun'];
 export const SWITCH_SECONDS = 0.4;
 export const HEAD_SIZE = 0.3;
 export const MAX_HP = 100;

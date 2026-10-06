@@ -2,12 +2,12 @@
 // Transport is in index.js.
 import {
   MAX_PLAYERS, PLAYER_COLORS, TICK_RATE, MAX_CATCHUP_TICKS, MAX_BUFFERED_BYTES,
-  MAX_HP, RESPAWN_SECONDS, SPAWN_REUSE_SECONDS, WEAPONS,
+  MAX_HP, RESPAWN_SECONDS, SPAWN_REUSE_SECONDS,
 } from '../shared/constants.js';
 import { encode } from '../shared/protocol.js';
 import { createMover, step } from '../shared/movement.js';
 import { prepareMap } from '../shared/collision.js';
-import { createArsenal, stepWeapon, weaponOf, eyeOf, shotDirs, traceShot } from '../shared/weapons.js';
+import { createArsenal, stepWeapon, weaponOf, eyeOf, shotDirs, traceShot, damageAt } from '../shared/weapons.js';
 import { shotRng } from '../shared/rng.js';
 import { Player } from './player.js';
 import { History } from './history.js';
@@ -35,6 +35,8 @@ export class Game {
     if (!p) return;
     if (msg.t === 'input') {
       if (p.mover) p.receive(msg, performance.now());
+    } else if (msg.t === 'loadout') {
+      p.primary = msg.primary; // takes effect at the next spawn
     } else if (msg.t === 'start' && p.id === this.hostId && this.phase === 'lobby') {
       this.phase = 'playing';
       for (const q of this.players.values()) this.spawn(q);
@@ -90,7 +92,7 @@ export class Game {
     p.buffering = true;
     p.yaw = Math.atan2(x, z); // face the arena centre
     p.pitch = 0;
-    this.broadcast({ t: 'event', e: 'spawn', id: p.id, x, y, z, yaw: p.yaw });
+    this.broadcast({ t: 'event', e: 'spawn', id: p.id, x, y, z, yaw: p.yaw, primary: p.primary });
   }
 
   freeSlot() {
@@ -132,7 +134,6 @@ export class Game {
 
   fire(p, input) {
     const weapon = weaponOf(p.arsenal);
-    const w = WEAPONS[weapon];
     const origin = eyeOf(p.mover);
     // Rewind: test against the others where this shooter saw them, at the
     // render tick their input carries, as long as they are still alive now.
@@ -144,7 +145,7 @@ export class Game {
       const hit = traceShot(origin, dir, this.map.boxes, targets);
       if (hit.id !== null) {
         const h = hits.get(hit.id) ?? { dmg: 0, head: false };
-        h.dmg += w.dmg * (hit.head ? w.head : 1);
+        h.dmg += damageAt(weapon, hit.head, hit.t);
         h.head ||= hit.head;
         hits.set(hit.id, h);
       }

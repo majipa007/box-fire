@@ -37,6 +37,12 @@ test('input with a non-finite, missing or out-of-range field is dropped', () => 
   assert.equal(decodeClient('{"t":"input","s":1,"rt":1,"k":0,"y":1e999,"p":0,"f":0,"n":0,"w":0}'), null);
 });
 
+test('loadout accepts only the two primaries', () => {
+  assert.deepEqual(decodeClient('{"t":"loadout","primary":"shotgun"}'), { t: 'loadout', primary: 'shotgun' });
+  assert.deepEqual(decodeClient('{"t":"loadout","primary":"rifle"}'), { t: 'loadout', primary: 'rifle' });
+  for (const primary of ['pistol', 'bazooka', 1, null]) assert.equal(decodeClient(JSON.stringify({ t: 'loadout', primary })), null);
+});
+
 test('start carries no payload', () => {
   assert.deepEqual(decodeClient('{"t":"start","extra":1}'), { t: 'start' });
 });
