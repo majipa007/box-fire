@@ -6,7 +6,7 @@ import { buildWorld } from './world.js';
 import { charactersGroup, syncPlayers, hitFlash, fireKick, shatter as breakRig } from './characters.js'; // characters: rig events
 import { setGun, gunKick, setSunShade, sunBlocked } from './viewmodel.js'; // viewmodel: sun shade
 import { effectsGroup, addTracer, updateEffects, setMap, classifyHit, impact, playerHit, shatter as explode, casing } from './effects.js'; // effects: impacts, hits, shatter, casings
-import { recoilKick } from './feel.js';
+import { addRecoil, correct, resetFeel, updateFeel, crosshair, spreadPixels, feelStats } from './feel.js'; // feel:
 import * as input from './input.js';
 import * as audio from './audio.js';
 import * as powerups from './powerups.js'; // powerups: pads, entities, HUD
@@ -52,7 +52,14 @@ const net = connect({
   reject(m) { ui.showJoinError(m.reason); },
   snapshot(m) {
     bufferSnapshot(m, performance.now());
-    if (world) reconcile(m, world.boxes);
+    // feel: shift the drawn path by the correction, then hide it behind an offset that fades.
+    const d = world && reconcile(m, world.boxes);
+    if (d && prev) {
+      prev.x += d.x;
+      prev.y += d.y;
+      prev.z += d.z;
+      correct(d);
+    }
     powerups.onSnapshot(m); // powerups: pads and entities
   },
   event(m) {
@@ -64,6 +71,7 @@ const net = connect({
       input.look.yaw = m.yaw;
       input.look.pitch = 0;
       input.setSlot(0); // every life starts on the primary
+      resetFeel(); // feel: no kick owed, no offsets
       ui.hideDeath();
       ui.showPicker(false);
     } else if (m.e === 'shot') {
@@ -170,7 +178,7 @@ function footsteps(id, p, dt, play) {
 
 // Recoil: the gun kicks and the camera climbs (client-side only).
 function recoil(weapon) {
-  input.kick(...recoilKick(weapon, performance.now()));
+  addRecoil(weapon, performance.now()); // feel: eases into the aim, and back out, in updateFeel
   gunKick();
 }
 
@@ -295,6 +303,8 @@ async function enterGame() {
   let statsAt = performance.now();
   let last = performance.now();
   let eye = EYE_STAND;
+  const hud = document.getElementById('hud'); // feel:
+  let shownGap = -1; // feel:
   requestAnimationFrame(function frame(now) {
     requestAnimationFrame(frame);
     const frameMs = now - last;
@@ -303,7 +313,11 @@ async function enterGame() {
     if (me) {
       const a = Math.min(1, Math.max(0, (now - start) / STEP_MS - steps)); // between the last two steps
       eye = lerp(eye, me.crouch ? EYE_CROUCH : EYE_STAND, Math.min(1, frameMs / 60)); // ease, don't snap
-      render.setView(lerp(prev.x, me.x, a), lerp(prev.y, me.y, a) + eye, lerp(prev.z, me.z, a), input.look.yaw, input.look.pitch);
+      const v = updateFeel(frameMs, now, input.look, self.alive && lobby.phase === 'playing' ? me : null, weaponOf(self.arsenal), self.arsenal.trigger); // feel:
+      render.setView(lerp(prev.x, me.x, a) + v.x, lerp(prev.y, me.y, a) + eye + v.y, lerp(prev.z, me.z, a) + v.z, input.look.yaw, input.look.pitch, v.roll); // feel: offsets, roll
+      // feel: the crosshair gap for the HUD, as --spread (CSS px) on #hud.
+      const gap = Math.round(spreadPixels(crosshair.spread, render.camera.fov, innerHeight));
+      if (gap !== shownGap) hud.style.setProperty('--spread', `${(shownGap = gap)}px`);
       if (photo) render.setView(...photo);
       ui.updateHud(self.hp, weaponOf(self.arsenal), self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0);
       setGun(weaponOf(self.arsenal), self.alive && lobby.phase === 'playing');
@@ -335,7 +349,7 @@ async function enterGame() {
     if (debug && now - statsAt > 500) {
       const { calls, triangles } = render.renderer.info.render;
       const pos = me ? [me.x, me.y, me.z].map((v) => v.toFixed(2)).join(', ') : '-';
-      ui.showStats(`${Math.round((frames * 1000) / (now - statsAt))} fps · ${calls} draws · ${triangles} tris · ${pos} · pending ${self.pending.length}`);
+      ui.showStats(`${Math.round((frames * 1000) / (now - statsAt))} fps · ${calls} draws · ${triangles} tris · ${pos} · pending ${self.pending.length} · ${feelStats()}`); // feel: stats
       frames = 0;
       statsAt = now;
     }

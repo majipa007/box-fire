@@ -46,9 +46,12 @@ export function predict(input, boxes) {
   return fired;
 }
 
+// feel: returns how far this moved our own player, { x, y, z }, so the
+// caller can smooth the correction on screen.
 export function reconcile(snapshot, boxes) {
   const me = snapshot.me;
-  if (!self.mover || !me) return;
+  if (!self.mover || !me) return null;
+  const { x, y, z } = self.mover; // feel:
   Object.assign(self.mover, me.mover);
   Object.assign(self.arsenal, me.arsenal);
   self.hp = me.hp;
@@ -61,6 +64,7 @@ export function reconcile(snapshot, boxes) {
     step(self.mover, i, boxes);
     stepWeapon(self.arsenal, i);
   }
+  return { x: self.mover.x - x, y: self.mover.y - y, z: self.mover.z - z }; // feel:
 }
 
 // Other players are drawn INTERP_DELAY_TICKS behind the server's current
