@@ -5,14 +5,14 @@ import * as render from './render.js';
 import { buildWorld } from './world.js';
 import { charactersGroup, syncPlayers } from './characters.js';
 import { setGun, gunKick } from './viewmodel.js';
-import { effectsGroup, addTracer, updateEffects } from './effects.js';
+import { effectsGroup, addTracer, updateEffects, setMap, classifyHit, impact, playerHit, shatter, casing } from './effects.js'; // effects: impacts, hits, shatter, casings
 import { recoilKick } from './feel.js';
 import * as input from './input.js';
 import * as audio from './audio.js';
 import { cleanName, encodeInput, byScore } from '../shared/protocol.js';
-import { EYE_STAND, EYE_CROUCH, TICK_RATE, RESPAWN_SECONDS, WALK_SPEED, NEUTRAL_MS } from '../shared/constants.js';
+import { EYE_STAND, EYE_CROUCH, TICK_RATE, RESPAWN_SECONDS, WALK_SPEED, NEUTRAL_MS, PLAYER_COLORS } from '../shared/constants.js'; // effects: PLAYER_COLORS
 import { prepareMap } from '../shared/collision.js';
-import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf } from '../shared/weapons.js';
+import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf, hitboxes } from '../shared/weapons.js'; // effects: hitboxes
 import { shotRng } from '../shared/rng.js';
 
 const STEP_MS = 1000 / TICK_RATE;
@@ -63,7 +63,7 @@ const net = connect({
       ui.hideDeath();
       ui.showPicker(false);
     } else if (m.e === 'shot') {
-      for (const end of m.h) addTracer(m.o, end);
+      remoteShot(m.o, m.h); // effects: tracers from their gun, impacts, a casing
       audio.gunshot(m.w, ...heard(m.o[0], m.o[2]));
     } else if (m.e === 'hit') {
       if (m.a === myId) {
@@ -84,6 +84,12 @@ const net = connect({
       ui.showPicker(false);
     } else if (m.e === 'kill') {
       ui.addKill(nameOf(m.k), nameOf(m.v), m.w, m.head, m.k === myId || m.v === myId);
+      // effects: the victim breaks into cubes, pushed away from the killer.
+      const victim = m.v !== myId && others(performance.now()).find((o) => o.id === m.v);
+      if (victim) {
+        const killer = m.k === myId ? self.mover : others(performance.now()).find((o) => o.id === m.k);
+        shatter(Object.values(hitboxes(victim)), PLAYER_COLORS[roster.get(m.v)?.slot], killer && [victim.x - killer.x, 0, victim.z - killer.z]);
+      }
       if (m.v === myId) {
         audio.deathThud();
         self.alive = false;
@@ -177,10 +183,41 @@ function ownShot(inp) {
   const right = [Math.cos(inp.yaw), 0, -Math.sin(inp.yaw)];
   const fwd = aimDir(inp.yaw, inp.pitch);
   const muzzle = origin.map((o, i) => o + right[i] * 0.15 + fwd[i] * 0.4 - (i === 1 ? 0.12 : 0));
-  for (const dir of shotDirs(inp.yaw, inp.pitch, weaponOf(self.arsenal), self.mover, shotRng(seed, myId, self.shots))) {
+  const dirs = shotDirs(inp.yaw, inp.pitch, weaponOf(self.arsenal), self.mover, shotRng(seed, myId, self.shots)); // effects: named, for the count
+  for (const dir of dirs) {
     const { t } = traceShot(origin, dir, world.boxes, targets);
-    addTracer(muzzle, origin.map((o, i) => o + dir[i] * t));
+    const end = origin.map((o, i) => o + dir[i] * t); // effects: named, for the impact
+    addTracer(muzzle, end);
+    hitEffects(origin, end, targets, 1 / Math.sqrt(dirs.length)); // effects:
   }
+  // effects: the case flies out right of the gun, carried along with us.
+  casing(origin.map((o, i) => o + right[i] * 0.3 + fwd[i] * 0.35 - (i === 1 ? 0.2 : 0)), right, [self.mover.vx, self.mover.vy, self.mover.vz]);
+}
+
+// effects: what a shot's end hit: chips and a hole in the map, cubes off a
+// player (never our own body: we look out from inside it).
+function hitEffects(origin, end, players, scale) {
+  const hit = classifyHit(origin, end, players);
+  if (hit.kind === 'wall') impact(end, hit.normal, hit.surface, scale);
+  else if (hit.kind === 'player' && hit.id !== myId) playerHit(end, hit.dir, PLAYER_COLORS[roster.get(hit.id)?.slot], hit.head, scale);
+}
+
+// effects: someone else's shot. The host sends their eye; the tracers start
+// at their gun, 0.3 m right of it, 0.25 m down and 0.6 m out (as
+// characters.js draws it), and a case flies out to their right.
+function remoteShot(o, ends) {
+  const dx = ends[0][0] - o[0];
+  const dz = ends[0][2] - o[2];
+  const k = 1 / (Math.hypot(dx, dz) || 1);
+  const right = [-dz * k, 0, dx * k];
+  const gun = (ahead) => [o[0] + right[0] * 0.3 + dx * k * ahead, o[1] - 0.25, o[2] + right[2] * 0.3 + dz * k * ahead];
+  const muzzle = gun(0.6);
+  const players = others(performance.now()).filter((p) => p.alive);
+  for (const end of ends) {
+    addTracer(muzzle, end);
+    hitEffects(o, end, players, 1 / Math.sqrt(ends.length));
+  }
+  casing(gun(0.2), right);
 }
 
 async function enterGame() {
@@ -212,6 +249,8 @@ async function enterGame() {
   buildWorld(render.scene, map);
   render.scene.add(charactersGroup, effectsGroup);
   world = prepareMap(map);
+  setMap(map); // effects: debris lands on the map; shots find the face they hit
+  render.renderer.compile(render.scene, render.camera); // effects: build the effect shaders now, not mid-fight
 
   // Fixed 60 Hz steps on the wall clock, on their own timer so a slow frame
   // on the GPU does not bunch inputs up.
