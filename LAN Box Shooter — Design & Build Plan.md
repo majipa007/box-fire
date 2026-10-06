@@ -1,10 +1,10 @@
 # Boxfire — Design & Build Plan
 
-05/10/2026 · @Sulav Kumar Shresta
+05/10/2026, updated 06/10/2026 · @Sulav Kumar Shresta
 
 ## Overview
 
-A browser first-person shooter, boxy and flat-shaded, that friends play over the same WiFi with no internet and no installs. One person hosts; everyone else opens a URL. Version 1 is free-for-all deathmatch only.
+A browser first-person shooter in a boxy voxel style that friends play over the same WiFi with no internet and no installs. One person hosts; everyone else opens a URL. Version 1 is free-for-all deathmatch only.
 
 Hard constraints:
 
@@ -14,7 +14,7 @@ Hard constraints:
 - Join in under 30 seconds: open URL, type a name, you are in the lobby.
 - Up to 10 players; the cap is one constant, judged for crowding in the first real session.
 
-Out of scope for v1: abilities, round economy, spike plant, voice chat, mobile, accounts.
+Out of scope for v1: abilities (Blur-style power-ups are in; see Power-ups), round economy, spike plant, voice chat, mobile, accounts.
 
 Assumed for v1:
 
@@ -94,7 +94,7 @@ Phases run lobby → playing → scoreboard (15 s) → playing. Someone joining 
 Movement is Valorant-style: no sprint, no air strafing.
 
 - Run 5.5 m/s, walk (Shift) 2.7 m/s, crouch 1.8 m/s with eye height dropping from 1.6 m to 1.1 m.
-- Jump \~1 m high; gravity 20 m/s²; in-air control 20% of ground control. Jumpable ledges are at most 0.75 m; anything taller is reached over a 0.6 m crate. No slopes, stairs or step-up logic in v1.
+- Jump \~1 m high; gravity 20 m/s²; in-air control 20% of ground control. A jump still works for 5 ticks after walking off a ledge (coyote time), and a jump pressed up to 6 ticks before landing fires on landing (jump buffer). Jumpable ledges are at most 0.75 m; anything taller is reached over a 0.6 m crate. No slopes, stairs or step-up logic in v1.
 - Player collider: axis-aligned box 0.6 × 1.8 × 0.6 m standing, 0.6 × 1.2 × 0.6 m crouched, swept against the map's boxes. Crouching shrinks the collider from the top, in the air too, so there is no crouch-jump in v1 and the ledge rules above hold. Standing up is blocked while anything is above the head.
 - Players pass through each other. There is no player-vs-player collision, because predicting collisions against players drawn 33 ms in the past rubber-bands both of them.
 
@@ -121,18 +121,35 @@ Handling rules, every number in `constants.js`:
 
 Hitboxes are two boxes per player: a 0.3 m head cube on a 0.6 × 1.5 × 0.6 m body standing, or a 0.6 × 0.9 × 0.6 m body crouched; the server tests the head first, against rewound positions.
 
+### Power-ups
+
+Seven Blur-inspired pickups sit on 9 pads around the arena. You carry up to three: Q uses the selected one, E cycles. Each use locks the gun for 0.25 s (0.55 s for Bolt), and there is a 1 s gap between uses.
+
+| Power-up | What it does |
+| --- | --- |
+| Shunt | Homing rocket locked on the enemy nearest your crosshair; 60 on a direct hit, splash to others. One bullet shoots it down |
+| Bolt | Three hitscan bolts of 25, 0.25 s apart |
+| Barge | Instant 5 m wave that throws enemies back and clears Shunts and Mines |
+| Shock | Three domes strike ahead of the leader: 30 damage and a 2 s slow. Dodgeable |
+| Mine | Dropped at your feet; arms after 0.8 s; 60 at the centre. Shootable |
+| Nitro | 4 s at 1.4× run speed |
+| Shield | 60-point overshield for 8 s |
+
+Nothing heals, no single use kills from full health, and power-up kills should stay at or below 25% of all kills. Pickups, damage and knockback are server-authoritative; your own uses, cooldown, Nitro and Shield are predicted like weapons. Every number lives in `shared/constants.js` (`POWERS`, `POWER_PADS`); the full spec is `docs/bible.md` §4.
+
 The v1 map is one 40 × 40 m arena in `shared/maps/arena_01.json`: a list of boxes (`pos`, `size`, `color`) plus spawn points. Open middle, two side lanes, scattered crates for cover, one raised platform at 1.2 m reached over a 0.6 m crate, 4 m perimeter walls. Because a map is pure data, a second map is just another JSON file.
 
 ## Look and performance
 
-Flat-shaded boxes, no textures, no post-processing. Two palettes: a muted six-colour palette for the map, and a separate ten-colour player palette fixed per slot, so players always pop against the map. The budget is 60 fps at 1080p on an Intel Iris Xe class iGPU, which means under 300 draw calls and under 50k triangles per frame.
+The art and feel spec is `docs/bible.md`, with every colour, size, timing and budget. In short: a working limestone quarry at about 4 pm. Chalky concrete and drifted sand sit under a cobalt sky, with a warm 40° sun and cool blue-grey shade, stepped cut faces and a rust crusher tower on the skyline. The world stays muted; only players and power-ups are saturated. Players read by value (dark kit and a dark outline) and are identified by their slot colour. The budget is 60 fps at 1080p on an Intel Iris Xe class iGPU: about 37 draw calls and 53k triangles typical, about 4.5 ms of GPU time estimated.
 
-- Rendering: Three.js, `MeshLambertMaterial` with `flatShading`, one directional light plus a hemisphere light, light fog in the sky colour so the arena edge fades out. Shadows are a settings toggle, default off; a single 2048 shadow map when on.
-- Static map: merge every box into one geometry per colour with `BufferGeometryUtils.mergeGeometries` (from the vendored Three.js addons), so the whole map is a handful of draw calls.
-- Player model: four boxes (head, torso, two legs) plus a gun box, tinted with the colour of the player's slot. Name tag drawn on a canvas sprite above the head. Legs swing with movement speed; crouch scales the torso down.
-- Weapon viewmodel: a box gun bottom-right with a recoil kick (translate back, rotate up, ease back over 80 ms). Muzzle flash is an emissive box shown for two frames. Tracer is a thin line from muzzle to hit point for 60 ms.
-- Audio: Web Audio API synthesis only in v1 (gunshot = noise burst with a fast envelope, hit tick, footsteps, death thud), so there are zero asset files. Swap in .ogg later if wanted. The `AudioContext` starts on the click-to-play click (gotcha 3).
-- Settings exposed: render scale 50–100%, FOV 70–110, shadows on/off, sensitivity, crosshair colour and size, and a low-end preset (50% scale, no shadows).
+- Rendering: Three.js with Lambert materials, Neutral tone mapping plus a light grade, and a sky dome with a sun disc and clouds. Everything static is baked once: per-vertex AO with sand drifts, and the sun's shadow map (shadows default on). Procedural, nearest-filtered canvas textures; no texture files.
+- Static map: one merged mesh per material, so the whole map is a handful of draw calls.
+- Players: instanced voxel soldiers (about 27 boxes each) with a 2 px outline, blob shadows, run and crouch animation, a hit flash and a voxel death shatter. Name tags are DOM, shown only near the crosshair with a clear line of sight.
+- Weapon viewmodel: box-built arms and guns with spring motion, reload and switch animations, a muzzle flash and ejected casings.
+- Effects: pooled chips, sparks, dust, decals and tracers, all normal-blended so they read in daylight.
+- Audio: Web Audio synthesis only, so there are zero asset files: layered gunshots with a slapback echo off the cut faces, hit and kill confirmations, footsteps by surface, and a sound per power-up. The `AudioContext` starts on the click-to-play click (gotcha 3).
+- Settings exposed: quality preset (Default or Low), MSAA, render scale 50–100% with optional dynamic resolution, shadows, brightness, view bob, FOV 70–110, sensitivity, crosshair colour and size.
 - `?debug` on the URL shows fps, draw calls, triangles, your position and unacknowledged inputs, for checking the 60 fps budget on the real laptops.
 
 ## Stack and repo layout
@@ -147,11 +164,14 @@ One npm dependency on the server (`ws`), zero on the client, no bundler.
 ```
 boxfire/
 ├─ package.json            # "type": "module"; "start": "node server/index.js", "bot": "node tools/bot.js"
+├─ docs/
+│  └─ bible.md             # art, feel and power-up spec: every colour, size, timing and budget
 ├─ server/
 │  ├─ index.js             # node:http static files + ws, heartbeat, prints LAN URL, host election
 │  ├─ game.js              # 60 Hz tick loop, phases, authoritative state, shots and damage, snapshots, tick log
 │  ├─ player.js            # per-player state, input queue + hygiene, fire carry-forward, respawn timer
-│  └─ history.js           # 1 s ring buffer of hitbox positions, blended at fractional ticks
+│  ├─ history.js           # 1 s ring buffer of hitbox positions, blended at fractional ticks
+│  └─ powerups.js          # pads, rockets, mines, domes, power-up damage and knockback
 ├─ shared/
 │  ├─ constants.js         # TICK_RATE, INPUT_BUFFER, INTERP_DELAY_TICKS, speeds, weapon stats, palettes
 │  ├─ movement.js          # step(player, input, dt, map) — same code both sides
@@ -159,6 +179,7 @@ boxfire/
 │  ├─ weapons.js           # cooldown, magazines, reload, switch, spread, hitboxes, shot trace — both sides
 │  ├─ rng.js               # seeded PRNG for spread and pellets
 │  ├─ protocol.js          # message types, encode / validated decode
+│  ├─ powerups.js          # power-up inventory step, predicted on the client like weapons
 │  └─ maps/
 │     └─ arena_01.json
 ├─ client/
@@ -166,9 +187,16 @@ boxfire/
 │  ├─ main.js              # boot, render loop, 60 Hz input timer, own shots, recoil, footsteps
 │  ├─ net.js               # ws client, snapshot buffer, prediction + reconcile, freeze on starvation
 │  ├─ input.js             # pointer lock, latched fire / jump, key state → input packets, neutral on blur
-│  ├─ render.js            # scene, merged map, player meshes, first-person gun, tracers, muzzle flash
+│  ├─ render.js            # renderer, camera, the world and viewmodel passes, dynamic resolution
+│  ├─ world.js             # lights, grade, sky, skyline, baked AO and shadow, the merged map
+│  ├─ textures.js          # procedural canvas textures
+│  ├─ characters.js        # instanced voxel soldiers, outline, animation, name-tag positions
+│  ├─ viewmodel.js         # first-person arms and guns, springs, muzzle flash, casings
+│  ├─ effects.js           # pooled impacts, tracers, decals, blasts, death shatter
+│  ├─ feel.js              # recoil recovery, bob, landing dip, shake, correction smoothing
+│  ├─ powerups.js          # pads, beams, rockets, mines and threats on the client
 │  ├─ ui.js                # lobby, HUD, kill feed, scoreboard, Esc menu, weapon picker; names via textContent
-│  ├─ audio.js             # Web Audio synth
+│  ├─ audio.js             # Web Audio synth, mix and slapback
 │  └─ vendor/
 │     ├─ three.module.js
 │     ├─ three.core.js
@@ -229,15 +257,17 @@ Every keyboard action can be rebound from the Esc menu (taking a key another act
 | Crouch | C, hold (not Ctrl: Ctrl+W closes the tab) |
 | Reload | R |
 | Switch weapon | 1 / 2 / scroll wheel |
+| Use power-up | Q |
+| Next power-up | E |
 | Pick primary (rifle / shotgun) | B |
 | Scoreboard | Tab, hold |
 | Menu / release mouse | Esc |
 
-HUD: crosshair centre with a hit marker flash; HP bottom-left; ammo as `mag / ∞` bottom-right; kill feed top-right; match timer and current leader top-centre; a red arc on the crosshair pointing toward whoever just hit you.
+HUD: a dynamic crosshair that opens with spread, plus hit and kill markers; HP and Shield bottom-left; ammo and reload bottom-right; three power-up slots bottom-centre; kill feed top-right; match timer, your rank and the leader top-centre; a damage vignette and a red arc pointing toward whoever just hit you; warnings for an incoming Shock or a locked Shunt. Layout and sizes: `docs/bible.md` §6.
 
 ## After v1 and open decisions
 
-Later phases, in rough order: spike plant mode (5v5, attack and defend, rounds, buy phase, simple economy) → second and third maps → abilities, starting with two or three simple ones (smoke box, flash, dash) → host as a single executable → voice chat, which needs HTTPS for `getUserMedia`, so a self-signed certificate and one browser warning click.
+Later phases, in rough order: spike plant mode (5v5, attack and defend, rounds, buy phase, simple economy) → second and third maps → abilities beyond the power-ups, starting with two or three simple ones (smoke box, flash, dash) → host as a single executable → voice chat, which needs HTTPS for `getUserMedia`, so a self-signed certificate and one browser warning click.
 
 Still to decide:
 
