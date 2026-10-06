@@ -3,7 +3,7 @@ import { connect, self, predict, reconcile, bufferSnapshot, syncClock, serverTic
 import * as ui from './ui.js';
 import * as render from './render.js';
 import { buildWorld } from './world.js';
-import { charactersGroup, syncPlayers } from './characters.js';
+import { charactersGroup, syncPlayers, hitFlash, fireKick, shatter } from './characters.js'; // characters: rig events
 import { setGun, gunKick } from './viewmodel.js';
 import { effectsGroup, addTracer, updateEffects } from './effects.js';
 import { recoilKick } from './feel.js';
@@ -63,9 +63,11 @@ const net = connect({
       ui.hideDeath();
       ui.showPicker(false);
     } else if (m.e === 'shot') {
+      fireKick(m.id); // characters: the shooter's gun kicks
       for (const end of m.h) addTracer(m.o, end);
       audio.gunshot(m.w, ...heard(m.o[0], m.o[2]));
     } else if (m.e === 'hit') {
+      hitFlash(m.v); // characters: the victim flashes white
       if (m.a === myId) {
         ui.hitMarker(m.head);
         audio.hitTick(m.head);
@@ -83,6 +85,7 @@ const net = connect({
       ui.hideDeath();
       ui.showPicker(false);
     } else if (m.e === 'kill') {
+      shatter(m.v); // characters: the victim vanishes now; effects should explode the cubes this returns
       ui.addKill(nameOf(m.k), nameOf(m.v), m.w, m.head, m.k === myId || m.v === myId);
       if (m.v === myId) {
         audio.deathThud();
@@ -245,7 +248,7 @@ async function enterGame() {
       setGun(weaponOf(self.arsenal), self.alive && lobby.phase === 'playing');
     }
     const visible = others(now).filter((o) => o.alive && o.id !== myId);
-    syncPlayers(visible, roster, frameMs / 1000);
+    syncPlayers(visible, roster, frameMs / 1000, world.boxes); // characters: the ground under each player
     // Our own steps from our velocity, which is exact; frame-to-frame position
     // changes jump around because the mover only moves at 60 Hz.
     if (me && self.alive && me.grounded && Math.hypot(me.vx, me.vz) > WALK_SPEED + 0.3) {
