@@ -7,7 +7,7 @@
 //   onEvent(m, myId) per event; update(now, visible) per frame.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { POWERUPS, POWERUP_SLOTS, TICK_RATE } from '../shared/constants.js';
+import { POWERUPS, POWERUP_SLOTS, TICK_RATE, STAND_HEIGHT, CROUCH_HEIGHT } from '../shared/constants.js';
 import { padsFor } from '../shared/powerups.js';
 import { readEntity, PLAYER_FLAGS } from '../shared/protocol.js';
 import { self, renderTick, serverTick } from './net.js';
@@ -36,6 +36,7 @@ const PICKUP_BOB_HZ = 0.6;
 const PICKUP_SPIN_HZ = 0.3;
 const PICKUP_GLOW = 1.6; // m across
 const PICKUP_GLOW_ALPHA = 0.7;
+const PICKUP_PHASE_STEP = 1.7; // radians of bob and spin between one pad and the next
 const PICKUP_REGROW = 1; // s: the gem grows back over the last second of a refill
 // Projectiles: a gem stretched along the flight, a glow and a fading trail.
 const SHOT_SIZE = { shunt: 0.3, bolt: 0.18 }; // m wide
@@ -65,6 +66,7 @@ const BARGE_RING_INNER = 0.88;
 // Puffs: the small flash where a power-up is picked up, or used by someone else.
 const PUFF_SECONDS = 0.35;
 const PUFF_SIZE = 2.2; // m across
+const PUFF_HEIGHT = 0.9; // m above the user's feet
 // On other players.
 const BUBBLE_RADIUS = 1.1; // m, centred on the body
 const BUBBLE_ALPHA = 0.85;
@@ -74,7 +76,13 @@ const NITRO_GLOW_ALPHA = 0.6;
 // HUD.
 const HUD_SLOT_PX = 44;
 const HUD_FIRST_PX = 56; // the slot that fires next
-const HUD_EMPTY = 'rgba(255, 255, 255, 0.22)';
+const HUD_BOTTOM_PX = 16;
+const HUD_GAP_PX = 6;
+const HUD_RADIUS_PX = 8;
+const HUD_FONT = '600 11px system-ui, sans-serif';
+const HUD_BG = 'rgba(0, 0, 0, 0.35)';
+const HUD_EMPTY = 'rgba(255, 255, 255, 0.22)'; // border of an empty slot
+const HUD_GLOW_PX = 10; // a full slot glows in its colour
 // Capacities: the most instances drawn per frame.
 const MAX_GEMS = 96;
 const MAX_GLOWS = 512;
@@ -226,7 +234,7 @@ const tint = new THREE.Color();
 export function init(scene, mapId) {
   const gemMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
   gemMesh = instanced(gemGeometry(), gemMaterial, MAX_GEMS);
-  pads = padsFor(mapId).map(([x, y, z, kind], i) => ({ x, y, z, kind, color: COLORS[kind], phase: i * 1.7 }));
+  pads = padsFor(mapId).map(([x, y, z, kind], i) => ({ x, y, z, kind, color: COLORS[kind], phase: i * PICKUP_PHASE_STEP }));
   padMesh = instanced(padGeometry(), gemMaterial, Math.max(1, pads.length));
   pads.forEach((p, i) => padMesh.setMatrixAt(i, m4.makeTranslation(p.x, p.y, p.z)));
   padMesh.count = pads.length;
@@ -266,7 +274,7 @@ export function onEvent(m, myId) {
     addFx(p.x, p.y + PICKUP_HOVER, p.z, p.color, PUFF_SIZE, FLASH, PUFF_SECONDS);
   } else if (m.e === 'powerup' && COLORS[m.k]) {
     // Our own use shows on the HUD; a flash on the camera would only blind us.
-    if (m.id !== myId) addFx(m.x, m.y + 0.9, m.z, COLORS[m.k], PUFF_SIZE, FLASH, PUFF_SECONDS);
+    if (m.id !== myId) addFx(m.x, m.y + PUFF_HEIGHT, m.z, COLORS[m.k], PUFF_SIZE, FLASH, PUFF_SECONDS);
     if (m.k === 'barge') addFx(m.x, m.y + 0.05, m.z, COLORS.barge, 2 * POWERUPS.barge.radius, FLOOR, BARGE_RING_SECONDS);
   }
 }
@@ -290,7 +298,7 @@ export function update(now, visible) {
   drawEntities(now, s);
   for (const f of fx) if (f.until > now) drawFx(f, now);
   for (const o of visible) {
-    if (o.flags & PLAYER_FLAGS.PU_SHIELD) bubble(o.x, o.y + (o.crouch ? 0.6 : 0.9), o.z, BUBBLE_RADIUS, COLORS.shield);
+    if (o.flags & PLAYER_FLAGS.PU_SHIELD) bubble(o.x, o.y + (o.crouch ? CROUCH_HEIGHT : STAND_HEIGHT) / 2, o.z, BUBBLE_RADIUS, COLORS.shield);
     if (o.flags & PLAYER_FLAGS.PU_NITRO) glow(o.x, o.y + 0.03, o.z, NITRO_GLOW, COLORS.nitro, NITRO_GLOW_ALPHA, FLAT);
   }
   gemMesh.count = gems;
@@ -428,14 +436,14 @@ const keyName = (code) => code.replace(/^Key|^Digit/, '');
 function buildHud() {
   const hud = document.createElement('div');
   hud.id = 'powerups';
-  hud.style.cssText = 'position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:4px;font:600 11px system-ui,sans-serif;color:#fff;text-shadow:0 1px 2px #000;pointer-events:none';
+  hud.style.cssText = `position:absolute;left:50%;bottom:${HUD_BOTTOM_PX}px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:4px;font:${HUD_FONT};color:#fff;text-shadow:0 1px 2px #000;pointer-events:none`;
   statusEl = document.createElement('div');
   const row = document.createElement('div');
-  row.style.cssText = 'display:flex;align-items:flex-end;gap:6px';
+  row.style.cssText = `display:flex;align-items:flex-end;gap:${HUD_GAP_PX}px`;
   slotEls = Array.from({ length: POWERUP_SLOTS }, (_, i) => {
     const el = document.createElement('div');
     const px = i === 0 ? HUD_FIRST_PX : HUD_SLOT_PX;
-    el.style.cssText = `width:${px}px;height:${px}px;box-sizing:border-box;border:2px solid ${HUD_EMPTY};border-radius:8px;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;text-transform:uppercase;letter-spacing:0.03em`;
+    el.style.cssText = `width:${px}px;height:${px}px;box-sizing:border-box;border:2px solid ${HUD_EMPTY};border-radius:${HUD_RADIUS_PX}px;background:${HUD_BG};display:flex;align-items:center;justify-content:center;text-transform:uppercase;letter-spacing:0.03em`;
     return el;
   });
   row.append(...slotEls);
@@ -453,7 +461,7 @@ function updateHud() {
     const el = slotEls[i];
     el.textContent = KIND_LABELS[kind] ?? '';
     el.style.borderColor = KIND_COLORS[kind] ?? HUD_EMPTY;
-    el.style.boxShadow = kind ? `0 0 10px ${KIND_COLORS[kind]}` : 'none';
+    el.style.boxShadow = kind ? `0 0 ${HUD_GLOW_PX}px ${KIND_COLORS[kind]}` : 'none';
   }
   const shield = Math.ceil(self.shield);
   const boost = Math.ceil((self.mover?.boost ?? 0) * 10) / 10;
