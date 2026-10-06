@@ -7,7 +7,9 @@ const $ = (id) => document.getElementById(id);
 // Per-browser settings. Storage can be missing or blocked, so every access is
 // guarded and the defaults always work.
 const SETTINGS_KEY = 'boxfire.settings';
-export const settings = { sens: 2, fov: 90, primary: 'rifle', ...loadSettings() };
+export const settings = {
+  sens: 2, fov: 90, scale: 100, shadows: false, xsize: 4, xcolor: '#00ff00', primary: 'rifle', ...loadSettings(),
+};
 
 function loadSettings() {
   try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) ?? {}; } catch { return {}; }
@@ -17,20 +19,41 @@ export function saveSettings() {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* not persisted */ }
 }
 
-export function initMenu({ onPlay, onChange }) {
-  for (const [id, key] of [['set-sens', 'sens'], ['set-fov', 'fov']]) {
+const CONTROLS = [['set-sens', 'sens'], ['set-fov', 'fov'], ['set-scale', 'scale'], ['set-shadows', 'shadows'], ['set-xsize', 'xsize'], ['set-xcolor', 'xcolor']];
+
+function showControls() {
+  for (const [id, key] of CONTROLS) {
     const input = $(id);
-    const out = input.nextElementSibling;
-    input.value = settings[key];
-    out.textContent = input.value;
-    input.addEventListener('input', () => {
-      settings[key] = Number(input.value);
-      out.textContent = input.value;
+    if (input.type === 'checkbox') input.checked = settings[key];
+    else input.value = settings[key];
+    input.nextElementSibling.textContent = input.type === 'checkbox' || input.type === 'color' ? '' : input.value;
+  }
+}
+
+export function initMenu({ onPlay, onChange }) {
+  for (const [id, key] of CONTROLS) {
+    $(id).addEventListener('input', (e) => {
+      const input = e.target;
+      settings[key] = input.type === 'checkbox' ? input.checked : input.type === 'color' ? input.value : Number(input.value);
+      showControls();
       saveSettings();
       onChange();
     });
   }
+  $('low-end').addEventListener('click', () => {
+    Object.assign(settings, { scale: 50, shadows: false });
+    showControls();
+    saveSettings();
+    onChange();
+  });
+  showControls();
   $('play').addEventListener('click', onPlay);
+}
+
+export function applyCrosshair() {
+  const el = $('crosshair');
+  const size = Number(settings.xsize) || 4;
+  Object.assign(el.style, { width: `${size}px`, height: `${size}px`, margin: `${-size / 2}px 0 0 ${-size / 2}px`, background: settings.xcolor });
 }
 
 export function enterGame() {

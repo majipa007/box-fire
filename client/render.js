@@ -14,6 +14,8 @@ const unitBox = new THREE.BoxGeometry(1, 1, 1);
 const gunMaterial = new THREE.MeshLambertMaterial({ color: '#2b2d33' });
 
 let hfov = 90; // horizontal degrees; the vertical fov follows the aspect ratio
+let renderScale = 1; // fraction of native resolution
+const sun = new THREE.DirectionalLight('#ffffff', 2.6);
 
 export function init() {
   renderer.domElement.id = 'view';
@@ -22,8 +24,11 @@ export function init() {
   scene.fog = new THREE.Fog(SKY_COLOR, 25, 70);
   // Three.js lights are physically based: intensities near π read as "normal".
   scene.add(new THREE.HemisphereLight('#dfe8f2', '#5a5f6a', 2.4));
-  const sun = new THREE.DirectionalLight('#ffffff', 2.6);
   sun.position.set(12, 30, 8);
+  // One 2048 shadow map covering the arena, used only when shadows are on.
+  sun.shadow.mapSize.set(2048, 2048);
+  Object.assign(sun.shadow.camera, { left: -26, right: 26, top: 26, bottom: -26, near: 1, far: 90 });
+  sun.shadow.camera.updateProjectionMatrix();
   scene.add(sun);
   addEventListener('resize', resize);
   resize();
@@ -41,6 +46,8 @@ export function addMap(map) {
   }
   for (const [color, geoms] of byColor) {
     const mesh = new THREE.Mesh(mergeGeometries(geoms), new THREE.MeshLambertMaterial({ color: MAP_COLORS[color], flatShading: true }));
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     scene.add(mesh);
     geoms.forEach((g) => g.dispose());
   }
@@ -51,8 +58,21 @@ export function setFov(degrees) {
   resize();
 }
 
+export function setRenderScale(scale) {
+  renderScale = scale;
+  resize();
+}
+
+// Shadows are off by default; turning them on recompiles the materials.
+export function setShadows(on) {
+  if (renderer.shadowMap.enabled === on) return;
+  renderer.shadowMap.enabled = on;
+  sun.castShadow = on;
+  scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
+}
+
 function resize() {
-  renderer.setPixelRatio(devicePixelRatio);
+  renderer.setPixelRatio(devicePixelRatio * renderScale);
   renderer.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
   camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(hfov) / 2) / camera.aspect));
@@ -178,6 +198,7 @@ function makeRig(name, slot) {
   rig.head.scale.setScalar(0.3);
   rig.gun.scale.set(0.08, 0.08, 0.5);
   rig.group.add(...rig.legs, rig.torso, rig.head, rig.gun, rig.tag);
+  for (const mesh of [...rig.legs, rig.torso, rig.head, rig.gun]) mesh.castShadow = true;
   scene.add(rig.group);
   return rig;
 }

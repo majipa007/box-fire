@@ -4,10 +4,10 @@
 
 **Blocked by:** 08
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Render scale ranges from 50 % to 100 %.
-- [ ] Shadows are off by default. When on, they use a single 2048 shadow map.
-- [ ] Crosshair colour and size can be changed.
-- [ ] The low-end preset sets 50 % render scale with shadows off.
-- [ ] All of these settings persist.
+- [x] Render scale ranges from 50 % to 100 %.
+- [x] Shadows are off by default. When on, they use a single 2048 shadow map.
+- [x] Crosshair colour and size can be changed.
+- [x] The low-end preset sets 50 % render scale with shadows off.
+- [x] All of these settings persist.

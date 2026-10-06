@@ -117,6 +117,9 @@ function pick(primary) {
 function applySettings() {
   input.setSensitivity(ui.settings.sens);
   render.setFov(ui.settings.fov);
+  render.setRenderScale(Math.min(1, Math.max(0.5, ui.settings.scale / 100)));
+  render.setShadows(!!ui.settings.shadows);
+  ui.applyCrosshair();
 }
 
 // One fixed 60 Hz step: sample input, predict locally, send to the host.
