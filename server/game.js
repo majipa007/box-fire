@@ -57,8 +57,9 @@ export class Game {
       const old = existing.conn;
       if (old && Date.now() - (old.lastPong ?? 0) <= SILENT_MS) return send(conn, { t: 'reject', reason: 'name-taken' });
       if (old) {
-        old.player = null;
+        old.player = null; // its close event, when it comes, is ignored
         old.ws.terminate();
+        if (this.phase !== 'lobby') this.leave(existing);
       }
       return this.attach(existing, conn);
     }
@@ -84,21 +85,23 @@ export class Game {
 
   // Mid-match, a player who leaves stays on the scoreboard, greyed out and
   // out of the world, until the match ends; in the lobby they just go.
-  // Leaving counts as dying without a kill: a rejoin waits out the respawn
-  // timer, so refreshing the page is no way to heal.
   disconnect(conn) {
     const p = conn.player;
     if (!p || p.conn !== conn) return;
     conn.player = null;
-    if (this.phase === 'lobby') {
-      this.players.delete(p.id);
-    } else {
-      p.conn = null;
-      if (p.alive) p.respawnAt = this.tick + RESPAWN_SECONDS * TICK_RATE;
-      p.alive = false;
-    }
+    if (this.phase === 'lobby') this.players.delete(p.id);
+    else this.leave(p);
     this.electHost();
     this.broadcastLobby();
+  }
+
+  // Leaving mid-match, by closing or by a silent tab being taken over,
+  // counts as dying without a kill: the respawn timer starts, so a rejoin
+  // gets a fresh spawn (and refreshing the page is no way to heal).
+  leave(p) {
+    p.conn = null;
+    if (p.alive) p.respawnAt = this.tick + RESPAWN_SECONDS * TICK_RATE;
+    p.alive = false;
   }
 
   startMatch() {
