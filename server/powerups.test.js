@@ -8,7 +8,7 @@ import { Game } from './game.js';
 import { KEY } from '../shared/movement.js';
 import { POWERUPS, TICK_RATE, DT, MAX_HP, RUN_SPEED } from '../shared/constants.js';
 import { padsFor } from '../shared/powerups.js';
-import { readEntity } from '../shared/protocol.js';
+import { readEntity, PLAYER_FLAGS } from '../shared/protocol.js';
 
 const arena = JSON.parse(await readFile(new URL('../shared/maps/arena_01.json', import.meta.url)));
 const flat = { boxes: [{ pos: [0, -0.5, 0], size: [200, 1, 200] }], spawns: [[0, 0, 0], [30, 0, 0], [60, 0, 0], [90, 0, 0]] };
@@ -179,7 +179,7 @@ test('snapshots carry the slots, the shield, the pads and the entities', () => {
   const [mine] = snap.pu.ents.map(readEntity);
   assert.deepEqual([mine.kind, mine.owner, mine.x, mine.armed], ['mine', q.id, 20, false]);
   const qEntry = snap.ps.find(([id]) => id === q.id);
-  assert.ok(qEntry[6] & 16, 'PU_SHIELD flag');
+  assert.ok(qEntry[6] & PLAYER_FLAGS.BUBBLE, 'BUBBLE flag');
 });
 
 test('a new match refills every pad and clears the air and the slots', () => {

@@ -7,9 +7,15 @@ export const encode = (msg) => JSON.stringify(msg);
 // A snapshot's public entry per player:
 //   [id, x, y, z, yaw, pitch, flags, hp, weapon]
 // flags are PLAYER_FLAGS bits; weapon indexes WEAPON_IDS. SHIELDED is spawn
-// protection; PU_NITRO and PU_SHIELD are active power-ups (powerups).
-export const PLAYER_FLAGS = { CROUCH: 1, ALIVE: 2, SHIELDED: 4, PU_NITRO: 8, PU_SHIELD: 16 };
+// protection; BUBBLE (a power-up Shield), NITRO and SLOWED are power-up
+// effects. PU_SHIELD and PU_NITRO are older names for BUBBLE and NITRO, kept
+// until the powerups rework drops them.
+export const PLAYER_FLAGS = { CROUCH: 1, ALIVE: 2, SHIELDED: 4, BUBBLE: 8, NITRO: 16, SLOWED: 32, PU_SHIELD: 8, PU_NITRO: 16 };
 export const WEAPON_IDS = ['rifle', 'pistol', 'shotgun'];
+
+// POWER-UPS: ids on the wire (never part of WEAPON_IDS), and entity types.
+export const POWER_IDS = ['shunt', 'bolt', 'barge', 'shock', 'mine', 'nitro', 'shield'];
+export const ENT = { SHUNT: 0, MINE: 1, DOME: 2 };
 
 // powerups: the power-up wire format.
 // - Use and cycle are not a message of their own: they ride the input packet

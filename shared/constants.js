@@ -82,7 +82,7 @@ export const SHOT_RANGE = 200;
 // One fixed colour per player slot, chosen to pop against the muted map.
 export const PLAYER_COLORS = [
   '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231',
-  '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabed4',
+  '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#ff7eb6',
 ];
 
 // powerups: Blur-style power-ups. Provisional numbers for the design panel.
@@ -110,3 +110,37 @@ export const PROJECTILE_RADIUS = 0.2; // m of slack around a player for a projec
 // Knockback is its own velocity on the mover, bleeding off at these m/s².
 export const KNOCK_DRAG_GROUND = 30;
 export const KNOCK_DRAG_AIR = 3;
+
+// POWER-UPS: the art and feel bible's contract (docs/bible.md §4.4). The
+// powerups rework moves the game onto these and then drops the provisional
+// block above. Seconds and metres unless named ticks; turn is degrees/s.
+export const POWER_COLORS = { shunt: '#ff2a1a', bolt: '#2e9bff', barge: '#a070ff', shock: '#ffb300', mine: '#ffffff', nitro: '#3dff8f', shield: '#66fff0' };
+export const POWER_CAPACITY = 3;
+export const POWER_USE_SECONDS = 1;
+export const POWER_GUN_LOCK = 0.25;
+export const POWER_BOLT_GUN_LOCK = 0.55;
+export const POWER_RATE_PLAYERS = 6; // pads refill slower below this many players
+export const POWER_PAD_BOX = [1.6, 2, 1.6]; // pickup trigger standing on a pad
+export const COYOTE_TICKS = 5;
+export const JUMP_BUFFER_TICKS = 6;
+export const KNOCK_MAX = 12; // m/s horizontal after any knock
+export const POWERS = {
+  shunt: { speed: 18, turn: 110, life: 4, cone: 25, range: 40, proximity: 0.6, direct: 60, splash: 2.5, splashMax: 40, splashMin: 10, knock: 7, lift: 5, box: 0.5 },
+  bolt: { shots: 3, gap: 0.25, dmg: 25 },
+  barge: { radius: 5, dmgMax: 20, dmgMin: 10, knock: 9, lift: 5.5 },
+  shock: { domes: 3, lead: 1.2, step: 0.4, radius: 2.5, dmg: 30, slow: 0.6, slowSeconds: 2 },
+  mine: { arm: 0.8, trigger: 1.2, fuse: 0.25, radius: 2.5, dmgMax: 60, dmgMin: 15, knock: 5, lift: 6, life: 40, perOwner: 2, box: [0.5, 0.3, 0.5] },
+  nitro: { seconds: 4, speed: 1.4 },
+  shield: { hp: 60, seconds: 8 },
+};
+export const POWER_PADS = [
+  { pos: [0, 0, 0], pool: ['shunt'], respawn: 30 },
+  { pos: [3, 1.2, 13], pool: ['shield'], respawn: 30 },
+  { pos: [0, 0, -10.5], pool: ['shock'], respawn: 40 },
+  { pos: [8, 0, 0], pool: ['barge', 'bolt'], respawn: 20 },
+  { pos: [-8, 0, 0], pool: ['bolt', 'barge'], respawn: 20 },
+  { pos: [17, 0, -6], pool: ['nitro'], respawn: 20 },
+  { pos: [-17, 0, 6], pool: ['nitro'], respawn: 20 },
+  { pos: [16, 0, 8], pool: ['mine'], respawn: 30 },
+  { pos: [-16, 0, -8], pool: ['mine'], respawn: 30 },
+];
