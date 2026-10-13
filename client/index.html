@@ -141,8 +141,10 @@
   #matchinfo { left: 50%; top: calc(14 * var(--u)); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: calc(4 * var(--u)); white-space: pre; }
   #clock { font: 700 calc(22 * var(--u))/1 var(--font); letter-spacing: 0.06em; padding: calc(6 * var(--u)) calc(16 * var(--u)); min-width: calc(92 * var(--u)); text-align: center;
     clip-path: polygon(0 0, 100% 0, calc(100% - var(--cut)) 100%, var(--cut) 100%); border: 0; }
-  /* Rank and leader sit on their own plate: the sky behind them is as bright as their text. */
-  #standing { display: flex; flex-direction: column; align-items: center; gap: calc(4 * var(--u)); padding: calc(5 * var(--u)) calc(12 * var(--u)) calc(8 * var(--u)); background: rgba(21, 23, 28, 0.74);
+  /* Rank and leader sit on their own plate: the sky behind them is as bright as their
+     text. Both top plates are darker than --panel, since they always sit on the sky. */
+  #clock, #standing { background: rgba(21, 23, 28, 0.8); }
+  #standing { display: flex; flex-direction: column; align-items: center; gap: calc(4 * var(--u)); padding: calc(5 * var(--u)) calc(12 * var(--u)) calc(8 * var(--u));
     clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px)); }
   #standing:has(> #rank:empty):has(> #leader.none) { display: none; }
   #rank { font: 700 calc(13 * var(--u)) var(--font); letter-spacing: 0.1em; }
