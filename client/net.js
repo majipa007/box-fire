@@ -116,6 +116,7 @@ export function others(now) {
       hp,
       weapon: WEAPON_IDS[w],
       flags, // powerups: PU_NITRO and PU_SHIELD
+      bubble: !!(flags & PLAYER_FLAGS.BUBBLE), nitro: !!(flags & PLAYER_FLAGS.NITRO), slowed: !!(flags & PLAYER_FLAGS.SLOWED), // characters: power-up looks
     };
     // Respawns and joins snap rather than streak across the map.
     if (!p || Math.hypot(p[1] - x, p[3] - z) > SNAP_DISTANCE) {
