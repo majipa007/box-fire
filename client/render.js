@@ -14,6 +14,7 @@ camera.rotation.order = 'YXZ';
 
 let hfov = 90; // horizontal degrees; the vertical fov follows the aspect ratio
 let renderScale = 1; // fraction of native resolution
+let fovKick = 0; // feel: degrees added to hfov (Nitro)
 
 export function init() {
   renderer.domElement.id = 'view';
@@ -45,7 +46,15 @@ function resize() {
   renderer.setPixelRatio(devicePixelRatio * renderScale);
   renderer.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
-  camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(hfov) / 2) / camera.aspect));
+  camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(hfov + fovKick) / 2) / camera.aspect)); // feel: + fovKick
+  camera.updateProjectionMatrix();
+}
+
+// feel: a temporary fov change (Nitro) without resizing the canvas.
+export function setFovKick(deg) {
+  if (deg === fovKick) return;
+  fovKick = deg;
+  camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(hfov + fovKick) / 2) / camera.aspect));
   camera.updateProjectionMatrix();
 }
 

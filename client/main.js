@@ -6,7 +6,7 @@ import { buildWorld } from './world.js';
 import { charactersGroup, syncPlayers, hitFlash, fireKick, shatter as breakRig } from './characters.js'; // characters: rig events
 import { setGun, gunKick, setSunShade, sunBlocked, muzzleWorld } from './viewmodel.js'; // viewmodel: sun shade, drawn muzzle
 import { effectsGroup, addTracer, updateEffects, setMap, classifyHit, impact, playerHit, shatter as explode, casing } from './effects.js'; // effects: impacts, hits, shatter, casings
-import { addRecoil, correct, resetFeel, updateFeel, crosshair, spreadPixels, feelStats } from './feel.js'; // feel:
+import { addRecoil, correct, resetFeel, updateFeel, crosshair, spreadPixels, feelStats, view, blastShake, setBob } from './feel.js'; // feel:
 import * as input from './input.js';
 import * as audio from './audio.js';
 import * as powerups from './powerups.js'; // powerups: pads, entities, HUD
@@ -72,6 +72,7 @@ const net = connect({
   },
   event(m) {
     powerups.onEvent(m, myId); // powerups: pickups, uses, blasts
+    if (m.e === 'blast' || m.e === 'boom') blastShake(m, myId, self.alive && self.mover); // feel: blasts near us shake the camera
     if (m.e === 'spawn' && m.id === myId) {
       Object.assign(self, freshLife(m.x, m.y, m.z, m.primary)); // exactly as the server builds it
       self.pending = [];
@@ -145,6 +146,7 @@ function applySettings() {
   render.setFov(ui.settings.fov);
   render.setRenderScale(Math.min(1, Math.max(0.5, ui.settings.scale / 100)));
   render.setShadows(!!ui.settings.shadows);
+  setBob(ui.settings.bob !== false); // feel: the View bob setting, on unless turned off
   ui.applyCrosshair();
 }
 
@@ -177,7 +179,6 @@ function heard(x, z) {
 // crouching are silent, as the plan says.
 const STRIDE = 2.2;
 const strides = new Map(); // player id → { x, y, z, left }
-let ownStride = STRIDE;
 function footsteps(id, p, dt, play) {
   const s = strides.get(id) ?? { x: p.x, y: p.y, z: p.z, left: STRIDE };
   const d = Math.hypot(p.x - s.x, p.z - s.z);
@@ -354,6 +355,7 @@ function frame(now) {
     eye = lerp(eye, me.crouch ? EYE_CROUCH : EYE_STAND, Math.min(1, frameMs / 60)); // ease, don't snap
     const v = updateFeel(frameMs, now, input.look, self.alive && lobby.phase === 'playing' ? me : null, weaponOf(self.arsenal), self.arsenal.trigger); // feel:
     render.setView(lerp(prev.x, me.x, a) + v.x, lerp(prev.y, me.y, a) + eye + v.y, lerp(prev.z, me.z, a) + v.z, input.look.yaw, input.look.pitch, v.roll); // feel: offsets, roll
+    render.setFovKick(v.fov); // feel: Nitro widens the view
     // feel: the crosshair gap for the HUD, as --spread (CSS px) on #hud.
     const gap = Math.round(spreadPixels(crosshair.spread, render.camera.fov, innerHeight));
     if (gap !== shownGap) document.getElementById('hud').style.setProperty('--spread', `${(shownGap = gap)}px`);
@@ -368,15 +370,9 @@ function frame(now) {
   const visible = others(now).filter((o) => o.alive && o.id !== myId);
   syncPlayers(visible, roster, frameMs / 1000, world.boxes); // characters: the ground under each player
   powerups.update(now, visible); // powerups: draw this frame
-  // Our own steps from our velocity, which is exact; frame-to-frame position
-  // changes jump around because the mover only moves at 60 Hz.
-  if (me && self.alive && me.grounded && Math.hypot(me.vx, me.vz) > WALK_SPEED + 0.3) {
-    ownStride -= Math.hypot(me.vx, me.vz) * (frameMs / 1000);
-    if (ownStride <= 0) {
-      ownStride += STRIDE;
-      audio.footstep(0, 0, me); // audio: me for the surface underfoot
-    }
-  }
+  // feel: our own steps sound on the camera bob's footfalls (one per 2.2 m,
+  // from our exact velocity), so each dip lands with its step.
+  if (me && view.step) audio.footstep(0, 0, me); // audio: me for the surface underfoot
   if (me && self.alive) audio.ground(me.grounded, me); // audio: landings
   for (const o of visible) footsteps(o.id, o, frameMs / 1000, () => audio.footstep(...heard(o.x, o.z), o)); // audio: o for the surface
   if (inGame) {
