@@ -2,8 +2,8 @@
 // skyline beyond the walls. Look numbers live in LOOK and LIGHTS (the art and
 // feel bible, §2); costs are for an Iris Xe at 1080p.
 import * as THREE from 'three';
-import { meshMap, skyline, farRidge, clouds, FAR } from './bake.js';
-import { makeTexture } from './textures.js';
+import { meshMap, skyline, farRidge, clouds, decals, FAR } from './bake.js';
+import { makeTexture, makeDecalAtlas, makeFenceTexture } from './textures.js';
 
 // Late-afternoon sun (40° up, azimuth 243° clockwise from north = −z) and a bounce-lit sky fill.
 export const LIGHTS = {
@@ -106,7 +106,7 @@ export function buildWorld(scene, map) {
   }
   const solid = new THREE.Mesh(quadGeometry(skyline()), new THREE.MeshLambertMaterial({ vertexColors: true }));
   solid.castShadow = solid.receiveShadow = true;
-  world.add(solid, buildFar(), buildMotes());
+  world.add(solid, buildFar(), buildMotes(), buildDecals(map), buildFence());
   scene.add(world);
   boxes = map.boxes.map((b) => ({ min: b.pos.map((p, i) => p - b.size[i] / 2), max: b.pos.map((p, i) => p + b.size[i] / 2), surface: materialOf(b).surface }));
 }
@@ -210,6 +210,68 @@ function buildMotes() {
   points.visible = quality !== 'low';
   motes = Object.assign(points, { uniforms });
   return points;
+}
+
+// Decals (1 draw): lit, shadowed, fogged quads from the atlas, tinted by vertex colour.
+function buildDecals(map) {
+  const { texture, cells } = makeDecalAtlas();
+  const list = decals(map.boxes);
+  const position = new Float32Array(list.length * 12);
+  const normal = new Float32Array(list.length * 12);
+  const uv = new Float32Array(list.length * 8);
+  const color = new Float32Array(list.length * 16);
+  const index = new Uint32Array(list.length * 6);
+  const c = new THREE.Color();
+  const [n, up, right, p] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  list.forEach((d, i) => {
+    const [u0, v0, u1, v1, aspect] = cells[d.cell];
+    const w = d.w ?? d.h * aspect;
+    n.fromArray(d.n);
+    up.fromArray(d.up);
+    right.crossVectors(up, n);
+    c.set(d.color);
+    [[-1, -1, u0, v0], [1, -1, u1, v0], [1, 1, u1, v1], [-1, 1, u0, v1]].forEach(([sx, sy, u, v], k) => {
+      p.fromArray(d.c).addScaledVector(right, (sx * w) / 2).addScaledVector(up, (sy * d.h) / 2).addScaledVector(n, 0.005);
+      p.toArray(position, i * 12 + k * 3);
+      n.toArray(normal, i * 12 + k * 3);
+      uv.set([u, v], i * 8 + k * 2);
+      color.set([c.r, c.g, c.b, d.alpha], i * 16 + k * 4);
+    });
+    index.set([0, 1, 2, 0, 2, 3].map((v) => v + i * 4), i * 6);
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(position, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.BufferAttribute(color, 4));
+  g.setIndex(new THREE.BufferAttribute(index, 1));
+  const material = new THREE.MeshLambertMaterial({ map: texture, vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 });
+  const mesh = new THREE.Mesh(g, material);
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+// Chain-link on the wall tops (1 draw): alpha to coverage with MSAA, an alpha test on Low.
+const FENCE = { y: 4, height: 1.4, at: 20.5, length: 42 };
+function buildFence() {
+  const F = FENCE;
+  const quads = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([sx, sz]) => {
+    const along = [sz !== 0 ? 1 : 0, sx !== 0 ? 1 : 0]; // x for the north and south walls, z for east and west
+    const c = [sx * F.at, sz * F.at];
+    const half = F.length / 2;
+    const a = [c[0] - along[0] * half, c[1] - along[1] * half];
+    const b = [c[0] + along[0] * half, c[1] + along[1] * half];
+    return { p: [a[0], F.y, a[1], b[0], F.y, b[1], b[0], F.y + F.height, b[1], a[0], F.y + F.height, a[1]], n: [sx, 0, sz], color: '#ffffff' };
+  });
+  const g = quadGeometry(quads);
+  const tiles = F.length / F.height;
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(quads.flatMap(() => [0, 0, tiles, 0, tiles, 1, 0, 1])), 2));
+  g.deleteAttribute('color');
+  const low = quality === 'low';
+  const material = new THREE.MeshLambertMaterial({ map: makeFenceTexture(), side: THREE.DoubleSide, alphaToCoverage: !low, alphaTest: low ? 0.5 : 0 });
+  const mesh = new THREE.Mesh(g, material);
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 // Quads ({ p, n, color (one hex or 4), centre? }) → an indexed geometry with flat normals and linear vertex colours.

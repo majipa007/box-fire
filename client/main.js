@@ -2,7 +2,7 @@
 import { connect, self, predict, reconcile, bufferSnapshot, syncClock, serverTick, renderTick, others } from './net.js';
 import * as ui from './ui.js';
 import * as render from './render.js';
-import { buildWorld } from './world.js';
+import { buildWorld, setQuality } from './world.js'; // world: quality preset
 import { charactersGroup, syncPlayers, hitFlash, fireKick, shatter as breakRig } from './characters.js'; // characters: rig events
 import { setGun, gunKick, setSunShade, sunBlocked, muzzleWorld } from './viewmodel.js'; // viewmodel: sun shade, drawn muzzle
 import { effectsGroup, addTracer, updateEffects, setMap, classifyHit, impact, playerHit, shatter as explode, casing } from './effects.js'; // effects: impacts, hits, shatter, casings
@@ -279,6 +279,7 @@ async function buildStage() {
   applySettings();
   const map = await (await fetch(new URL(`../shared/maps/${mapId}.json`, import.meta.url))).json();
   audio.setWorld(map); // audio: surfaces for impacts and footsteps
+  setQuality(ui.settings.quality); // world: 'low' halves the AO rays and stills the sky
   buildWorld(render.scene, map);
   powerups.init(render.scene, mapId); // powerups: meshes and HUD
   render.scene.add(charactersGroup, effectsGroup);

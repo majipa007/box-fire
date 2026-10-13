@@ -325,14 +325,54 @@ export function skyline(S = SKYLINE) {
   // Inside the arena: cable trays at 3.3 m on the north and east inner faces with junction
   // boxes every 6 m, and fence posts every 3 m along the wall tops.
   for (let k = -18; k <= 18; k += 6) {
-    block(out, [k, 2.95, -19.96], [0.3, 0.4, 0.08], S.graphite);
+    if (k) block(out, [k, 2.95, -19.96], [0.3, 0.4, 0.08], S.graphite); // clear of the PIT 7 stencil
     block(out, [19.96, 2.95, k], [0.08, 0.4, 0.3], S.graphite);
   }
+  block(out, [-50.95, 21.6, -20], [0.1, 4.2, 9.4], S.graphite); // the crusher's sign board
   block(out, [0, 3.3, -19.95], [40, 0.08, 0.1], S.graphite);
   block(out, [19.95, 3.3, 0], [0.1, 0.08, 40], S.graphite);
   for (let k = -21; k <= 21; k += 3) {
     for (const [x, z] of [[k, -20.5], [k, 20.5], [-20.5, k], [20.5, k]]) block(out, [x, 4.7, z], [0.06, 1.4, 0.06], S.graphite);
   }
+  return out;
+}
+
+// Decals (§2.7): paint, grates, cracks, oil, stencils and the crusher sign, as
+// { c: centre, n: normal, up: texture up, h: height in m, w?: width (else from the atlas
+// cell's aspect), cell: atlas name, color, alpha }. They sit 5 mm off their surface.
+export function decals(mapBoxes, seed = 3) {
+  const rand = seeded(seed);
+  const out = [];
+  const floor = (x, z, w, h, cell, color, alpha, up = [0, 0, -1]) => out.push({ c: [x, 0, z], n: UP, up, w, h, cell, color, alpha });
+  const paint = '#ad9862';
+  for (const x of [-11, 11]) for (let z = -18; z + 1 <= 18; z += 1.5) floor(x, z + 0.5, 0.1, 1, 'solid', paint, 0.85);
+  for (const [x, z, w, h] of [[0, -19, 38, 0.1], [0, 19, 38, 0.1], [-19, 0, 0.1, 38], [19, 0, 0.1, 38]]) floor(x, z, w, h, 'solid', paint, 0.8);
+  [[-15.6, -17.6], [15.6, -17.6], [15.6, 17.6], [-15.6, 17.6]].forEach(([x, z], i) => floor(x, z, undefined, 1.2, `0${i + 1}`, '#45474c', 0.6, [0, 0, Math.sign(z)]));
+  for (const z of [-12, -4, 4, 12]) for (const x of [-19, 19]) floor(x, z, 0.6, 0.6, 'grate', '#45474c', 1);
+  for (const z of [-19, 19]) floor(0, z, 0.6, 0.6, 'grate', '#45474c', 1);
+  // Cracks and oil on open floor, clear of every box.
+  const boxes = mapBoxes.slice(1).map(({ pos, size }) => ({ min: pos.map((p, i) => p - size[i] / 2), max: pos.map((p, i) => p + size[i] / 2) }));
+  const open = (x, z, r) => Math.abs(x) < 19.5 - r && Math.abs(z) < 19.5 - r && boxes.every((b) => x < b.min[0] - r || x > b.max[0] + r || z < b.min[2] - r || z > b.max[2] + r);
+  for (let n = 0; n < 16;) {
+    const [x, z, len, a] = [(rand() * 2 - 1) * 19, (rand() * 2 - 1) * 19, 0.5 + rand(), rand() * Math.PI];
+    if (open(x, z, len / 2)) n++, floor(x, z, len, len / 4, `crack${n % 2}`, '#8f887d', 0.6, [Math.cos(a), 0, Math.sin(a)]);
+  }
+  const crates = mapBoxes.filter((b) => b.color === 3);
+  for (let n = 0; n < 6;) {
+    const b = crates[Math.floor(rand() * crates.length)];
+    const a = rand() * 2 * Math.PI;
+    const size = 1 + rand();
+    const [x, z] = [b.pos[0] + Math.cos(a) * (b.size[0] / 2 + size / 2), b.pos[2] + Math.sin(a) * (b.size[2] / 2 + size / 2)];
+    if (open(x, z, 0.2)) n++, floor(x, z, size, size, 'oil', '#6b655c', 0.35, [Math.cos(a), 0, Math.sin(a)]);
+  }
+  out.push({ c: [0, 2.2, -20], n: [0, 0, 1], up: UP, h: 2, cell: 'PIT 7', color: '#45474c', alpha: 0.8 });
+  // Crate stencils on the ±z faces, the variant by box index.
+  mapBoxes.forEach((b, i) => {
+    if (b.color !== 3) return;
+    for (const s of [-1, 1]) out.push({ c: [b.pos[0], b.pos[1] + b.size[1] * 0.1, b.pos[2] + s * (b.size[2] / 2)], n: [0, 0, s], up: UP, h: Math.min(0.16, b.size[1] / 4), cell: `BX-0${(i % 4) + 1}`, color: '#45474c', alpha: 0.85 });
+  });
+  out.push({ c: [-50.9, 22.7, -20], n: [1, 0, 0], up: UP, h: 1.6, cell: 'BOXFIRE', color: '#d9d4ca', alpha: 1 });
+  out.push({ c: [-50.9, 20.5, -20], n: [1, 0, 0], up: UP, h: 1.2, cell: 'QUARRY CO.', color: '#d9d4ca', alpha: 1 });
   return out;
 }
 

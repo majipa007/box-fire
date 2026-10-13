@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { meshMap, skyline, farRidge, clouds, CLOUDS } from './bake.js';
+import { meshMap, skyline, farRidge, clouds, decals, CLOUDS } from './bake.js';
 
 const AO = { cell: 0.5, rays: 16, radius: 1.5, strength: 0.6 };
 const arena = JSON.parse(fs.readFileSync(new URL('../shared/maps/arena_01.json', import.meta.url)));
@@ -245,4 +245,22 @@ test('the far group stays inside the far plane and its clouds carry their cluste
   const sky = clouds(SUN);
   assert.ok(sky.every((q) => q.centre && Math.hypot(q.centre[0], q.centre[2]) <= CLOUDS.reach[1] && q.centre[1] >= CLOUDS.altitude[0]));
   assert.ok((quads.length + sky.length) * 2 + hubs.length * 3 * 12 < 3000, 'about 3k triangles');
+});
+
+test('decals: paint, grates and marks on the open floor, a stencil per crate side, the wall sign', () => {
+  const list = decals(arena.boxes);
+  assert.deepEqual(list, decals(arena.boxes));
+  const boxes = boxesOf(arena.boxes.slice(1));
+  const on = (cell) => list.filter((d) => d.cell === cell);
+  assert.equal(on('grate').length, 10);
+  assert.equal(list.filter((d) => d.cell.startsWith('crack')).length, 16);
+  assert.equal(on('oil').length, 6);
+  for (const d of list.filter((d) => d.cell.startsWith('crack') || d.cell === 'oil')) {
+    assert.ok(!inside([d.c[0], 0.01, d.c[2]], boxes), `${d.cell} under a box at ${d.c}`);
+    assert.ok(Math.abs(d.c[0]) < 19.5 && Math.abs(d.c[2]) < 19.5);
+  }
+  assert.equal(list.filter((d) => d.cell.startsWith('BX-')).length, 2 * arena.boxes.filter((b) => b.color === 3).length);
+  const pit = on('PIT 7')[0];
+  assert.deepEqual([pit.c, pit.n], [[0, 2.2, -20], [0, 0, 1]]);
+  for (const d of list) assert.ok(d.alpha > 0 && d.alpha <= 1 && d.h > 0);
 });

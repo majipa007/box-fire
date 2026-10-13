@@ -163,6 +163,115 @@ export function makeTexture(name) {
   return texture;
 }
 
+// The decal atlas: white shapes with alpha (decals tint them by vertex colour). Returns
+// { texture, cells: { name: [u0, v0, u1, v1, width / height] } }. Spray-painted text and
+// marks lose random pixels, so they read worn.
+export function makeDecalAtlas() {
+  const W = 512;
+  const H = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const g = canvas.getContext('2d');
+  const cells = {};
+  const rand = seeded(21);
+  let x = 0;
+  let y = 0;
+  let row = 0;
+  const cell = (name, w, h, draw, worn = 0) => {
+    if (x + w > W) [x, y, row] = [0, y + row + 4, 0];
+    g.save();
+    g.translate(x, y);
+    g.fillStyle = g.strokeStyle = '#fff';
+    draw(g, w, h);
+    g.restore();
+    if (worn) {
+      const img = g.getImageData(x, y, w, h);
+      for (let i = 3; i < img.data.length; i += 4) if (rand() < worn) img.data[i] *= 0.35;
+      g.putImageData(img, x, y);
+    }
+    cells[name] = [x / W, 1 - (y + h) / H, (x + w) / W, 1 - y / H, w / h];
+    x += w + 4;
+    row = Math.max(row, h);
+  };
+  const text = (label, font) => (c, w, h) => {
+    c.font = font;
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText(label, w / 2, h / 2 + h * 0.04);
+  };
+  const STENCIL = (px) => `bold ${px}px "DejaVu Sans Mono", "Courier New", monospace`;
+  cell('solid', 8, 8, (c, w, h) => c.fillRect(0, 0, w, h));
+  for (const n of ['01', '02', '03', '04']) cell(n, 72, 60, text(n, STENCIL(58)), 0.12);
+  cell('PIT 7', 200, 60, text('PIT 7', STENCIL(58)), 0.15);
+  for (const n of ['BX-01', 'BX-02', 'BX-03', 'BX-04']) cell(n, 120, 30, text(n, STENCIL(28)), 0.1);
+  cell('BOXFIRE', 252, 48, text('BOXFIRE', STENCIL(48)));
+  cell('QUARRY CO.', 330, 40, text('QUARRY CO.', STENCIL(38)));
+  cell('grate', 48, 48, (c, w, h) => {
+    c.fillRect(0, 0, w, 3);
+    c.fillRect(0, h - 3, w, 3);
+    c.fillRect(0, 0, 3, h);
+    c.fillRect(w - 3, 0, 3, h);
+    for (let k = 6; k < w - 4; k += 5) c.fillRect(k, 5, 2, h - 10);
+  });
+  for (const n of [0, 1]) {
+    cell(`crack${n}`, 96, 24, (c, w, h) => {
+      c.lineWidth = 1.5;
+      c.beginPath();
+      c.moveTo(2, h / 2);
+      for (let k = 1; k <= 12; k++) c.lineTo(2 + ((w - 4) * k) / 12, h / 2 + (rand() - 0.5) * h * 0.7);
+      c.stroke();
+      c.lineWidth = 1;
+      c.beginPath();
+      c.moveTo(w * 0.4, h / 2);
+      c.lineTo(w * 0.55, h * (n ? 0.1 : 0.9));
+      c.stroke();
+    });
+  }
+  cell('oil', 64, 64, (c, w, h) => {
+    for (let k = 0; k < 7; k++) {
+      const r = 8 + rand() * 18;
+      const grad = c.createRadialGradient(0, 0, 0, 0, 0, r);
+      grad.addColorStop(0, 'rgba(255,255,255,0.8)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      c.setTransform(1, 0, 0, 1, x + w / 2 + (rand() - 0.5) * 24, y + h / 2 + (rand() - 0.5) * 24);
+      c.fillStyle = grad;
+      c.fillRect(-r, -r, 2 * r, 2 * r);
+    }
+  });
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.anisotropy = 4;
+  return { texture, cells };
+}
+
+// Chain-link: 1 px galvanised wires in diamonds with a top rail, as alpha, one 1.4 m tile.
+export function makeFenceTexture() {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const g = canvas.getContext('2d');
+  const image = g.createImageData(size, size);
+  const wire = rgb('#b4b8bd');
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      const on = (x + y) % 8 === 0 || (x - y + size) % 8 === 0 || y < 2 || y === size - 1;
+      image.data.set([...shade(wire, y < 2 ? 0.8 : 1), on ? 255 : 0], i);
+    }
+  }
+  g.putImageData(image, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.anisotropy = 4;
+  return texture;
+}
+
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 const shade = (c, k) => c.map((v) => Math.min(255, v * k));
 const signed = (v) => v * 2 - 1;
