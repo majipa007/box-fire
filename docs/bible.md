@@ -920,8 +920,8 @@ All figures are estimates for Iris Xe at 1080p with MSAA 4× on the Default pres
    - Pooled meshes are created at init, so `compileAsync` sees them.
 7. **Tests and screenshots.**
    - `npm test` passes in every worktree.
-   - Screenshots use the harness: `S=/tmp/claude-1000/-home-sukuna-personal-projects-game/7c26c6d1-63cb-4bbd-abb8-a36f867e78cb/scratchpad; REPO=<worktree> PORT=<31xx> BOTS=4 OUT=<dir> VIEW=1280x720 $S/serve.sh $S/pw/shots.mjs <prefix>`.
-   - It produces overview, lane, side and crates shots from the same cameras as the `before-*.png` files.
+   - Screenshots use the harness: `H=/home/sukuna/personal_projects/game/.scratch/harness; REPO=<worktree> PORT=<31xx> BOTS=4 OUT=<dir> VIEW=1280x720 $H/serve.sh $H/pw/shots.mjs <prefix>`.
+   - It produces overview, lane, side and crates shots from the same cameras as the `before-*.png` files in `/home/sukuna/personal_projects/boxfire-work/shots`.
    - Draws and triangles come from the `?debug` overlay, which counts both passes.
 
 ### 8.1 world
