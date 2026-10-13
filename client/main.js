@@ -2,7 +2,7 @@
 import { connect, self, predict, reconcile, bufferSnapshot, syncClock, serverTick, renderTick, others } from './net.js';
 import * as ui from './ui.js';
 import * as render from './render.js';
-import { buildWorld } from './world.js';
+import { buildWorld, sun } from './world.js'; // effects: sun, for puffs in shade
 import { charactersGroup, syncPlayers, hitFlash, fireKick, shatter as breakRig } from './characters.js'; // characters: rig events
 import { setGun, gunKick, setSunShade, sunBlocked, muzzleWorld } from './viewmodel.js'; // viewmodel: sun shade, drawn muzzle
 import { effectsGroup, updateEffects, initEffects, shot, muzzle as muzzleFlash, casing, blast, pickupBurst, deathBurst as explode } from './effects.js'; // effects: shots, blasts, pickups, deaths, casings
@@ -282,7 +282,7 @@ async function buildStage() {
   powerups.init(render.scene, mapId); // powerups: meshes and HUD
   render.scene.add(charactersGroup, effectsGroup);
   world = prepareMap(map);
-  initEffects({ boxes: world.boxes, map, quality: ui.settings.quality }); // effects: debris lands on the map; shots find the face they hit
+  initEffects({ boxes: world.boxes, map, quality: ui.settings.quality, sunDir: sun.position.clone().normalize().toArray() }); // effects: debris lands on the map; shots find the face they hit
   render.renderer.compile(render.scene, render.camera); // build every shader now, not mid-fight
   requestAnimationFrame(frame);
 }

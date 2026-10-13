@@ -33,7 +33,8 @@ const LOOK = {
   },
   wood: { chips: { rifle: 4, pistol: 4, pellet: 2, bolt: 3 }, size: [0.015, 0.015, 0.06], speed: [2, 3], life: [0.8, 0.8], color: '#c6a77a', decal: ['#3a2a1a', '#c6a77a'] },
   steel: { sparks: { rifle: 6, pistol: 6, pellet: 3, bolt: 6 }, px: 3, speed: [6, 10], life: 0.2, color: '#ff8a3d', decal: ['#2a2a2a', '#b0b0b0'] },
-  spark: { core: '#fff1c9', edge: '#3a2a20' }, // every spark: a hot core, the rim colour, a dark edge
+  spark: { core: '#fff1c9', edge: '#3a2a20', stretch: 0.035, pxPerM: 0.00104 }, // a hot core, the rim colour, a dark edge; streaked over `stretch` s of flight; px at 1080p, 90° hfov
+  shade: [0.36, 0.4, 0.48], // unlit puffs in the sun's shadow take this (linear) tint of skylight
   decal: { size: { rifle: 0.07, pistol: 0.06, pellet: 0.045, bolt: 0.08 }, core: 0.42, halo: 0.85, lift: 0.004, minFit: 0.6 },
   player: { cubes: 4, headCubes: 7, size: [0.04, 0.07], speed: [1.5, 3], life: 0.5, white: '#ffffff', unknown: '#9a9fa8' },
   shield: { sparks: 5, size: 0.05, speed: [3, 5], life: 0.25, color: '#66fff0', edge: '#15171c' },
@@ -50,7 +51,9 @@ const LOOK = {
     voxels: 24, voxelSize: [0.08, 0.16], speed: [3, 8], life: 1.2, colors: ['#45474c', '#ad9862', null], // null: the item hue
     grow: 0.18, ringBand: 0.3, ringLife: 0.3,
     glow: [0.5, 3], glowLife: 0.3, glowColor: '#ffd27a',
-    puffs: 8, puffSize: [0.6, 1.8], puffLife: 0.9, puffAlpha: 0.55, puffColors: ['#d9d2c4', '#6b655c'],
+    puffs: 8, fire: 4, fireColor: '#ffb347', fireSize: [0.7, 2], fireLife: 0.6, fireHeat: 0.35, // the first `fire` puffs burn, then smoke
+    puffSize: [1, 2.8], puffLife: 1.2, puffAlpha: 0.7, puffColors: ['#6b655c', '#d9d2c4'],
+    flash: [1, 2.6], flashLife: 0.08, flashColor: '#fff1c9',
     scorch: 1.6, scorchColor: '#2a2522', scorchAlpha: 0.6, scorchLife: 20, scorchReach: 1.5, // m below the blast it still marks
   },
   barge: { grow: 0.18, life: 0.3, height: 0.4, thick: 0.25, segments: 16 },
@@ -85,6 +88,7 @@ const BEAM = 1;
 const RING = 2;
 const BAND = 3;
 const PUFF = 4;
+const SPARK = 5; // drawn as a short TRACER stretched along its velocity
 
 export const effectsGroup = new THREE.Group();
 
@@ -145,11 +149,13 @@ function upload(attr, n) {
 let boxes = [];
 let surfaces = []; // per box: { kind: 'concrete'|'wood'|'steel', base: Color }
 let quality = 'default';
+let sunDir = null; // unit [x, y, z] toward the sun, when known: puffs in shade are dimmed
 const caps = { ...POOLS };
 const cam = { set: false, pos: new THREE.Vector3(), fwd: new THREE.Vector3(0, 0, -1) };
 
-export function initEffects({ boxes: prepared, map, quality: q = 'default' } = {}) {
+export function initEffects({ boxes: prepared, map, quality: q = 'default', sunDir: sun = null } = {}) {
   boxes = prepared ?? prepareMap(map).boxes;
+  sunDir = sun;
   const materials = map?.materials ?? MATERIALS;
   surfaces = (map?.boxes ?? []).map(({ color }) => {
     const mat = materials[color] ?? MATERIALS[color] ?? MATERIALS[0];
@@ -679,7 +685,8 @@ streaks.frustumCulled = false;
 streaks.renderOrder = 1;
 // Per streak on the CPU. p: start or centre; d: unit direction, or a band's
 // [cos, 0, sin] of its middle angle, or a puff's drift; len: a tracer's or
-// beam's length, a ring's or band's final radius; a/b: style-specific.
+// beam's length, a ring's or band's final radius, a puff's burning share of
+// its life (0: not burning); a/b: style-specific.
 const S = POOLS.streaks;
 const streak = {
   kind: new Float32Array(S),
@@ -695,6 +702,7 @@ const streak = {
   n: 0,
   next: 0,
 };
+const FIRE = new THREE.Color(LOOK.blast.fireColor);
 const streakFields = [[streak.kind, 1], [streak.age, 1], [streak.life, 1], [streak.p, 3], [streak.d, 3], [streak.len, 1], [streak.a, 1], [streak.b, 1], [streak.col, 4], [streak.seed, 1]];
 
 function spawnStreak(kind, p, d, len, a, b, color, alpha, life, seed = 0) {
@@ -717,6 +725,26 @@ function spawnStreak(kind, p, d, len, a, b, color, alpha, life, seed = 0) {
   streak.col[i * 4 + 2] = color.b;
   streak.col[i * 4 + 3] = alpha;
   streak.seed[i] = seed;
+}
+
+// A spark: a short streak flying at `v` (m/s, a Vector3), `px` wide at 1080p.
+function spawnSpark(p, v, color, life, px) {
+  spawnStreak(SPARK, p, v, 0, 0, px * LOOK.spark.pxPerM, color, 1, life);
+}
+
+// `color` as an unlit puff at `p` shows it: dimmed to skylight when a map box
+// stands between it and the sun, or it sits on a face turned away from it.
+// Returns a shared Color, valid until the next call.
+const _lit = new THREE.Color();
+const _o = [0, 0, 0];
+function lit(color, p, normal) {
+  _lit.copy(color);
+  if (!sunDir) return _lit;
+  let shade = normal && normal[0] * sunDir[0] + normal[1] * sunDir[1] + normal[2] * sunDir[2] < 0;
+  for (let a = 0; a < 3; a++) _o[a] = p.getComponent(a) + sunDir[a] * 0.05;
+  for (let b = 0; b < boxes.length && !shade; b++) shade = rayBox(_o, sunDir, boxes[b].min, boxes[b].max) < Infinity;
+  if (shade) _lit.r *= LOOK.shade[0], _lit.g *= LOOK.shade[1], _lit.b *= LOOK.shade[2];
+  return _lit;
 }
 
 function updateStreaks(dt) {
@@ -781,6 +809,17 @@ function updateStreaks(dt) {
       B[i4 + 1] = 0;
       B[i4 + 2] = cx * half;
       alpha *= 1 - Math.max(0, (age[i] - b[i]) / (life[i] - b[i]));
+    } else if (k === SPARK) {
+      d[i3 + 1] -= LOOK.gravity * 0.5 * dt;
+      for (let j = 0; j < 3; j++) {
+        p[i3 + j] += d[i3 + j] * dt;
+        A[i4 + j] = p[i3 + j] - d[i3 + j] * LOOK.spark.stretch;
+        B[i4 + j] = p[i3 + j];
+      }
+      A[i4 + 3] = 0;
+      B[i4 + 3] = b[i];
+      D[i4] = TRACER;
+      alpha *= 1 - t * t;
     } else {
       for (let j = 0; j < 3; j++) p[i3 + j] += d[i3 + j] * dt;
       A[i4] = p[i3];
@@ -794,6 +833,12 @@ function updateStreaks(dt) {
     C[i4 + 1] = col[i4 + 1];
     C[i4 + 2] = col[i4 + 2];
     C[i4 + 3] = alpha;
+    if (k === PUFF && len[i] > 0) { // a burning puff: fire cooling to its smoke colour over `len` of its life
+      const h = Math.min(1, t / len[i]);
+      C[i4] = FIRE.r + (col[i4] - FIRE.r) * h;
+      C[i4 + 1] = FIRE.g + (col[i4 + 1] - FIRE.g) * h;
+      C[i4 + 2] = FIRE.b + (col[i4 + 2] - FIRE.b) * h;
+    }
     i++;
   }
   if (streak.n === 0) streak.next = 0;
@@ -837,8 +882,7 @@ void main() {
     a = max(max(0.0, 1.0 - q.x * 1.1) * max(0.0, 1.0 - q.y * 7.0), max(0.0, 1.0 - q.y * 1.1) * max(0.0, 1.0 - q.x * 7.0));
     a = max(a, (1.0 - smoothstep(0.0, 0.45, r)) * 0.8);
   } else {
-    a = max(0.0, 1.0 - r);
-    a *= a;
+    a = pow(max(0.0, 1.0 - r), 1.5);
   }
   vec3 edge = vColor.rgb * mix(vec3(1.0), vec3(1.0, 0.39, 0.24), vParam.z);
   vec3 col = mix(edge, vColor.rgb, smoothstep(0.15, 0.7, a));
@@ -1019,7 +1063,7 @@ export function impact(point, normal, surface, weapon = 'rifle') {
     const rim = w === 'bolt' ? toColor(LOOK.bolt.body) : toColor(L.color);
     for (let k = w === 'bolt' ? LOOK.bolt.sparks : L.sparks[w] ?? L.sparks.rifle; k > 0; k--) {
       randomUnit(_v).multiplyScalar(0.7).add(n).normalize().multiplyScalar(rand(L.speed));
-      spawnPoint(sparks, _p.fromArray(point).addScaledVector(n, 0.01), _v, rim, 1, -L.px, -L.px * 0.6, L.life * (0.6 + Math.random() * 0.8), 1);
+      spawnSpark(_p.fromArray(point).addScaledVector(n, 0.01), _v, rim, L.life * (0.6 + Math.random() * 0.8), L.px);
     }
   }
   if (s.kind === 'wood') {
@@ -1041,7 +1085,7 @@ export function impact(point, normal, surface, weapon = 'rifle') {
     if (budget.puffs > 0) {
       budget.puffs--;
       _p.fromArray(point).addScaledVector(n, 0.08);
-      spawnPoint(dust, _p, _v.copy(n).multiplyScalar(0.6), toColor(L.puff), L.puffAlpha, L.puffSize[0], L.puffSize[1], L.puffLife, 0);
+      spawnPoint(dust, _p, _v.copy(n).multiplyScalar(0.6), lit(toColor(L.puff), _p, normal), L.puffAlpha, L.puffSize[0], L.puffSize[1], L.puffLife, 0);
     }
   }
   const look = LOOK[s.kind];
@@ -1169,11 +1213,15 @@ export function blast(kind, pos, radius = POWERS[kind]?.splash ?? POWERS[kind]?.
   }
   spawnStreak(RING, _p.set(x, (ground ?? y) + 0.04, z), _v.set(0, 1, 0), radius, L.ringBand, L.grow, hue, 1, L.ringLife);
   spawnGlow(_p.set(x, y + 0.3, z), L.glow[0], L.glow[1], toColor(L.glowColor), 1, L.glowLife, false, true);
+  spawnGlow(_p, L.flash[0], L.flash[1], toColor(L.flashColor), 1, L.flashLife, true, true);
+  // A fireball of puffs burning out to smoke, then dust rolling up around it.
   for (let k = 0; k < L.puffs; k++) {
-    randomUnit(_u).multiplyScalar(radius * 0.35);
+    const fire = k < L.fire;
+    randomUnit(_u).multiplyScalar(radius * (fire ? 0.2 : 0.4));
     _p.set(x + _u.x, y + 0.3 + Math.abs(_u.y), z + _u.z);
-    _v.copy(_u).multiplyScalar(1.5).add(_s.set(0, 0.8, 0));
-    spawnStreak(PUFF, _p, _v, 0, rand([L.puffSize[0], L.puffSize[0] * 1.4]), L.puffSize[1], toColor(L.puffColors[k % 2]), L.puffAlpha, L.puffLife * (0.8 + Math.random() * 0.4), Math.random() * TAU);
+    _v.copy(_u).multiplyScalar(fire ? 3 : 1.5).add(_s.set(0, fire ? 1.2 : 0.8, 0));
+    const size = fire ? L.fireSize : L.puffSize;
+    spawnStreak(PUFF, _p, _v, fire ? L.fireHeat : 0, rand([size[0], size[0] * 1.3]), size[1], lit(toColor(L.puffColors[k % 2]), _p), fire ? 1 : L.puffAlpha, (fire ? L.fireLife : L.puffLife) * (0.8 + Math.random() * 0.4), Math.random() * TAU);
   }
   if (ground !== null) {
     _c.set(L.scorchColor);
@@ -1203,7 +1251,7 @@ function shock(x, y, z, radius, hue) {
     randomUnit(_v);
     _v.y = Math.abs(_v.y);
     _v.multiplyScalar(rand(L.sparkSpeed));
-    spawnPoint(sparks, _p.set(x, y + 0.1, z), _v, hue, 1, -4, -2, L.life * (0.8 + Math.random() * 0.6), 1);
+    spawnSpark(_p.set(x, y + 0.1, z), _v, hue, L.life * (0.8 + Math.random() * 0.6), 4);
   }
 }
 
@@ -1211,7 +1259,7 @@ function shock(x, y, z, radius, hue) {
 function zap(pos, hue) {
   _p.fromArray(pos);
   for (let k = 0; k < LOOK.bolt.sparks * 2; k++) {
-    spawnPoint(sparks, _p, randomUnit(_v).multiplyScalar(rand([3, 7])), hue, 1, -3, -2, 0.2 * (0.7 + Math.random() * 0.6), 1);
+    spawnSpark(_p, randomUnit(_v).multiplyScalar(rand([3, 7])), hue, 0.2 * (0.7 + Math.random() * 0.6), 3);
   }
   spawnGlow(_p, 0.3, 0.9, hue, 0.8, 0.12, false, false);
 }
@@ -1222,7 +1270,7 @@ function fizzle(pos) {
   const c = toColor(L.color);
   for (let k = 0; k < L.puffs; k++) {
     randomUnit(_v).multiplyScalar(0.8);
-    spawnStreak(PUFF, _p.fromArray(pos).addScaledVector(_v, 0.15), _v, 0, L.size * 0.6, L.size, c, 0.7, L.life, Math.random() * TAU);
+    spawnStreak(PUFF, _p.fromArray(pos).addScaledVector(_v, 0.15), _v, 0, L.size * 0.6, L.size, lit(c, _p), 0.7, L.life, Math.random() * TAU);
   }
   for (let k = 0; k < L.voxels; k++) {
     randomUnit(_v).multiplyScalar(2);
@@ -1302,7 +1350,7 @@ export function deathBurst(parts, color, dir, head = false) {
   for (let k = 0; k < L.puffs; k++) {
     randomUnit(_v).multiplyScalar(0.5);
     _p.set(cx + _v.x, cy + _v.y, cz + _v.z);
-    spawnStreak(PUFF, _p, _v.multiplyScalar(2), 0, L.puffSize[0], L.puffSize[1], toColor(L.puffColor), L.puffAlpha, L.puffLife * (0.7 + Math.random() * 0.6), Math.random() * TAU);
+    spawnStreak(PUFF, _p, _v.multiplyScalar(2), 0, L.puffSize[0], L.puffSize[1], lit(toColor(L.puffColor), _p), L.puffAlpha, L.puffLife * (0.7 + Math.random() * 0.6), Math.random() * TAU);
   }
   spawnGlow(_p.set(cx, cy, cz), L.flash, L.flash, WHITE, 1, L.flashLife, false, false);
 }
@@ -1364,18 +1412,24 @@ function debugLoop(dt) {
       let best = Infinity;
       boxes.forEach(({ min, max }, b) => {
         if (b === 0 || surfaces[b]?.kind !== kind) return;
-        const d = _p.set((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2).distanceTo(focus);
+        _p.set((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
+        if (_u.copy(_p).sub(cam.pos).dot(cam.fwd) < 2) return; // behind us
+        const d = _p.distanceTo(focus);
         if (d < best) { best = d; debug.targets[kind] = b; }
       });
     }
   }
   if (debug.t >= debug.shots * 0.3) {
     const n = debug.shots++;
-    const target = boxes[debug.targets[['concrete', 'wood', 'steel'][n % 3]]];
+    const from = _p.copy(cam.pos).addScaledVector(right, -2.5).addScaledVector(cam.fwd, 1.5).toArray();
+    from[1] -= 0.3;
+    if (n % 4 === 3) { // a miss into the sky, across the view
+      _v.copy(cam.fwd).addScaledVector(right, 0.5).add(_u.set(0, 0.25, 0)).normalize();
+      shot({ from, ends: [from.map((o, a) => o + _v.getComponent(a) * SHOT_RANGE)], weapon: 'rifle' });
+    }
+    const target = boxes[debug.targets[['concrete', 'wood', 'steel'][n % 4]]];
     const weapon = DEBUG_WEAPONS[n % DEBUG_WEAPONS.length];
     if (target) {
-      const from = _p.copy(cam.pos).addScaledVector(right, -2.5).addScaledVector(cam.fwd, 1.5).toArray();
-      from[1] -= 0.3;
       const ends = [];
       for (let k = weapon === 'shotgun' ? 12 : 1; k > 0; k--) {
         const aim = [0, 1, 2].map((a) => target.min[a] + (target.max[a] - target.min[a]) * (0.5 + (Math.random() - 0.5) * (weapon === 'shotgun' ? 0.9 : 0.6)));

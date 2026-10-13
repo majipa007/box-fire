@@ -167,9 +167,26 @@ test('materials: crates splinter, steel sparks, and a map with materials is foll
   fx.impact([0, 0, 0], [0, 1, 0], 0);
   frame();
   assert.equal(cubes.count, 0);
-  assert.equal(sparks.geometry.drawRange.count, 6);
+  assert.equal(streaks.geometry.instanceCount, 6); // sparks, streaked along their flight
   run(1);
   fx.setMap(MAP);
+});
+
+test('a puff in the shade of a box is dimmed to skylight; one in the sun is not', () => {
+  run(3);
+  const map = { boxes: [{ pos: [0, -0.5, 0], size: [40, 1, 40], color: 0 }, { pos: [5, 3, 0], size: [4, 0.2, 4], color: 0 }] };
+  fx.initEffects({ map, sunDir: [0, 1, 0] });
+  const puff = () => [...dust.geometry.attributes.aColor.array.subarray(0, 3)];
+  fx.impact([0, 0, 0], [0, 1, 0], 0);
+  frame();
+  const sunlit = puff();
+  run(1);
+  fx.impact([5, 0, 0], [0, 1, 0], 0); // under the roof
+  frame();
+  const shaded = puff();
+  assert.ok(shaded[0] < sunlit[0] * 0.5 && shaded[2] / shaded[0] > sunlit[2] / sunlit[0], 'darker, and bluer');
+  run(1);
+  fx.initEffects({ map: MAP });
 });
 
 test('player hits: cubes in the slot colour plus one white; a Shield gives hexagons instead', () => {
