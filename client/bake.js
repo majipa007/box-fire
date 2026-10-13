@@ -1,7 +1,5 @@
 // Static-world baking with no three.js and no DOM, so Node can test it.
 // world.js turns the arrays and quads made here into meshes.
-import { rayBox } from '../shared/collision.js';
-
 const q = (v) => Math.round(v * 1e4) / 1e4; // 0.1 mm grid: equal box edges compare equal
 const TANGENTS = [[2, 1], [0, 2], [0, 1]]; // [u, v] axes per normal axis; v is up on side faces
 const CROSS = [-1, -1, 1]; // sign of u × v along the normal axis, for the winding
@@ -43,7 +41,15 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1
   const floor = Math.min(...boxes.map((b) => b.max[1])); // the lowest top: nothing is seen from below it
   // Rays test slightly shrunk boxes, so a probe on a contact line only counts the box it faces.
   const solid = boxes.map((b) => ({ min: b.min.map((v) => v + 1e-4), max: b.max.map((v) => v - 1e-4) }));
-  const solidAt = (p) => boxes.some((b) => p.every((v, i) => b.min[i] < v && v < b.max[i]));
+  // Indexed loops in the hot paths: the bake runs once, before V8 optimises anything, and
+  // for-of allocates an iterator result per step in unoptimised code.
+  const solidAt = (p, list = boxes) => {
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      if (b.min[0] < p[0] && p[0] < b.max[0] && b.min[1] < p[1] && p[1] < b.max[1] && b.min[2] < p[2] && p[2] < b.max[2]) return true;
+    }
+    return false;
+  };
   const fans = [0, 1, 2].map((a) => ({ [-1]: hemisphere(a, -1, rays), 1: hemisphere(a, 1, rays) }));
   const origin = [0, 0, 0];
   const local = [];
@@ -54,24 +60,25 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1
     origin[2] = p[2];
     origin[a] += s * NUDGE;
     local.length = 0;
-    for (const c of near) if (distance(origin, c) < radius) local.push(c);
+    for (let i = 0; i < near.length; i++) if (distance(origin, near[i]) < radius) local.push(near[i]);
     if (!local.length) return 1;
+    const fan = fans[a][s];
     let occluded = 0;
-    for (const d of fans[a][s]) {
+    for (let k = 0; k < fan.length; k++) {
       let t = radius;
-      for (const c of local) t = Math.min(t, rayBox(origin, d, c.min, c.max));
+      for (let i = 0; i < local.length; i++) t = enter(origin, fan[k], local[i], t);
       occluded += 1 - t / radius;
     }
     return 1 - (strength * occluded) / rays;
   }
-  // 1 if nothing stands between this face point and the sun.
-  function sunlit(p, a, s) {
+  // 1 if nothing in `blockers` stands between this face point and the sun.
+  function sunlit(p, a, s, blockers) {
     if (s * sunDir[a] <= 0) return 0; // faces away: Lambert gives it no sun anyway
     origin[0] = p[0];
     origin[1] = p[1];
     origin[2] = p[2];
     origin[a] += s * NUDGE;
-    for (const c of solid) if (rayBox(origin, sunDir, c.min, c.max) < Infinity) return 0;
+    for (let i = 0; i < blockers.length; i++) if (enter(origin, sunDir, blockers[i], Infinity) < Infinity) return 0;
     return 1;
   }
 
@@ -96,14 +103,27 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1
           reach.min[t] -= radius;
           reach.max[t] += radius;
         }
-        const near = solid.filter((c, i) => i !== self && c.min.every((m, k) => m < reach.max[k] && c.max[k] > reach.min[k]));
+        const overlapping = (list, r) => list.filter((c) => c.min.every((m, k) => m < r.max[k] && c.max[k] > r.min[k]));
+        const near = overlapping(solid.filter((c, i) => i !== self), reach);
+        // Boxes that can cover a cell of this face (they reach its plane), and boxes that can
+        // stand between it and the sun (inside the face swept toward the sun to the top).
+        const flat = { min: [...b.min], max: [...b.max] };
+        flat.min[a] = flat.max[a] = front;
+        for (const t of [u, v]) {
+          flat.min[t] -= 2 * NUDGE; // the crease probes sit just past the face's edges
+          flat.max[t] += 2 * NUDGE;
+        }
+        const covering = boxes.filter((c) => c.min.every((m, k) => m <= flat.max[k] && c.max[k] >= flat.min[k]));
+        const lift = Math.max(0, (hi[1] - b.min[1]) / sunDir[1]);
+        const swept = { min: flat.min.map((m, k) => Math.min(m, m + sunDir[k] * lift)), max: flat.max.map((m, k) => Math.max(m, m + sunDir[k] * lift)) };
+        const blockers = sunDir[1] > 0 ? overlapping(solid, swept) : solid;
         const crease = (t, side) => {
           const o = t === u ? v : u;
           const p = [];
           p[a] = front;
           p[t] = side < 0 ? b.min[t] - NUDGE : b.max[t] + NUDGE;
           p[o] = (b.min[o] + b.max[o]) / 2;
-          return solidAt(p) ? NO_EDGE : 0;
+          return solidAt(p, covering) ? NO_EDGE : 0;
         };
         const ku = crease(u, -1);
         const kv = crease(v, -1);
@@ -116,18 +136,18 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1
         const sizeV = b.max[v] - b.min[v];
         const tilesU = b.tile && Math.max(1, Math.round(sizeU / b.tile));
         const tilesV = b.tile && Math.max(1, Math.round(sizeV / b.tile));
-        const ids = new Map();
+        const ids = new Int32Array(us.length * vs.length).fill(-1);
+        const p = [0, 0, 0];
         const vertex = (i, j) => {
           const key = i * vs.length + j;
-          let id = ids.get(key);
-          if (id === undefined) {
+          let id = ids[key];
+          if (id < 0) {
             id = out.ao.length;
-            ids.set(key, id);
-            const p = [0, 0, 0];
+            ids[key] = id;
             p[a] = plane;
             p[u] = us[i];
             p[v] = vs[j];
-            out.position.push(...p);
+            out.position.push(p[0], p[1], p[2]);
             out.normal.push(a === 0 ? s : 0, a === 1 ? s : 0, a === 2 ? s : 0);
             if (b.tile) out.uv.push((((su > 0 ? p[u] - b.min[u] : b.max[u] - p[u]) / sizeU) * tilesU), (((sv > 0 ? p[v] - b.min[v] : b.max[v] - p[v]) / sizeV) * tilesV));
             else out.uv.push(su * p[u], a === 1 && s > 0 && b.vTop !== undefined ? b.vTop : sv * p[v]);
@@ -135,7 +155,7 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1
             const ao = outer ? 1 : occlusion(p, a, s, near);
             out.ao.push(ao);
             out.sand.push(ground && ao < 0.8 ? 0.55 * Math.min(1, (0.8 - ao) / 0.4) : 0);
-            out.sun.push(outer ? 1 : sunlit(p, a, s));
+            out.sun.push(outer ? 1 : sunlit(p, a, s, blockers));
           }
           return id;
         };
@@ -145,15 +165,18 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1
           for (let j = 0; j + 1 < vs.length; j++) {
             centre[u] = (us[i] + us[i + 1]) / 2;
             centre[v] = (vs[j] + vs[j + 1]) / 2;
-            if (solidAt(centre)) continue; // hidden inside another box
+            if (solidAt(centre, covering)) continue; // hidden inside another box
             const v00 = vertex(i, j);
             const v10 = vertex(i + 1, j);
             const v11 = vertex(i + 1, j + 1);
             const v01 = vertex(i, j + 1);
-            const { ao } = out;
-            const tris = ao[v00] + ao[v11] >= ao[v10] + ao[v01] ? [v00, v10, v11, v00, v11, v01] : [v00, v10, v01, v10, v11, v01];
-            if (CROSS[a] * s < 0) tris.reverse();
-            out.index.push(...tris);
+            const { ao, index } = out;
+            const flip = ao[v00] + ao[v11] >= ao[v10] + ao[v01];
+            if (CROSS[a] * s > 0) {
+              if (flip) index.push(v00, v10, v11, v00, v11, v01);
+              else index.push(v00, v10, v01, v10, v11, v01);
+            } else if (flip) index.push(v01, v11, v00, v11, v10, v00);
+            else index.push(v01, v11, v10, v01, v10, v00);
             triangles += 2;
           }
         }
@@ -165,6 +188,30 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1
     m.index = new Uint32Array(m.index);
   }
   return { meshes, triangles };
+}
+
+// rayBox from shared/collision.js, inlined for the bake's hot loop: the distance along the
+// unit ray d from o to where it enters box b, or `far` when that is no nearer than `far`.
+function enter(o, d, b, far) {
+  let near = 0;
+  let t = far;
+  for (let a = 0; a < 3; a++) {
+    if (d[a] === 0) {
+      if (o[a] < b.min[a] || o[a] > b.max[a]) return far;
+      continue;
+    }
+    let t1 = (b.min[a] - o[a]) / d[a];
+    let t2 = (b.max[a] - o[a]) / d[a];
+    if (t1 > t2) {
+      const x = t1;
+      t1 = t2;
+      t2 = x;
+    }
+    if (t1 > near) near = t1;
+    if (t2 < t) t = t2;
+    if (near > t) return far;
+  }
+  return near;
 }
 
 // Every box edge along one axis, with gaps cut into equal steps of at most `cell`.

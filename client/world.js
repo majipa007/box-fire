@@ -10,6 +10,9 @@ export const LIGHTS = {
   sunColor: '#ffd3a1', sunIntensity: 3.3, sunDir: [-0.683, 0.643, 0.348],
   skyColor: '#a6c1ee', groundColor: '#d2b78e', hemiIntensity: 1.8, exposure: 1.08,
 };
+// Older names other branches still import (characters' main.js, every render.js before the merge).
+export const SUN_DIR = LIGHTS.sunDir;
+export const GRADE = { exposure: LIGHTS.exposure };
 
 export const LOOK = {
   // Static sun shadow: rendered once (0 draws per frame), 5 PCF taps (~0.3 ms). Orthographic
@@ -48,7 +51,7 @@ const HAZARD = { width: 0.3, stripe: 0.15, colors: ['#ad9862', '#3a3c40'] }; // 
 THREE.ShaderChunk.fog_vertex = '#ifdef USE_FOG\n\tvFogDepth = length( mvPosition.xyz );\n#endif';
 // The grade: Neutral, saturation 1.08, a cool shadow tint and a warm highlight tint (≈0 ms, inline).
 const STUB = 'vec3 CustomToneMapping( vec3 color ) { return color; }';
-const GRADE = `vec3 CustomToneMapping( vec3 color ) { // BOXFIRE_GRADE
+const GRADE_GLSL = `vec3 CustomToneMapping( vec3 color ) { // BOXFIRE_GRADE
   color = NeutralToneMapping( color );
   float y = dot( color, vec3( 0.2126, 0.7152, 0.0722 ) );
   color = max( mix( vec3( y ), color, 1.08 ), 0.0 );
@@ -56,7 +59,7 @@ const GRADE = `vec3 CustomToneMapping( vec3 color ) { // BOXFIRE_GRADE
   return mix( color, vec3( 1.0, 0.8714, 0.6724 ), 0.05 * smoothstep( 0.7, 1.0, y ) );
 }`;
 const graded = THREE.ShaderChunk.tonemapping_pars_fragment.includes(STUB);
-THREE.ShaderChunk.tonemapping_pars_fragment = THREE.ShaderChunk.tonemapping_pars_fragment.replace(STUB, GRADE);
+THREE.ShaderChunk.tonemapping_pars_fragment = THREE.ShaderChunk.tonemapping_pars_fragment.replace(STUB, GRADE_GLSL);
 
 // render.js switches sun.castShadow and re-arms sun.shadow.needsUpdate with the setting.
 export const sun = new THREE.DirectionalLight(LIGHTS.sunColor, LIGHTS.sunIntensity);
@@ -137,14 +140,15 @@ export function updateWorld(now, camera) {
 }
 function poseBlades(t) {
   const spin = (t * FAR.turbines.rpm * Math.PI) / 30;
-  far.hubs.forEach((h, i) => {
+  for (let i = 0; i < far.hubs.length; i++) {
+    const h = far.hubs[i];
     bladeQ.setFromAxisAngle(Y, h.yaw);
     for (let k = 0; k < 3; k++) {
       bladeRoll.setFromAxisAngle(Z, spin + (k * 2 * Math.PI) / 3 + i);
       bladeM.compose(bladeP.set(h.x, h.y, h.z), bladeRoll.premultiply(bladeQ), ONE);
       far.blades.setMatrixAt(i * 3 + k, bladeM);
     }
-  });
+  }
   far.blades.instanceMatrix.needsUpdate = true;
 }
 
