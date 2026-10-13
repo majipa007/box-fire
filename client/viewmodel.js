@@ -622,6 +622,7 @@ let fallSpeed = 0;
 let landT = Infinity; // seconds since a landing,
 let landDepth = 0; // and how deep it dips
 let lastSlot = 0;
+let lastSwitching = 0;
 let switchT = Infinity; // seconds into a weapon switch
 let castT = Infinity; // seconds into a power-up cast
 let ejectAt = Infinity; // when the shotgun's pump throws its shell (ms)
@@ -660,9 +661,10 @@ export function setArmband(hex) {
   vmUniforms.vmSlot.value.set(hex);
 }
 
-// Using a power-up locks the gun briefly: a quick dip and roll instead of a switch.
+// Using a power-up locks the gun briefly: a quick dip and roll instead of a
+// switch. The arsenal's lock starts it too; a cast already running is kept.
 export function powerCast() {
-  castT = 0;
+  if (castT >= LOOK.cast.seconds) castT = 0;
 }
 
 function show(weapon) {
@@ -708,11 +710,12 @@ export function updateViewmodel(now, camera, scene, renderer) {
   }
 
   // A new slot lowers the old gun and raises the new one; the arsenal's
-  // switching timer alone (a power-up's gun lock) does not.
+  // switching timer rising alone (a power-up's gun lock) casts instead.
   if (arsenal.slot !== lastSlot) {
     lastSlot = arsenal.slot;
     switchT = switchLow(switchT) * LOOK.switchPose.out; // a switch back starts from where the gun is
-  }
+  } else if (arsenal.switching > lastSwitching + 1e-6 && !raise) powerCast();
+  lastSwitching = arsenal.switching;
   switchT += dt;
   castT += dt;
   if (raise) {

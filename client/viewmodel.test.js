@@ -39,7 +39,7 @@ async function suite() {
     for (let i = 0; i < n; i++) {
       now += 1000 / 60;
       vm.updateViewmodel(now, camera, scene);
-      each?.();
+      each?.(i);
     }
   }
   // A fresh life, settled.
@@ -235,17 +235,19 @@ async function suite() {
     spawn('rifle');
     const y = gun.position.y;
     const roll = gun.rotation.z;
-    self.arsenal.switching = 0.25; // the lock, with no new slot
-    vm.powerCast('shunt');
+    self.arsenal.switching = 0.25; // the lock, with no new slot: the arsenal alone starts the cast
     let dip = 0;
     let turn = 0;
-    frames(8, () => {
+    frames(8, (i) => {
+      if (i === 3) vm.powerCast('shunt'); // the server's event, a few frames late: no second dip
       dip = Math.max(dip, y - gun.position.y);
       turn = Math.max(turn, gun.rotation.z - roll);
     });
     near(dip, 0.04, 0.004, 'dip');
     near(turn, 4 * DEG, 0.5 * DEG, 'roll');
+    near(gun.position.y, y, 0.004, 'done inside 133 ms');
     assert.ok(rig('rifle').visible, 'never lowered for a switch');
+    self.arsenal.switching = 0;
     frames(30);
     near(gun.position.y, y, 0.004, 'back'); // within the breath
   });
