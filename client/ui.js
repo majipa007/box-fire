@@ -318,7 +318,7 @@ export function killConfirm(name, color) {
   flash($('killx'), [{ opacity: 1, transform: 'scale(1.4)' }, { opacity: 1, transform: 'scale(1)', offset: 0.2 }, { opacity: 1, offset: 0.7 }, { opacity: 0 }], LOOK.killXMs);
   const label = $('confirm-name');
   label.textContent = name;
-  label.style.color = color ?? '';
+  label.style.setProperty('--c', color ?? '');
   flash($('confirm'), [{ opacity: 0, translate: '0 6px' }, { opacity: 1, translate: 'none', offset: 0.1 }, { opacity: 1, offset: 0.8 }, { opacity: 0 }], LOOK.confirmMs);
 }
 
@@ -329,7 +329,10 @@ export function addKill(killer, victim, weapon, head, mine, colors = {}) {
   const name = (text, color) => {
     const span = document.createElement('span');
     span.textContent = text;
-    if (color) span.style.color = color;
+    if (color) {
+      span.className = 'who';
+      span.style.setProperty('--c', color);
+    }
     return span;
   };
   li.append(name(killer, colors.killer), icon(weapon));
@@ -365,7 +368,7 @@ export function showDeath(killer, seconds, info = {}) {
   $('death').hidden = false;
   const name = $('death-killer');
   name.textContent = killer;
-  name.style.color = info.color ?? '';
+  name.style.setProperty('--c', info.color ?? '');
   setIcon($('death-icon'), info.weapon);
   $('death-hp').textContent = info.killerHp > 0 ? `they had ${info.killerHp} HP` : '';
   const end = performance.now() + seconds * 1000;
@@ -694,7 +697,7 @@ function startDemo() {
       { id: 2, name: 'bot5', color: PLAYER_COLORS[4], x: innerWidth * 0.72, y: innerHeight * 0.46, alpha: 1 },
       { id: 3, name: 'bot2', color: PLAYER_COLORS[1], x: innerWidth * 0.56, y: innerHeight * 0.42, alpha: 0.6 },
     ]);
-    threat({ shock: 1.2, shunts: [1.35, -0.9] });
+    if (DEMO !== 'death') threat({ shock: 1.2, shunts: [1.35, -0.9] }); // keeps the death card clear
     renderScoreboard(DEMO_BOARD, 3, null);
     const feed = [
       ['bot1', 'bot4', 'rifle', true, false, 0, 3], ['Tester', 'bot2', 'shunt', false, true, 2, 1], ['bot6', 'bot5', 'shotgun', false, false, 5, 4],
@@ -703,7 +706,7 @@ function startDemo() {
     $('killfeed').classList.add('demo'); // rows stay
     for (const [k, v, w, h, mine, kc, vc] of feed) addKill(k, v, w, h, mine, { killer: PLAYER_COLORS[kc], victim: PLAYER_COLORS[vc] });
     hitMarker(true);
-    killConfirm('bot2', PLAYER_COLORS[1]);
+    if (DEMO !== 'death') killConfirm('bot2', PLAYER_COLORS[1]);
     damageArc(-2.2);
     powerToast('shunt');
   });

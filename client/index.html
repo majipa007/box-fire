@@ -38,6 +38,9 @@
   .card::before { content: ""; position: absolute; left: 0; top: 0; width: 64px; height: 3px; background: var(--accent); }
   h1 { margin: 0 0 14px; font: 700 34px/1 var(--font); letter-spacing: 0.06em; text-transform: uppercase; }
   .dim { color: var(--dim); }
+  /* A slot colour as text: same hue, lifted to at least OKLCH L 0.72 so the
+     dark slots (blue, purple, red) still read on a dark panel. */
+  .who, #confirm-name, #death-killer, #leader-name { color: oklch(from var(--c, var(--text)) max(l, 0.72) c h); }
   .error { color: var(--danger); min-height: 1.4em; }
   .eyebrow { font: 700 12px var(--font); letter-spacing: 0.22em; text-transform: uppercase; color: var(--dim); }
   .swatch { width: 12px; height: 12px; flex: none; box-shadow: 0 0 0 1px var(--ink); }
@@ -141,7 +144,7 @@
   #rank:empty, #leader.none { display: none; }
   #leader { display: flex; flex-direction: column; gap: calc(3 * var(--u)); width: calc(160 * var(--u)); font: 700 calc(12 * var(--u)) var(--font); letter-spacing: 0.06em; }
   #leader-row { display: flex; justify-content: space-between; gap: 8px; }
-  #leader-name { overflow: hidden; text-overflow: ellipsis; color: var(--lc, var(--text)); }
+  #leader-name { overflow: hidden; text-overflow: ellipsis; --c: var(--lc); }
   #leader-kills { color: var(--dim); }
   #leader-bar { height: calc(4 * var(--u)); background: rgba(21, 23, 28, 0.55); box-shadow: 0 0 0 1px rgba(21, 23, 28, 0.5); }
   #leader-bar i { display: block; height: 100%; background: var(--lc, var(--text)); transform-origin: left; transform: scaleX(0); }
