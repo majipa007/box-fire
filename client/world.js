@@ -3,7 +3,7 @@
 // feel bible, §2); costs are for an Iris Xe at 1080p.
 import * as THREE from 'three';
 import { meshMap, skyline, farRidge, clouds, decals, FAR } from './bake.js';
-import { makeTexture, makeDecalAtlas, makeFenceTexture } from './textures.js';
+import { makeTexture, makeDecalAtlas, makeFenceTexture, makeRockTexture, ROCK } from './textures.js';
 
 // Late-afternoon sun (40° up, azimuth 243° clockwise from north = −z) and a bounce-lit sky fill.
 export const LIGHTS = {
@@ -118,7 +118,7 @@ export function buildWorld(scene, map) {
     mesh.renderOrder = name === 'slab' ? 1 : 0; // the floor after the walls, so early-z rejects hidden floor
     world.add(mesh);
   }
-  const solid = new THREE.Mesh(quadGeometry(skyline()), new THREE.MeshLambertMaterial({ vertexColors: true }));
+  const solid = new THREE.Mesh(quadGeometry(skyline()), skylineMaterial());
   solid.castShadow = solid.receiveShadow = true;
   world.add(solid, buildFar(), buildMotes(), buildDecals(map), buildFence());
   scene.add(world);
@@ -297,13 +297,35 @@ function buildFence() {
   return mesh;
 }
 
-// Quads ({ p, n, color (one hex or 4), centre? }) → an indexed geometry with flat normals and linear vertex colours.
+// The skyline: Lambert with vertex colours, and the rock tile over cut rock (the `rock`
+// attribute), on world-space UVs: along the face and up, one repeat per ROCK.size metres.
+function skylineMaterial() {
+  const material = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const rockMap = { value: makeRockTexture() };
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.rockMap = rockMap;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float rock;\nvarying float vRock;\nvarying vec2 vRockUv;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vRock = rock;
+        vRockUv = vec2( dot( position.xz, vec2( -normal.z, normal.x ) ) / ${ROCK.size[0].toFixed(1)}, position.y / ${ROCK.size[1].toFixed(2)} );`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform sampler2D rockMap;\nvarying float vRock;\nvarying vec2 vRockUv;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        vec2 rockUv = vRockUv + vec2( fract( sin( floor( vRockUv.y ) * 91.7 ) * 43758.5 ), 0.0 ); // each band slides the tile along
+        diffuseColor.rgb *= mix( 1.0, texture2D( rockMap, rockUv ).r * 1.9922, vRock ); // 128 = ×1`);
+  };
+  return material;
+}
+
+// Quads ({ p, n, color (one hex or 4), centre?, rock? }) → an indexed geometry with flat normals and linear vertex colours.
 function quadGeometry(quads) {
   const n = quads.length;
   const position = new Float32Array(n * 12);
   const normal = new Float32Array(n * 12);
   const color = new Float32Array(n * 12);
   const centre = quads[0]?.centre ? new Float32Array(n * 12) : null;
+  const rock = quads.some((q) => q.rock) ? new Float32Array(n * 4) : null;
   const index = new Uint32Array(n * 6);
   const colors = new Map();
   quads.forEach((q, i) => {
@@ -315,6 +337,7 @@ function quadGeometry(quads) {
       color.set(colors.get(hex), i * 12 + k * 3);
       centre?.set(q.centre, i * 12 + k * 3);
     }
+    rock?.fill(q.rock ?? 0, i * 4, i * 4 + 4);
     index.set([0, 1, 2, 0, 2, 3].map((v) => v + i * 4), i * 6);
   });
   const g = new THREE.BufferGeometry();
@@ -322,6 +345,7 @@ function quadGeometry(quads) {
   g.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
   g.setAttribute('color', new THREE.BufferAttribute(color, 3));
   if (centre) g.setAttribute('centre', new THREE.BufferAttribute(centre, 3));
+  if (rock) g.setAttribute('rock', new THREE.BufferAttribute(rock, 1));
   g.setIndex(new THREE.BufferAttribute(index, 1));
   return g;
 }

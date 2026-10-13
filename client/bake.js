@@ -309,7 +309,8 @@ function hemisphere(a, s, n) {
 }
 
 // ---- The skyline beyond the walls (bible §2.4, §2.7). Pure data: lists of
-// quads { p: 4 corners (12 numbers, counter-clockwise seen from the front), n, color }.
+// quads { p: 4 corners (12 numbers, counter-clockwise seen from the front), n, color,
+// rock?: 1 on cut rock, which world.js overlays with the bedding tile }.
 // Azimuths are degrees clockwise from north (−z), seen from above.
 
 export const SKYLINE = {
@@ -322,14 +323,15 @@ export const SKYLINE = {
     { inner: 58, depth: 10, top: 15, vary: 1.5, from: 290, to: 560, plain: 7.5 },
     { inner: 68, depth: 6, top: 21, vary: 1.5, from: 330, to: 480, plain: 12.5 },
   ],
-  column: 4, step: 0.5, setBack: 1.5, foot: 0.78, // columns cut back 0–1.5 m; faces darken to 78% at the foot
-  columnShade: [0.93, 1.03], // each column's face a little lighter or darker, so the cut reads as blocks
+  column: 4, step: 0.5, setBack: 1.5, foot: 0.7, // columns cut back 0–1.5 m; faces darken to 70% at the foot
+  columnShade: [0.85, 1.08], // each column's face lighter or darker, so the cut reads as blocks
   // Scree at the foot of benches 2 and 3 (bench 1's foot hides behind the walls): a stepped pile
   // [width, depth] per step, total height in m, against every other column; half get a second step.
-  scree: { color: '#b9ab92', steps: [[3.2, 2.6], [1.8, 1.4]], height: [2, 3], firstStep: 0.55, every: 2, twoSteps: 0.5 },
+  scree: { color: '#b9ab92', top: '#d8c39a', steps: [[3.2, 2.6], [1.8, 1.4]], height: [2, 3], firstStep: 0.55, every: 2, twoSteps: 0.5 },
   apron: { half: 75, cell: 15, clear: 15, y: -0.05, colors: ['#c2b59c', '#bcae94', '#c6baa2'], track: '#a99c84' },
   rust: '#8a5a44', bloom: '#6f4535', graphite: '#45474c', windows: '#2a2c30', ochre: '#ad9862', teal: '#4f8f8a', tealWater: '#5f7f7c',
   board: '#c9c3b8', coping: '#d9d4ca', gabion: '#9d968a', cones: ['#d8c39a', '#cbb38a'],
+  junction: '#9a9a96', // galvanised: the bible gives no colour, and graphite reads as holes in the wall
   containers: ['#8a5a44', '#5f7f7c', '#ad9862', '#45474c'],
 };
 
@@ -439,8 +441,8 @@ export function skyline(S = SKYLINE) {
   // Inside the arena: cable trays at 3.3 m on the north and east inner faces with junction
   // boxes every 6 m, and fence posts every 3 m along the wall tops.
   for (let k = -18; k <= 18; k += 6) {
-    if (k) block(out, [k, 2.95, -19.96], [0.3, 0.4, 0.08], S.graphite); // clear of the PIT 7 stencil
-    block(out, [19.96, 2.95, k], [0.08, 0.4, 0.3], S.graphite);
+    if (k) block(out, [k, 2.95, -19.96], [0.3, 0.4, 0.08], S.junction); // clear of the PIT 7 stencil
+    block(out, [19.96, 2.95, k], [0.08, 0.4, 0.3], S.junction);
   }
   block(out, [-50.95, 24.3, -20], [0.1, 3.6, 9.4], S.graphite); // the crusher's sign board, above the conveyor
   block(out, [0, 3.3, -19.95], [40, 0.08, 0.1], S.graphite);
@@ -669,6 +671,7 @@ function strata(out, S, a, b, y0, y1, plain, toward, tint = () => 1) {
   const face = (l, h, color) => {
     const [cl, ch] = [shadeHex(color, tint(l)), shadeHex(color, tint(h))];
     quad(out, [[a[0], l, a[1]], [b[0], l, b[1]], [b[0], h, b[1]], [a[0], h, a[1]]], [cl, cl, ch, ch], toward);
+    out[out.length - 1].rock = 1;
   };
   if (y0 < plain) {
     face(y0, Math.min(plain, y1), S.strata[1]);
@@ -699,10 +702,13 @@ function scree(out, at, az, r, y, rand, P) {
     const [cx, cz] = at(az, r);
     const pt = (t, depth, yy) => [cx + along[0] * (t + shift) + inward[0] * depth, yy, cz + along[2] * (t + shift) + inward[2] * depth];
     const [l, m] = [-w / 2, w / 2];
-    quad(out, [pt(l, 0, y1), pt(m, 0, y1), pt(m, d, y1), pt(l, d, y1)], P.color, UP);
+    quad(out, [pt(l, 0, y1), pt(m, 0, y1), pt(m, d, y1), pt(l, d, y1)], P.top, UP); // sand settles on top
     quad(out, [pt(l, d, y0), pt(m, d, y0), pt(m, d, y1), pt(l, d, y1)], P.color, inward);
+    out[out.length - 1].rock = 1;
     quad(out, [pt(l, 0, y0), pt(l, d, y0), pt(l, d, y1), pt(l, 0, y1)], P.color, along.map((v) => -v));
+    out[out.length - 1].rock = 1;
     quad(out, [pt(m, 0, y0), pt(m, d, y0), pt(m, d, y1), pt(m, 0, y1)], P.color, along);
+    out[out.length - 1].rock = 1;
   }
 }
 

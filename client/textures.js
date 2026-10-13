@@ -276,6 +276,80 @@ export function makeFenceTexture() {
   return texture;
 }
 
+// Cut-rock bedding for the quarry benches: a luminance multiplier (128 = ×1) over the strata's
+// vertex colours, one 8 × 2.5 m repeat at 8 px/m. v runs up one 2.5 m strata band: an undercut
+// at its foot, then 0.5 m sub-beds, weathering blotches, broken bedding streaks, dark joints
+// that step at the sub-bed lines and chips, a sunlit lip on
+// the top row, then the seam rows, left plain (the vertex colour darkens them). Features are
+// 1/8 m or more at ±6–16%, so they survive 50–75 m of distance and fog.
+export const ROCK = { size: [8, 2.5], px: 8, seed: 31, noise: 0.03, bed: 0.07, blotches: 10, blotch: 0.08, streaks: 1.5, streak: [0.05, 0.09], joints: 4, joint: 0.16, chips: 16, chip: 0.12, lip: 0.16, undercut: [0.15, 0.06], seamRows: 2 };
+export function makeRockTexture() {
+  const r = ROCK;
+  const w = r.size[0] * r.px;
+  const h = Math.round(r.size[1] * r.px);
+  const k = new Float32Array(w * h).fill(1); // row 0 is the band's foot
+  const rand = seeded(r.seed);
+  const body = h - r.seamRows;
+  const mul = (x, y, f) => { if (y >= 0 && y < body) k[y * w + (((x % w) + w) % w)] *= f; };
+  const pm = (amount) => 1 + (rand() < 0.5 ? -1 : 1) * amount;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) k[y * w + x] *= 1 + r.noise * signed(hash(x, y, r.seed));
+  const beds = [1, 5, 9, 13, body]; // sub-bed lines, rows
+  for (let b = 0; b + 1 < beds.length; b++) {
+    const tone = pm(r.bed * (0.4 + 0.6 * rand()));
+    for (let y = beds[b]; y < beds[b + 1]; y++) for (let x = 0; x < w; x++) mul(x, y, tone);
+  }
+  for (let i = 0; i < r.blotches; i++) {
+    const [x0, y0, bw, bh, f] = [Math.floor(rand() * w), 1 + Math.floor(rand() * (body - 3)), 3 + Math.floor(rand() * 5), 2 + Math.floor(rand() * 2), pm(r.blotch)];
+    for (let y = y0; y < y0 + bh; y++) for (let x = x0 + (y === y0 ? 1 : 0); x < x0 + bw - (y === y0 + bh - 1 ? 1 : 0); x++) mul(x, y, f);
+  }
+  for (let y = 2; y < body - 1; y++) {
+    for (let n = r.streaks * (0.5 + rand()); n > 0.5; n--) {
+      const x0 = Math.floor(rand() * w);
+      const len = 4 + Math.floor(rand() * 10);
+      const f = pm(r.streak[0] + rand() * (r.streak[1] - r.streak[0]));
+      for (let x = x0; x < x0 + len; x++) if (rand() > 0.15) mul(x, y, f); // broken
+    }
+  }
+  for (let i = 0; i < r.joints; i++) {
+    const b = Math.floor(rand() * 2); // a joint runs up through most of the band
+    const top = beds[Math.min(beds.length - 1, b + 3 + Math.floor(rand() * 2))];
+    let x = Math.floor(rand() * w);
+    for (let y = beds[b]; y < top; y++) {
+      if (beds.includes(y) && rand() < 0.6) x += rand() < 0.5 ? -1 : 1; // steps at bed lines
+      mul(x, y, 1 - r.joint);
+    }
+  }
+  for (let i = 0; i < r.chips; i++) {
+    const [x, y] = [Math.floor(rand() * w), 2 + Math.floor(rand() * (body - 3))];
+    const f = 1 + (rand() < 0.6 ? 1 : -1) * r.chip;
+    for (let d = 0; d < 4; d++) if (d < 2 || rand() < 0.5) mul(x + (d & 1), y + (d >> 1), f);
+  }
+  for (let x = 0; x < w; x++) {
+    mul(x, body - 1, 1 + r.lip);
+    mul(x, 0, 1 - r.undercut[0]);
+    mul(x, 1, 1 - r.undercut[1]);
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const g = canvas.getContext('2d');
+  const image = g.createImageData(w, h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const v = Math.min(255, Math.round(128 * k[y * w + x]));
+      image.data.set([v, v, v, 255], ((h - 1 - y) * w + x) * 4); // canvas rows run down; v runs up
+    }
+  }
+  g.putImageData(image, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.NoColorSpace; // data, not colour
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.anisotropy = 4;
+  return texture;
+}
+
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 const shade = (c, k) => c.map((v) => Math.min(255, v * k));
 const signed = (v) => v * 2 - 1;

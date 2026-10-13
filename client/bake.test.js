@@ -253,7 +253,8 @@ test('the skyline is deterministic, in budget, faces out of its solids and keeps
   }
   // Scree piles sit at the feet of benches 2 and 3, on the bench in front, outside the walls.
   const scree = quads.filter((q) => q.color === SKYLINE.scree.color);
-  assert.ok(scree.length >= 4 * 40, `${scree.length / 4} scree steps`);
+  assert.ok(scree.length >= 3 * 40, `${scree.length / 3} scree steps`); // front and sides; the top is sand
+  assert.ok(scree.every((q) => q.rock === 1), 'scree sides take the rock tile');
   for (const q of scree) {
     const c = centreOf(q);
     assert.ok(Math.hypot(c[0], c[2]) > 50 && c[1] > 6, `scree at ${c}`);
@@ -265,6 +266,7 @@ test('the skyline is deterministic, in budget, faces out of its solids and keeps
     const r = Math.hypot(c[0], c[2]);
     if (Array.isArray(q.color)) { // cut faces are the quads shaded per corner
       assert.ok((c[0] * q.n[0] + c[2] * q.n[2]) / r < 0.2, `bench face looking away at ${c}`);
+      assert.equal(q.rock, 1, 'cut faces take the rock tile');
     }
   }
 });
