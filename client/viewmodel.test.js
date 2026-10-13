@@ -242,6 +242,8 @@ async function suite() {
       const handCorners = [];
       const magCorners = [];
       const heldCorners = [];
+      const gunCorners = [];
+      let clear = Infinity; // px at 720p from the crosshair to the nearest corner of the gun
       let dropped = false;
       let seats = 0;
       self.arsenal.reload = w.reload;
@@ -254,6 +256,8 @@ async function suite() {
         const t = (1 - self.arsenal.reload / w.reload).toFixed(2);
         const old = onScreen(weapon, oldMag, magCorners);
         const held = onScreen(weapon, newMag, heldCorners);
+        onScreen(weapon, (b) => ['body', 'slide', 'part'].includes(b.part), gunCorners);
+        for (let i = 0; i < gunCorners.length; i += 2) clear = Math.min(clear, Math.hypot(gunCorners[i] * 640, gunCorners[i + 1] * 360));
         assert.ok(!(hand.scale.x > 0 && mag.scale.x > 0), `${t}: one magazine at a time`);
         if (t > 0.18 && t < 0.25 && old.share > 0.9 && mag.position.y < vm.MODELS[weapon].pivots.part[1] - 0.08) dropped = true;
         if (hand.scale.x > 0 && !wasHeld) { // the hand comes back with a new one
@@ -273,6 +277,7 @@ async function suite() {
         }
       }
       assert.ok(dropped, 'the old magazine drops in view first');
+      assert.ok(clear > 40, `the gun keeps clear of the crosshair (${clear.toFixed(0)} px)`);
       assert.equal(seats, 1, 'one seat');
       frames(60);
       assert.ok(mag.position.distanceTo(new THREE.Vector3(...vm.MODELS[weapon].pivots.part)) < 1e-3, 'seated');

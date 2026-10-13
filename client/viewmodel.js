@@ -145,7 +145,7 @@ const RIFLE_MAG = [
   box('part', 'tan', [0.045, 0.07, 0.065], [0, -0.085, -0.172], [0.35, 0, 0]),
 ];
 const RIFLE_SEAT = [0.005, -0.17, 0.21]; // the left hand under the magazine well
-const RIFLE_TILT = [0, 0.1, 0.04, 0.25, 0.3, -25 * DEG]; // raised, turned and tilted 25° so the magazine well shows
+const RIFLE_TILT = [0.03, 0.09, 0.04, 0.2, 0.1, -25 * DEG]; // raised, turned and tilted 25° so the magazine well shows; the gun stays 57 px clear of the crosshair at 720p
 const PISTOL_MAG = [
   box('part', 'tan', [0.024, 0.1, 0.038], [0, -0.025, 0.014], [-12 * DEG, 0, 0]), // magazine, inside the grip
   box('part', 'dark', [0.036, 0.012, 0.055], [0, -0.078, 0.024], [-12 * DEG, 0, 0]), // base plate
