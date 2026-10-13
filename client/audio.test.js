@@ -4,8 +4,10 @@ import { shotRng } from '../shared/rng.js';
 import {
   SOUNDS, REVERB, MIX, COMPRESSOR, SLAP, CLIP, WIND, LOCK, PICK_ROOTS, VOICE_LIMIT, CASING_DELAY, TRANSIENT_RANGE, HUM_RANGE, LAND,
   renderSound, renderIR, shortTerm, dbToGain, distGain, distCutoff, wetSend, surfacesOf, classify, surfaceUnder, pickVariant, clipCurve,
-  voiceToSteal, diffEntities, beepRate, lockRate,
+  voiceToSteal, diffEntities, beepRate, lockRate, readEntities, usedSlot,
 } from './audio.js';
+import { ENT, POWERUP_IDS, entityTuple } from '../shared/protocol.js';
+import { KEY } from '../shared/movement.js';
 
 const FS = 48000;
 const ms = (t) => Math.round((t * FS) / 1000);
@@ -234,7 +236,7 @@ test('voices never exceed the limit, and the oldest one a sound outranks is stol
   assert.ok(stolen > 0, 'the limit was reached');
 });
 
-test('power-up entities: Shunts fly, mines click as they arm and fuse, others sound once', () => {
+test('power-up entities: Shunts fly, mines click as they arm and fuse, others sound once, the gone are told', () => {
   const seen = new Map();
   const heard = [];
   const step = (list) => diffEntities(seen, list, (what, e) => heard.push(`${what} ${e.id}`));
@@ -243,10 +245,10 @@ test('power-up entities: Shunts fly, mines click as they arm and fuse, others so
   step([{ id: 1, kind: 'shunt' }, { id: 2, kind: 'mine', state: 1 }, { id: 3, kind: 'bolt' }, { id: 4, kind: 'mine', armed: true }]);
   assert.deepEqual(heard.splice(0), ['fly 1', 'arm 2']);
   step([{ id: 2, kind: 'mine', state: 2 }, { id: 4, kind: 'mine', armed: true }]);
-  assert.deepEqual(heard.splice(0), ['fuse 2']);
+  assert.deepEqual(heard.splice(0), ['fuse 2', 'gone 1', 'gone 3'], 'the Shunt and the Bolt left: their loops stop');
   assert.deepEqual([...seen.keys()].sort(), [2, 4], 'gone ones are forgotten');
-  step([{ id: 3, kind: 'bolt' }]);
-  assert.deepEqual(heard.splice(0), ['new 3'], 'an id seen again after it left is new');
+  step([{ id: 3, kind: 'bolt' }, { id: 4, kind: 'mine', armed: true }]);
+  assert.deepEqual(heard.splice(0), ['new 3', 'gone 2'], 'an id seen again after it left is new; one leaving as another comes is still told');
 });
 
 test('lock beeps: only an enemy Shunt heading at you, within range, the nearest one setting the rate', () => {
@@ -261,6 +263,39 @@ test('lock beeps: only an enemy Shunt heading at you, within range, the nearest 
   assert.equal(lockRate([shunt(20, -18, 2, 15)], me, 1), 0, 'aimed 37° off');
   assert.equal(lockRate([{ ...shunt(5, -18), kind: 'bolt' }], me, 1), 0, 'a Bolt is no lock');
   near(lockRate([shunt(30, -18), shunt(10, -18)], me, 1), beepRate(10), 1e-9, 'the nearest wins');
+});
+
+test('lock beeps: on the bible wire, only a Shunt whose row names you, whatever its heading', () => {
+  const me = { x: 0, y: 0, z: 0 };
+  const list = readEntities({ en: [[7, ENT.SHUNT, 2, 0, 1, 20, 1, 0]] });
+  near(lockRate(list, me, 1), beepRate(20), 1e-9, 'locked on you');
+  assert.equal(lockRate(list, me, 3), 0, 'locked on someone else');
+  assert.equal(lockRate(readEntities({ en: [[7, ENT.SHUNT, 2, 0, 1, 20, 0, 0]] }), me, 1), 0, 'no target');
+});
+
+test('entities read from either wire, reusing the same objects', () => {
+  const out = [];
+  const bible = readEntities({ en: [[5, ENT.SHUNT, 2, 1, 2, 3, 9, 0], [6, ENT.MINE, 3, 4, 0, 5, 2, 0], [8, ENT.DOME, 2, 0, 0, 0, 900, 4]] }, out);
+  assert.equal(bible, out);
+  assert.deepEqual(bible.map((e) => [e.id, e.kind, e.owner, e.x, e.y, e.z, e.state, e.target]),
+    [[5, 'shunt', 2, 1, 2, 3, 0, 9], [6, 'mine', 3, 4, 0, 5, 2, null], [8, 'dome', 2, 0, 0, 0, 0, 4]]);
+  const first = out[0];
+  const engine = readEntities({ ents: [entityTuple({ id: 9, kind: 'mine', owner: 4, x: 1, y: 0, z: 2, vx: 0, vy: 0, vz: 0, armed: true }), entityTuple({ id: 10, kind: 'shunt', owner: 4, x: 0, y: 1, z: 0, vx: 0, vy: 0, vz: -18 })] }, out);
+  assert.equal(engine.length, 2);
+  assert.equal(engine[0], first, 'objects are reused');
+  assert.deepEqual(engine.map((e) => [e.id, e.kind, e.owner, e.state, e.target, e.vz]), [[9, 'mine', 4, 1, null, 0], [10, 'shunt', 4, 0, null, -18]]);
+  assert.ok(POWERUP_IDS.includes('mine'));
+  assert.deepEqual(readEntities({}), [], 'no rows');
+});
+
+test('your own use on the engine wire: the slot the step will take; nothing on the bible wire', () => {
+  const inv = ['shunt', 'mine', 'nitro'];
+  assert.equal(usedSlot(inv, KEY.USE), 'shunt');
+  assert.equal(usedSlot(inv, KEY.USE | KEY.CYCLE), 'mine', 'a cycle moves the queue on first');
+  assert.equal(usedSlot(['shunt'], KEY.USE | KEY.CYCLE), 'shunt', 'one slot does not cycle');
+  assert.equal(usedSlot(inv, KEY.CYCLE), null);
+  assert.equal(usedSlot([], KEY.USE), null);
+  assert.equal(usedSlot(undefined, KEY.USE), null, 'the bible wire has no self.inv');
 });
 
 test('the output clipper leaves normal levels alone and never reaches -1 dBFS', () => {

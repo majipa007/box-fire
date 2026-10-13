@@ -12,7 +12,13 @@
 // ?debug&sfx plays every sound in turn (BOARD, about 600 ms apart).
 import { shotRng } from '../shared/rng.js';
 import { prepareMap } from '../shared/collision.js';
-import { SHOT_RANGE, POWER_COLORS } from '../shared/constants.js';
+import { SHOT_RANGE, POWER_COLORS, POWER_PADS } from '../shared/constants.js';
+import { KEY } from '../shared/movement.js';
+// Namespaces, not named imports, for both power-up wires: the engine wave's
+// padsFor and entity tuple are gone (or going) from the bible's modules, and
+// one missing named import fails the whole page.
+import * as wire from '../shared/protocol.js';
+import * as sharedPowers from '../shared/powerups.js';
 
 /* ----------------------------------------------------------------------------
  * Look constants: every level, timing and timbre. Seconds, Hz, dB.
@@ -293,10 +299,12 @@ export const POWER_SOUNDS = {
 };
 // Kinds with no sound of their own (the engine's Repair) borrow these.
 const POWER_FALLBACK = { pick: 'power.pick.other', use: 'power.use', boom: 'power.shunt.boom' };
+const BOLT_HIT = 'impact.steel'; // the engine wave's Bolt projectile landing
 export const LOCK = { range: 40, slow: 3, fast: 9, lookahead: 0.05, cone: 30, chest: 1 }; // beeps/s from range m in to 0 m; cone °, chest m
 export const SHOCK_TARGET = 2; // the whine at your feet plays this much louder
 export const HUM_RANGE = 8; // m: the two nearest pads hum, fading out by here
-export const HOLD = { fade: 0.06, timeout: 0.35 }; // a held loop not refreshed this long fades out
+export const HUM_EVERY = 6; // snapshots between pad hum updates
+export const HOLD = { fade: 0.06, gone: 0.005, timeout: 0.35 }; // loop fade time constants: a loop not refreshed for timeout s fades; a Shunt that is gone cuts at once
 
 // The quarry's wind bed (§5): noise band-passed 300–600 Hz, its level
 // swaying ±sway on a 0.1 Hz LFO.
@@ -412,7 +420,8 @@ function addNoise(out, l, fs, rand, held) {
 }
 
 // Sine partials, each with its own decay, all following the pitch glide.
-function addSine(out, l, fs, held) {
+// Yields after each partial.
+function* addSine(out, l, fs, held) {
   const top = Math.max(l.f, l.f1 ?? 0);
   for (const [ratio, pg, pd] of l.partials ?? [[1, 1, 1]]) {
     if (top * ratio >= fs * 0.45) continue;
@@ -424,11 +433,21 @@ function addSine(out, l, fs, held) {
       if (l.fm && (mph += (TAU * f * ratio * l.fm[0]) / fs) > TAU) mph -= TAU;
       return x * tremolo(l.am, t);
     });
+    yield;
   }
 }
 
 // One variant of a recipe as mono samples at fs; rand jitters the layers.
 export function renderSound(recipe, fs, rand) {
+  const steps = renderSteps(recipe, fs, rand);
+  let s = steps.next();
+  while (!s.done) s = steps.next();
+  return s.value;
+}
+
+// renderSound in steps, yielding after each noise layer and sine partial,
+// so start() can spread one long sound over several tasks.
+function* renderSteps(recipe, fs, rand) {
   const vary = recipe.vary ?? VARY;
   const jit = (v) => v * (1 + (rand() * 2 - 1) * vary);
   const layers = Object.values(recipe.layers).map((l) => {
@@ -441,8 +460,11 @@ export function renderSound(recipe, fs, rand) {
     : Math.max(...layers.map((l) => l.at + l.a + l.d * TAIL * Math.max(...(l.partials ?? [[1, 1, 1]]).map((p) => p[2]))));
   let out = new Float32Array(Math.ceil(seconds * fs));
   for (const l of layers) {
-    if (l.src === 'noise') addNoise(out, l, fs, rand, held);
-    else addSine(out, l, fs, held);
+    if (l.src !== 'noise') yield* addSine(out, l, fs, held);
+    else {
+      addNoise(out, l, fs, rand, held);
+      yield;
+    }
   }
   if (held) {
     // Crossfade the overhang into the head, so the end runs into the start.
@@ -526,10 +548,10 @@ export const wetSend = (d) => SPACE.wet * Math.sqrt(distGain(d)); // falls slowe
 export const beepRate = (d) => LOCK.slow + (LOCK.fast - LOCK.slow) * (1 - Math.min(1, Math.max(0, d / LOCK.range)));
 
 // The lock beeps warn('lock') wants for you at feet me ({ x, y, z }), from
-// the entities ([{ kind, owner, x, y, z, vx, vy, vz }]): the nearest enemy
-// Shunt within LOCK.range heading within LOCK.cone of your chest, else 0.
-// ponytail: the wire carries no Shunt target, so this infers it from the
-// heading; read the target instead once the snapshot carries one.
+// the entities (readEntities): the nearest enemy Shunt within LOCK.range
+// locked on you, else 0. The bible's rows name the Shunt's target; the
+// engine wave's carry none (target null), so a Shunt heading within
+// LOCK.cone of your chest counts as locked there.
 const LOCK_COS = Math.cos((LOCK.cone * Math.PI) / 180);
 export function lockRate(list, me, myId) {
   let near = Infinity;
@@ -539,11 +561,55 @@ export function lockRate(list, me, myId) {
     const dy = me.y + LOCK.chest - e.y;
     const dz = me.z - e.z;
     const d = Math.hypot(dx, dy, dz);
+    if (d >= near || d > LOCK.range) continue;
     const v = Math.hypot(e.vx, e.vy, e.vz);
-    if (d < near && d <= LOCK.range && v > 0 && dx * e.vx + dy * e.vy + dz * e.vz >= LOCK_COS * d * v) near = d;
+    if (e.target != null ? e.target !== 0 && e.target === myId : v > 0 && dx * e.vx + dy * e.vy + dz * e.vz >= LOCK_COS * d * v) near = d;
   }
   return near < Infinity ? beepRate(near) : 0;
 }
+
+// The `pu` snapshot's entities from either wire, as [{ id, kind, owner, x,
+// y, z, vx, vy, vz, state, target }], reusing out's objects:
+// - the bible's (§4.5) en rows [eid, type, owner, x, y, z, a, b], type an
+//   ENT value: a Shunt's a is its target (0 none), a Mine's a its state
+//   (0 arming, 1 armed, 2 fused), a Dome's b its target;
+// - the engine wave's ents rows (entityTuple), which have velocity and an
+//   armed flag but no target (null).
+const ENT_KINDS = Object.fromEntries(Object.entries(wire.ENT).map(([k, v]) => [v, k.toLowerCase()]));
+export function readEntities(pu, out = []) {
+  const bible = !!pu.en;
+  const rows = (bible ? pu.en : pu.ents) ?? [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const e = (out[i] ??= {});
+    e.id = r[0];
+    e.owner = r[2];
+    e.x = r[3];
+    e.y = r[4];
+    e.z = r[5];
+    if (bible) {
+      e.kind = ENT_KINDS[r[1]];
+      e.vx = e.vy = e.vz = 0;
+      e.state = e.kind === 'mine' ? r[6] : 0;
+      e.target = e.kind === 'shunt' ? r[6] : e.kind === 'dome' ? r[7] : null;
+    } else {
+      e.kind = wire.POWERUP_IDS?.[r[1]];
+      e.vx = r[6];
+      e.vy = r[7];
+      e.vz = r[8];
+      e.state = r[9] & 1 ? 1 : 0; // ENTITY_FLAGS.ARMED
+      e.target = null;
+    }
+  }
+  out.length = rows.length;
+  return out;
+}
+
+// Your own use on the engine wave's wire: the slot that shared/powerups.js
+// stepPowerups will use for these keys, from the slots before the step, or
+// null. On the bible's wire there is no self.inv (inv undefined): there
+// client/powerups.js cast() plays your use (§8.9 row 9).
+export const usedSlot = (inv, keys) => (Array.isArray(inv) && keys & KEY.USE && inv.length ? inv[keys & KEY.CYCLE && inv.length > 1 ? 1 : 0] : null);
 
 const surfaceOf = (s) => SURFACE_ALIAS[s] ?? s;
 
@@ -599,7 +665,8 @@ export function voiceToSteal(voices, pri, limit) {
 // Power-up entities since the last snapshot. list: [{ id, kind, state }]
 // with state 0 arming, 1 armed, 2 fused (or armed: bool); seen carries ids
 // between calls. on(what, e): 'fly' for every Shunt in the air, 'arm' and
-// 'fuse' when a mine changes state, 'new' on first sight of any other kind.
+// 'fuse' when a mine changes state, 'new' on first sight of any other kind,
+// and 'gone' ({ id }) once an entity is no longer listed.
 export function diffEntities(seen, list, on) {
   for (const e of list) {
     const state = e.state ?? (e.armed ? 1 : 0);
@@ -611,7 +678,11 @@ export function diffEntities(seen, list, on) {
     seen.set(e.id, state);
   }
   if (seen.size > list.length) {
-    for (const id of seen.keys()) if (!list.some((e) => e.id === id)) seen.delete(id);
+    for (const id of seen.keys()) {
+      if (list.some((e) => e.id === id)) continue;
+      seen.delete(id);
+      on('gone', { id });
+    }
   }
 }
 
@@ -621,6 +692,7 @@ export function diffEntities(seen, list, on) {
 let ctx = null; // set last in init(), so every export stays a no-op until audio fully works
 let out; // master gain → soft clipper → speakers
 let sfx; // the world: ducked, muffled while dead
+let loud; // blasts: muffled while dead, but never ducked, not even by themselves
 let confirm; // your own feedback and UI: dry and never ducked
 let send; // → the convolution reverb
 let slap; // → the quarry slapback
@@ -641,6 +713,12 @@ let airSince = -1;
 let fallVy = 0;
 let nextBeep = 0;
 let shockOn = false;
+let mapId = null; // for the engine wave's pads
+let predicted = 0; // own uses played on prediction whose echo has not come back
+let humTick = 0;
+let shieldWas = 0;
+const rows = []; // readEntities' reused objects
+const hums = []; // padHums' reused list
 
 const PRI = { step: 0, impact: 1, world: 2, gun: 3, self: 4 };
 const finite = (v) => (Number.isFinite(v) ? v : 0);
@@ -684,6 +762,9 @@ function init(c) {
   sfx = c.createGain();
   sfx.gain.value = MIX.sfx;
   sfx.connect(muffle);
+  loud = c.createGain();
+  loud.gain.value = MIX.sfx;
+  loud.connect(muffle);
   confirm = c.createGain();
   confirm.gain.value = MIX.confirm;
   confirm.connect(comp);
@@ -709,20 +790,35 @@ function init(c) {
   if (q.has('debug') && q.has('sfx')) ready.then(() => { ambience(true); playBoard(); });
 }
 
-// Rendering every variant takes a few hundred ms of CPU, so it runs one
-// variant per task: no long frame. A sound plays once its bank is in.
+// Rendering every variant takes a second or two of CPU, so it runs in
+// slices of about SLICE_MS, split between sine partials and noise layers:
+// the longest single step is one partial of a 2 s sound. A sound plays once
+// its bank is in.
+const SLICE_MS = 8;
 async function renderBanks(c) {
   try {
+    let slice = Infinity; // yield first: start() runs inside a click
     for (const [name, r] of Object.entries(SOUNDS)) {
       const bufs = [];
       const gains = [];
       for (let v = 0; v < (r.n ?? 1); v++) {
-        await new Promise((resolve) => setTimeout(resolve));
-        const t0 = performance.now();
-        const s = renderSound(r, c.sampleRate, shotRng(SEED, hash(name), v));
-        bufs.push(toBuffer(c, [s]));
-        gains.push(dbToGain(r.level ?? -12) / (shortTerm(s, c.sampleRate, r.loop) || 1));
-        renderMs += performance.now() - t0;
+        const steps = renderSteps(r, c.sampleRate, shotRng(SEED, hash(name), v));
+        let s;
+        do {
+          if (slice > SLICE_MS) {
+            await new Promise((resolve) => setTimeout(resolve));
+            slice = 0;
+          }
+          const t0 = performance.now();
+          s = steps.next();
+          if (s.done) {
+            bufs.push(toBuffer(c, [s.value]));
+            gains.push(dbToGain(r.level ?? -12) / (shortTerm(s.value, c.sampleRate, r.loop) || 1));
+          }
+          const dt = performance.now() - t0;
+          slice += dt;
+          renderMs += dt;
+        } while (!s.done);
       }
       banks[name] = { bufs, gains, last: -1, send: r.send ?? 1, slap: !!r.slap, dry: !!r.dry, exact: !!r.dry || r.vary === 0 };
     }
@@ -755,7 +851,7 @@ function admit(pri) {
 }
 
 // One voice. dist 0 is your own sound: centred, full level, no distance filter.
-function play(name, { dist = 0, pan = 0, gain = 1, rate = 1, delay = 0, pri = PRI.world } = {}) {
+function play(name, { dist = 0, pan = 0, gain = 1, rate = 1, delay = 0, pri = PRI.world, bus = sfx } = {}) {
   const bank = banks[name];
   dist = finite(dist);
   if (!bank || dist > SPACE.maxDist || !admit(pri)) return;
@@ -779,7 +875,7 @@ function play(name, { dist = 0, pan = 0, gain = 1, rate = 1, delay = 0, pri = PR
     p.pan.value = clampPan(pan);
     tail = g.connect(p);
   }
-  tail.connect(bank.dry ? confirm : sfx);
+  tail.connect(bank.dry ? confirm : bus);
   if (!bank.dry) {
     const w = ctx.createGain();
     w.gain.value = finite(level * wetSend(dist) * bank.send);
@@ -826,14 +922,20 @@ function hold(key, name, gain, pan) {
   if (Math.abs(p - l.pan) > 0.02) l.p.pan.setTargetAtTime((l.pan = p), t, 0.03);
 }
 
+// Fade a held loop out with time constant tc, then stop it.
+function release(key, tc) {
+  const l = loops.get(key);
+  if (!l) return;
+  const t = ctx.currentTime;
+  l.g.gain.setTargetAtTime(0, t, tc);
+  l.src.stop(t + tc * 8);
+  loops.delete(key);
+}
+
+// A safety net for loops whose caller went quiet (a stalled snapshot stream).
 function watchLoops() {
   const t = ctx.currentTime;
-  for (const [key, l] of loops) {
-    if (t - l.seen < HOLD.timeout) continue;
-    l.g.gain.setTargetAtTime(0, t, HOLD.fade);
-    l.src.stop(t + HOLD.fade * 8);
-    loops.delete(key);
-  }
+  for (const [key, l] of loops) if (t - l.seen >= HOLD.timeout) release(key, HOLD.fade);
 }
 
 // Dip the world for a moment, so a big moment cuts through.
@@ -916,8 +1018,10 @@ export function ground(grounded, feet) {
 // An own shot's case hits the ground a moment later.
 export const casing = safe(() => play('casing', { delay: CASING_DELAY, pri: PRI.step }));
 
-// The map, for impact and footstep surfaces. Works before start().
-export function setWorld(map) {
+// The map, for impact and footstep surfaces, and its id, for the engine
+// wave's pads. Works before start().
+export function setWorld(map, id = null) {
+  mapId = id;
   try { surfaces = surfacesOf(map); } catch (e) { fail(e); }
 }
 
@@ -935,7 +1039,9 @@ export const kill = safe(() => {
   duck(DUCK.kill);
 });
 
-export const hurt = safe(() => {
+// absorbed: your Shield took all of it, so a low ping instead of the thud.
+export const hurt = safe((absorbed = false) => {
+  if (absorbed) return play('confirm.shield', { gain: 0.5, rate: 0.7, pri: PRI.self });
   play('confirm.hurt', { pri: PRI.self });
   duck(DUCK.hurt);
 });
@@ -951,6 +1057,7 @@ export const respawn = safe(() => {
   play('confirm.respawn', { pri: PRI.self });
   muffleTo(MUFFLE.open);
   airSince = -1; // a jump cut short by death is no landing
+  predicted = 0;
 });
 
 // name: a UI_SOUNDS key ('click', 'start', 'win', 'lose', 'error').
@@ -963,8 +1070,8 @@ export const power = safe((kind, phase, dist = 0, pan = 0) => {
   const name = POWER_SOUNDS[key] ? `power.${key}` : POWER_COLORS[kind] ? null : POWER_FALLBACK[phase];
   if (!name) return;
   const boom = phase === 'boom';
-  play(name, { dist, pan, pri: boom ? PRI.gun : dist > 0 ? PRI.world : PRI.self });
-  if (boom) duck(DUCK.boom * distGain(finite(dist)));
+  play(name, { dist, pan, pri: boom ? PRI.gun : dist > 0 ? PRI.world : PRI.self, bus: boom ? loud : sfx });
+  if (boom) duck(DUCK.boom * distGain(finite(dist))); // the rest of the world, not the boom: it has its own bus
 });
 
 // Threats aimed at you. 'lock': a locked Shunt's beeps per second (0 off;
@@ -1003,16 +1110,86 @@ export const padHums = safe((list) => {
 });
 
 // Per snapshot: the power-up entities, [{ id, kind, x, z, state | armed }];
-// heard(x, z) → [dist, pan]. Shunts hiss where they fly and mines click as
-// they arm and beep on their fuse. The engine wave's Bolts, which fly as
-// entities, zap as they appear.
+// heard(x, z) → [dist, pan]. Shunts hiss where they fly and stop the moment
+// they are gone; mines click as they arm and beep on their fuse. The engine
+// wave's Bolts, which fly as entities, zap as they appear.
 export const entities = safe((list, heard) => {
   diffEntities(ents, list, (what, e) => {
+    if (what === 'gone') return release(`shunt${e.id}`, HOLD.gone);
     const [dist, pan] = heard(e.x, e.z);
     if (what === 'fly') { if (dist <= SPACE.maxDist) hold(`shunt${e.id}`, 'power.shunt.hiss', distGain(dist), pan); }
-    else if (what === 'new' && e.kind === 'bolt') gunshot('bolt', dist, pan);
-    else if (what !== 'new') power('mine', what, dist, pan);
+    else if (what === 'new') { if (e.kind === 'bolt') gunshot('bolt', dist, pan); }
+    else power('mine', what, dist, pan);
   });
+});
+
+// The pads as padHums wants them, from either wire: the bible's pd rows
+// ([k, readyTick, span], up at readyTick 0) at POWER_PADS, or the engine
+// wave's pads (0 when up) at its padsFor(map).
+const BIBLE_PADS = POWER_PADS.map((p) => p.pos);
+function padsHeard(pu, heard) {
+  const at = pu.pd ? BIBLE_PADS : sharedPowers.padsFor?.(mapId) ?? [];
+  const state = pu.pd ?? pu.pads ?? [];
+  const n = Math.min(at.length, state.length);
+  for (let i = 0; i < n; i++) {
+    const h = (hums[i] ??= {});
+    [h.distance, h.pan] = heard(at[i][0], at[i][2]);
+    h.up = pu.pd ? state[i][1] === 0 : !state[i];
+  }
+  hums.length = n;
+}
+
+// Once per snapshot, from main.js, for either power-up wire. me is net.js's
+// self; heard(x, z) → [dist, pan]. Shunts hiss, mines click, a Shunt locked
+// on you beeps, a Shock aimed at you whines, the nearest pads hum, and your
+// Shield breaking pops.
+export const snapshot = safe((m, me, myId, heard) => {
+  const alive = !!(me.alive && me.mover);
+  if (m.pu) {
+    const list = readEntities(m.pu, rows);
+    entities(list, heard);
+    warn('lock', alive ? lockRate(list, me.mover, myId) : 0);
+    let shock = false;
+    for (const e of list) if (e.kind === 'dome' && e.target === myId) shock = true;
+    warn('shock', alive && shock ? 1 : 0);
+    if (++humTick % HUM_EVERY === 0) {
+      if (alive) padsHeard(m.pu, heard);
+      else hums.length = 0;
+      padHums(hums);
+    }
+  }
+  const shield = me.pw?.shield ?? me.shield ?? 0;
+  if (shieldWas > 0 && !(shield > 0) && me.alive) power('shield', 'break');
+  shieldWas = shield;
+});
+
+// The engine wave's power-up events (pickup, powerup, blast), from main.js.
+// The bible's pick, use and boom are client/powerups.js's to play (it holds
+// them to the render tick, §8.9 row 8), so they are ignored here: playing
+// them too would double every one. Your own use echo is skipped when it was
+// already played on prediction.
+const ENGINE_PHASE = { pickup: 'pick', powerup: 'use', blast: 'boom' };
+export const event = safe((m, myId, heard) => {
+  const phase = ENGINE_PHASE[m.e];
+  if (!phase) return;
+  const own = m.id !== undefined && m.id === myId;
+  if (phase === 'use' && own && predicted > 0) {
+    predicted--;
+    return;
+  }
+  const pad = phase === 'pick' && sharedPowers.padsFor?.(mapId)?.[m.pad];
+  const [dist, pan] = own && phase !== 'boom' ? [0, 0] : pad ? heard(pad[0], pad[2]) : m.x !== undefined ? heard(m.x, m.z) : [0, 0];
+  if (phase === 'boom' && m.k === 'bolt') return play(BOLT_HIT, { dist, pan, pri: PRI.impact });
+  power(m.k, phase, dist, pan);
+});
+
+// Call from fixedStep before predict() with self.inv and the input's keys:
+// on the engine wave's wire, your use plays at once. A no-op on the bible's.
+export const ownUse = safe((inv, keys) => {
+  const kind = usedSlot(inv, keys);
+  if (!kind) return;
+  predicted++;
+  power(kind, 'use');
 });
 
 // The wind bed, faded in or out.
