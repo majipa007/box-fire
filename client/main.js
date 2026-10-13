@@ -2,8 +2,8 @@
 import { connect, self, predict, reconcile, bufferSnapshot, syncClock, serverTick, renderTick, others } from './net.js';
 import * as ui from './ui.js';
 import * as render from './render.js';
-import { buildWorld, SUN_DIR } from './world.js'; // characters: SUN_DIR for the shadows-off fallback
-import { charactersGroup, syncPlayers, hitFlash, fireKick, shatter as breakRig, initCharacters, nameTags, setShadows as rigShadows } from './characters.js'; // characters: rig events, tags, shadows
+import { buildWorld } from './world.js';
+import { charactersGroup, syncPlayers, hitFlash, fireKick, shatter as breakRig } from './characters.js'; // characters: rig events
 import { setGun, gunKick, setSunShade, sunBlocked, muzzleWorld } from './viewmodel.js'; // viewmodel: sun shade, drawn muzzle
 import { effectsGroup, addTracer, updateEffects, setMap, classifyHit, impact, playerHit, shatter as explode, casing } from './effects.js'; // effects: impacts, hits, shatter, casings
 import { addRecoil, correct, resetFeel, updateFeel, crosshair, spreadPixels, feelStats } from './feel.js'; // feel:
@@ -13,6 +13,8 @@ import * as powerups from './powerups.js'; // powerups: pads, entities, HUD
 import { cleanName, encodeInput, byScore } from '../shared/protocol.js';
 import { EYE_STAND, EYE_CROUCH, TICK_RATE, RESPAWN_SECONDS, WALK_SPEED, NEUTRAL_MS, PLAYER_COLORS } from '../shared/constants.js'; // effects: PLAYER_COLORS
 import { prepareMap } from '../shared/collision.js';
+import { initCharacters, setShadows as rigShadows } from './characters.js'; // characters: map, sun and camera; the shadows setting
+import { SUN_DIR } from './world.js'; // characters: for the shadows-off fallback
 import { Vector3 } from 'three';
 import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf, hitboxes } from '../shared/weapons.js'; // effects: hitboxes
 import { shotRng } from '../shared/rng.js';
@@ -141,11 +143,11 @@ function pick(primary) {
 }
 
 function applySettings() {
+  rigShadows(!!ui.settings.shadows); // characters: shadow map, or sun rays
   input.setSensitivity(ui.settings.sens);
   render.setFov(ui.settings.fov);
   render.setRenderScale(Math.min(1, Math.max(0.5, ui.settings.scale / 100)));
   render.setShadows(!!ui.settings.shadows);
-  rigShadows(!!ui.settings.shadows); // characters: shadow map, or sun rays
   ui.applyCrosshair();
 }
 
@@ -284,9 +286,9 @@ async function buildStage() {
   powerups.init(render.scene, mapId); // powerups: meshes and HUD
   render.scene.add(charactersGroup, effectsGroup);
   world = prepareMap(map);
-  initCharacters({ boxes: world.boxes, sunDir: SUN_DIR, quality: ui.settings.quality }); // characters:
   setMap(map); // effects: debris lands on the map; shots find the face they hit
   render.renderer.compile(render.scene, render.camera); // build every shader now, not mid-fight
+  initCharacters({ boxes: world.boxes, sunDir: SUN_DIR, quality: ui.settings.quality, camera: render.camera }); // characters: after compile, clear of other branches' lines
   requestAnimationFrame(frame);
 }
 
@@ -368,8 +370,7 @@ function frame(now) {
   }
   if (photo) render.setView(...photo);
   const visible = others(now).filter((o) => o.alive && o.id !== myId);
-  syncPlayers(visible, roster, frameMs / 1000, render.camera); // characters: the camera sizes outlines and ribbons
-  ui.renderNameTags?.(nameTags(render.camera, innerWidth, innerHeight)); // characters: hud draws the tags
+  syncPlayers(visible, roster, frameMs / 1000, world.boxes); // characters: the ground under each player
   powerups.update(now, visible); // powerups: draw this frame
   // Our own steps from our velocity, which is exact; frame-to-frame position
   // changes jump around because the mover only moves at 60 Hz.

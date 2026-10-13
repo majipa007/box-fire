@@ -77,11 +77,12 @@ test('the helmet tops out on the hitbox, standing and crouched, and the head nod
 });
 
 // Each part's world bounds against the hitbox it sits in (head box above the
-// head box's floor, body box below). The arms and gun reach forward to aim,
-// as in any shooter, and are exempt. A 0.30 m helmet turned 45° spans 0.42 m,
-// so it may overhang the 0.30 m head box by 6.5 cm there. Crouched, the
-// pack's lower edge overhangs the back (see LOOK.leanCrouch).
-test('the body stays within 4 cm of the hitbox at yaw 0° and 45°', () => {
+// head box's floor, body box below), aiming level. The arms and gun reach
+// forward to aim, as in any shooter, and are exempt (up to 33 cm out). The
+// bible's 0.30 m helmet turned 45° spans 0.42 m, so it overhangs the 0.30 m
+// head box by 6.2 cm there. Crouched, the pack's lower edge overhangs the
+// back by up to 10.1 cm (see LOOK.leanCrouch).
+test('the body stays within 4 cm of the hitbox at yaw 0° and 45°, aiming level', () => {
   for (const crouch of [false, true]) {
     for (const yaw of [0, Math.PI / 4]) {
       for (const weapon of Object.keys(GUNS)) {
@@ -92,7 +93,7 @@ test('the body stays within 4 cm of the hitbox at yaw 0° and 45°', () => {
           const b = bounds([c]);
           const box = b.max.y > head.min[1] + 0.001 ? head : body;
           const over = Math.max(box.min[0] - b.min.x, b.max.x - box.max[0], box.min[2] - b.min.z, b.max.z - box.max[2], b.max.y - head.max[1]);
-          const allowed = c.part === 'pack' && crouch ? 0.11 : yaw && /head|helmet|visor/.test(c.part) ? 0.065 + 0.03 * crouch : 0.04 + 0.02 * crouch;
+          const allowed = c.part === 'pack' && crouch ? 0.105 : yaw && c.part === 'helmet' ? 0.065 : 0.04;
           assert.ok(over <= allowed, `${weapon} crouch ${crouch} yaw ${yaw.toFixed(2)}: ${c.part} ${over.toFixed(3)} m outside`);
         }
       }
@@ -105,7 +106,7 @@ test('boots stand on the ground and nothing sinks into it', () => {
     const cubes = shatter(show({ crouch }, 20).id, Infinity);
     const soles = bounds(cubes.filter((c) => c.part.startsWith('boot'))).min.y;
     assert.ok(crouch || Math.abs(soles) < 0.01, `soles at ${soles}`);
-    assert.ok(bounds(cubes).min.y > -0.02, `crouch ${crouch}: something below the ground`);
+    assert.ok(bounds(cubes).min.y > -0.025, `crouch ${crouch}: something below the ground`); // the kneeling knee rests on it
   }
 });
 

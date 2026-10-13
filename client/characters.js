@@ -33,9 +33,10 @@ const LOOK = {
   bob: 0.035, // pelvis dip per step
   leanRun: 5 * D, torsoPitch: 0.3, // torso: forward lean at run speed, and share of the aim pitch
   // Crouched: the bible's 30° lean puts the hips 0.31 m behind the head, far outside the 0.6 m
-  // hitbox. 20° and a 3 cm shift forward keep the head on its box, the legs and torso within
-  // 4 cm of the body box and only the pack's lower edge out (≈10 cm).
-  leanCrouch: 20 * D, crouchShift: 0.03,
+  // hitbox. At 14.5°, aiming level, every part but the pack is within 4 cm of its box at yaw 0°
+  // and 45° (the helmet's 45° corners aside, as standing); the pack's lower edge is out ≈10 cm.
+  // crouchShift moves the crouched body forward (the head with it).
+  leanCrouch: 14.5 * D, crouchShift: 0,
   headPitch: 0.5, // the head takes the full aim pitch up to this, so it stays on its hitbox
   airThigh: 25 * D, airKnee: 40 * D,
   crouchMs: 100,
@@ -111,9 +112,9 @@ const ARM = [0.3, 0.29]; // upper arm, forearm to the grip
 const LEG = [0.42, 0.36]; // thigh, shin
 const ANKLE = 0.04; // ankle above the sole (standing, the knees flex a little)
 const FOOT_X = 0.1; // each foot's x, standing
-const CROUCH_FEET = [[-0.13, ANKLE, -0.1], [0.13, 0.09, 0.12]]; // each ankle crouched: left foot planted, right knee down on its toes
+const CROUCH_FEET = [[-0.13, 0.05, -0.1], [0.13, 0.09, 0.12]]; // each ankle crouched: left foot planted (1 cm up, so the shin clears the floor), right knee down on its toes
 const KNEE_POLE = [0, 0, -1]; // knees bend toward this standing…
-const KNEE_POLE_CROUCH = [[0, 0, -1], [0, -0.2, -1]]; // …and these crouched (left, right)
+const KNEE_POLE_CROUCH = [[0.3, 0, -1], [0, 0.15, -1]]; // …and these crouched (left, right; the left knee turned in a little stays on the hitbox)
 const ELBOW_POLE = [0.6, -1, 0.3]; // the right elbow bends toward this; the left mirrors it
 const AIR_GAP = 0.06; // soles this far above the ground count as airborne
 const SMOOTH_VELOCITY = 0.08; // s to ~63% of a change
@@ -281,6 +282,7 @@ const rigs = new Map(); // player id → rig
 let frame = 0; // syncPlayers calls so far; a rig drawn in the latest has seen === frame
 let mapBoxes = null; // prepared map boxes: the ground under players, sun and tag sight lines
 let sunDir = null;
+let mainCamera = null; // initCharacters' camera
 let sunFallback = false; // no shadow map: dim players by rays to the sun instead
 let low = false; // the Low preset never has a shadow map
 let shadowsOn = true;
@@ -324,9 +326,11 @@ const drawn = (rig, now) => rig.seen === frame && now >= rig.hiddenUntil;
 
 // boxes: prepareMap(map).boxes. sunDir: unit vector toward the sun.
 // quality 'low' has no shadow map, so players use the sun-ray fallback.
-export function initCharacters({ boxes = null, sunDir: dir = null, quality = 'default' } = {}) {
+// camera: used when syncPlayers is not given one.
+export function initCharacters({ boxes = null, sunDir: dir = null, quality = 'default', camera = null } = {}) {
   mapBoxes = boxes;
   sunDir = dir;
+  mainCamera = camera;
   low = quality === 'low';
   setShadows(shadowsOn);
 }
@@ -342,12 +346,12 @@ export function setShadows(on) {
 // Once per frame. list: [{ id, x, y, z, yaw, pitch, crouch, shielded, hp,
 // weapon, bubble?, nitro?, slowed? }] of the players to draw; roster: id →
 // { name, slot }; dt: seconds since the last frame; camera: for the outline
-// width, the ribbons and the name tags. A 4th argument that is a box list
-// (as main.js passes today) stands in for initCharacters' boxes.
+// width and the ribbons (default: initCharacters' camera). A 4th argument
+// that is a box list (as main.js passes today) stands in for initCharacters' boxes.
 export function syncPlayers(list, roster, dt, camera = null, more = null) {
   const now = performance.now();
   const boxes = Array.isArray(camera) ? camera : mapBoxes;
-  if (!camera?.isCamera) camera = more?.isCamera ? more : null;
+  if (!camera?.isCamera) camera = more?.isCamera ? more : mainCamera;
   if (LINEUP) ({ list, roster } = lineup(now));
   if (camera) camera.getWorldPosition(_cam);
   frame++;

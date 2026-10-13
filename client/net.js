@@ -115,8 +115,9 @@ export function others(now) {
       shielded: !!(flags & PLAYER_FLAGS.SHIELDED), // spawn protection
       hp,
       weapon: WEAPON_IDS[w],
-      flags, // powerups: PU_NITRO and PU_SHIELD
-      bubble: !!(flags & PLAYER_FLAGS.BUBBLE), nitro: !!(flags & PLAYER_FLAGS.NITRO), slowed: !!(flags & PLAYER_FLAGS.SLOWED), // characters: power-up looks
+      bubble: !!(flags & PLAYER_FLAGS.BUBBLE), // powerups: Shield, Nitro and Shock's slow
+      nitro: !!(flags & PLAYER_FLAGS.NITRO),
+      slowed: !!(flags & PLAYER_FLAGS.SLOWED),
     };
     // Respawns and joins snap rather than streak across the map.
     if (!p || Math.hypot(p[1] - x, p[3] - z) > SNAP_DISTANCE) {
