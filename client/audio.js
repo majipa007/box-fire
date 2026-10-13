@@ -2,165 +2,179 @@
 // files. A sound is a recipe of layers (filtered noise and gliding sines)
 // that start() renders once into a few seeded variants. The DSP is plain
 // JavaScript, so the tests run it in Node. Playing a sound is then a short
-// graph: buffer → [distance lowpass] → gain → [pan] → bus, plus a send to
-// one shared convolution reverb. Browsers keep audio muted until a user
-// gesture, so start() runs inside a click.
+// graph: buffer → [distance lowpass] → gain → [pan] → bus, plus sends to one
+// shared convolution reverb and one shared quarry slapback. Browsers keep
+// audio muted until a user gesture, so start() runs inside a click.
 //
 // Audio must never break the game: every export is a no-op until start()
 // succeeds, and swallows its own errors.
+//
+// ?debug&sfx plays every sound in turn (BOARD, about 600 ms apart).
 import { shotRng } from '../shared/rng.js';
 import { prepareMap } from '../shared/collision.js';
-import { SHOT_RANGE } from '../shared/constants.js';
+import { SHOT_RANGE, POWER_COLORS } from '../shared/constants.js';
 
 /* ----------------------------------------------------------------------------
- * Look constants: every level, timing and timbre. Seconds, Hz, linear gain.
+ * Look constants: every level, timing and timbre. Seconds, Hz, dB.
  *
- * A recipe is { layers, gain, n, vary, drive, send, loop }:
+ * A recipe is { layers, level, n, vary, drive, send, slap, dry, loop }:
  *   layers  named layers, summed;
- *   gain    playback level;        n  variants rendered (default 1);
- *   vary    ± jitter of each layer's f, f1, d and g per variant (default VARY);
+ *   level   dB: its loudest 50 ms plays at this level (see shortTerm), so
+ *           the levels below are the mix table, whatever the timbre;
+ *   n       variants rendered (default 1);
+ *   vary    ± jitter of each layer's f, f1, d and g per variant (default
+ *           VARY); 0 also turns off the pitch jitter per play;
  *   drive   tanh saturation for density and punch (default 1: none);
  *   send    reverb send multiplier (default 1);
+ *   slap    also sent to the quarry slapback (guns and blasts);
+ *   dry     your own feedback: the confirm bus, never jittered, no reverb;
  *   loop    seconds: a seamless sustained loop instead of a one-shot.
- * A layer is { src: 'noise' | 'sine', at, a, d, g, ... }: it starts at `at`,
- * rises over `a`, then decays with time constant `d`, at gain `g`.
- *   noise: mode 'lp' | 'bp' | 'hp', cutoff f, q; f1 + glide sweep the cutoff
- *          toward f1 with that time constant; density < 1 makes sparse crackle.
- *   sine:  pitch f, gliding toward f1 the same way; partials
- *          [[ratio, gain, decay×], ...]; fm [ratio, index] phase modulation.
- *   both:  am [rate, depth] tremolo.
+ * A layer is { src: 'noise' | 'sine', at, a, d | dur, g, ... }: it starts at
+ * `at`, rises over `a`, then decays with time constant `d`, or so that it is
+ * down 40 dB at `dur`, at gain `g` (default 1).
+ *   noise: mode 'lp' | 'bp' | 'hp', cutoff f, q; density < 1 makes crackle.
+ *   sine:  pitch f; partials [[ratio, gain, decay×], ...] (SQUARE, SAW and
+ *          TRI build those waves); fm [ratio, index] phase modulation.
+ *   both:  f1 with `sweep` s reaches f1 at that time on a log scale; f1 with
+ *          `glide` s approaches it with that time constant instead;
+ *          am [rate, depth] tremolo.
  * ------------------------------------------------------------------------- */
 
-// Gunshots: a transient click, a noise body, a low thump and a tail, plus
-// the mechanism (bolt, slide, pump).
+// Band-limited waves as sine partials: the renderer skips any above 0.45 fs.
+const harmonics = (n, amp) => Array.from({ length: n }, (_, i) => [i + 1, amp(i + 1), 1]).filter((p) => p[1] > 0);
+export const SQUARE = harmonics(11, (k) => (k % 2 ? 1 / k : 0));
+export const SAW = harmonics(12, (k) => 1 / k);
+export const TRI = harmonics(7, (k) => (k % 2 ? 1 / (k * k) : 0));
+const SAW_LP = harmonics(12, (k) => 1 / k / Math.hypot(1, (k * 440) / 1400)); // a saw through a 1.4 kHz lowpass
+const BELL = [[1, 1, 1], [2.756, 0.45, 0.55], [5.404, 0.25, 0.3]];
+const CHIME = [[1, 1, 1], [2, 0.25, 0.6], [3, 0.12, 0.4]];
+const semis = (n) => 2 ** (n / 12);
+
+// Gunshots (§5): an 8 ms 4 kHz transient (its own bank, skipped beyond
+// TRANSIENT_RANGE), a band-passed body, a sine thump, a tail, and the
+// mechanism (bolt, slide, pump). Each also slaps back off the quarry.
 export const GUNSHOTS = {
-  rifle: { n: 4, gain: 0.75, drive: 2, layers: {
-    click: { src: 'noise', mode: 'hp', f: 4000, d: 0.0025, g: 0.9 },
-    body: { src: 'noise', mode: 'bp', f: 1700, q: 0.9, a: 0.0006, d: 0.03, g: 1 },
-    thump: { src: 'sine', f: 180, f1: 50, glide: 0.025, a: 0.0015, d: 0.06, g: 0.75 },
-    tail: { src: 'noise', mode: 'lp', f: 2000, f1: 350, glide: 0.12, a: 0.006, d: 0.16, g: 0.3 },
+  rifle: { level: -7, n: 4, drive: 2, slap: true, layers: {
+    body: { src: 'noise', mode: 'bp', f: 2200, q: 0.9, a: 0.0006, dur: 0.13 },
+    thump: { src: 'sine', f: 90, f1: 45, sweep: 0.12, a: 0.001, dur: 0.12, g: 0.9 },
+    tail: { src: 'noise', mode: 'lp', f: 2000, f1: 350, glide: 0.12, a: 0.006, d: 0.1, g: 0.3 },
     bolt: { src: 'noise', mode: 'bp', f: 3200, q: 3, at: 0.05, a: 0.0005, d: 0.006, g: 0.15 },
   } },
-  pistol: { n: 4, gain: 0.65, drive: 1.8, layers: {
-    click: { src: 'noise', mode: 'hp', f: 5000, d: 0.002, g: 1 },
-    body: { src: 'noise', mode: 'bp', f: 2300, q: 1.1, a: 0.0004, d: 0.02, g: 0.9 },
-    thump: { src: 'sine', f: 220, f1: 70, glide: 0.02, a: 0.001, d: 0.04, g: 0.6 },
-    tail: { src: 'noise', mode: 'lp', f: 2600, f1: 500, glide: 0.08, a: 0.004, d: 0.1, g: 0.22 },
+  pistol: { level: -9, n: 4, drive: 1.8, slap: true, layers: {
+    body: { src: 'noise', mode: 'bp', f: 3200, q: 1.1, a: 0.0004, dur: 0.08 },
+    thump: { src: 'sine', f: 90, f1: 45, sweep: 0.12, a: 0.001, dur: 0.12, g: 0.7 },
+    tail: { src: 'noise', mode: 'lp', f: 2600, f1: 500, glide: 0.08, a: 0.004, d: 0.07, g: 0.22 },
     slide: { src: 'noise', mode: 'bp', f: 3800, q: 3, at: 0.04, a: 0.0005, d: 0.005, g: 0.18 },
   } },
-  shotgun: { n: 3, gain: 0.9, drive: 2.5, layers: {
-    click: { src: 'noise', mode: 'hp', f: 2500, d: 0.003, g: 0.7 },
-    body: { src: 'noise', mode: 'lp', f: 1100, f1: 600, glide: 0.05, a: 0.001, d: 0.07, g: 1 },
-    thump: { src: 'sine', f: 125, f1: 36, glide: 0.04, a: 0.002, d: 0.12, g: 1 },
-    tail: { src: 'noise', mode: 'lp', f: 1300, f1: 250, glide: 0.2, a: 0.01, d: 0.28, g: 0.35 },
+  shotgun: { level: -5, n: 3, drive: 2.5, slap: true, layers: {
+    body: { src: 'noise', mode: 'bp', f: 900, q: 0.6, a: 0.001, dur: 0.3 },
+    thump: { src: 'sine', f: 70, f1: 35, sweep: 0.18, a: 0.002, dur: 0.18 },
+    tail: { src: 'noise', mode: 'lp', f: 1300, f1: 250, glide: 0.2, a: 0.01, d: 0.2, g: 0.35 },
     pumpBack: { src: 'noise', mode: 'bp', f: 1700, q: 2, at: 0.42, a: 0.002, d: 0.022, g: 0.16 },
     pumpFwd: { src: 'noise', mode: 'bp', f: 2600, q: 2.5, at: 0.55, a: 0.001, d: 0.016, g: 0.2 },
   } },
+  // A Bolt shot (§4.8): a square wave diving 1.9 kHz → 350 Hz over 140 ms, and crackle.
+  bolt: { level: -8, n: 3, drive: 1.5, slap: true, layers: {
+    zap: { src: 'sine', f: 1900, f1: 350, sweep: 0.14, a: 0.0005, dur: 0.14, partials: SQUARE },
+    crackle: { src: 'noise', mode: 'bp', f: 3500, q: 0.8, density: 0.12, a: 0.001, dur: 0.14, g: 0.8 },
+  } },
+  transient: { level: -22, n: 3, layers: {
+    snap: { src: 'noise', mode: 'bp', f: 4000, q: 1.2, a: 0.0003, dur: 0.008 },
+  } },
 };
+export const TRANSIENT_RANGE = 25; // m
 
 // Bullet impacts by surface, and the ricochet whine some of them throw off.
 export const IMPACTS = {
-  concrete: { n: 3, gain: 0.4, drive: 1.5, layers: {
-    crack: { src: 'noise', mode: 'bp', f: 2800, q: 1.2, d: 0.008, g: 1 },
+  concrete: { level: -17, n: 3, drive: 1.5, layers: {
+    crack: { src: 'noise', mode: 'bp', f: 2800, q: 1.2, d: 0.008 },
     thud: { src: 'sine', f: 170, f1: 90, glide: 0.02, a: 0.001, d: 0.025, g: 0.5 },
     debris: { src: 'noise', mode: 'bp', f: 4500, q: 1.5, density: 0.04, at: 0.01, a: 0.01, d: 0.07, g: 0.9 },
   } },
-  metal: { n: 3, gain: 0.35, layers: {
+  steel: { level: -18, n: 3, layers: {
     hit: { src: 'noise', mode: 'hp', f: 3000, d: 0.003, g: 0.8 },
     ring: { src: 'sine', f: 1100, d: 0.12, g: 0.6, partials: [[1, 1, 1], [2.756, 0.6, 0.6], [5.404, 0.4, 0.35], [8.933, 0.25, 0.2]] },
   } },
-  wood: { n: 3, gain: 0.45, layers: {
-    knock: { src: 'noise', mode: 'bp', f: 900, q: 1.4, d: 0.012, g: 1 },
+  wood: { level: -17, n: 3, layers: {
+    knock: { src: 'noise', mode: 'bp', f: 900, q: 1.4, d: 0.012 },
     body: { src: 'sine', f: 320, f1: 260, glide: 0.03, a: 0.0008, d: 0.03, g: 0.7, partials: [[1, 1, 1], [2.3, 0.4, 0.6]] },
     splinter: { src: 'noise', mode: 'bp', f: 3000, q: 2, density: 0.03, at: 0.005, a: 0.002, d: 0.05, g: 0.7 },
   } },
-  dirt: { n: 3, gain: 0.4, layers: {
-    puff: { src: 'noise', mode: 'lp', f: 1200, f1: 400, glide: 0.04, a: 0.002, d: 0.05, g: 1 },
-    grit: { src: 'noise', mode: 'bp', f: 3500, q: 1, density: 0.06, a: 0.003, d: 0.07, g: 0.6 },
-  } },
-  flesh: { n: 3, gain: 0.4, layers: {
-    slap: { src: 'noise', mode: 'lp', f: 1500, d: 0.015, g: 1 },
+  flesh: { level: -16, n: 3, layers: {
+    slap: { src: 'noise', mode: 'lp', f: 1500, d: 0.015 },
     thump: { src: 'sine', f: 110, f1: 60, glide: 0.03, a: 0.001, d: 0.05, g: 0.8 },
   } },
 };
-export const RICOCHET = { n: 3, gain: 0.3, vary: 0.15, layers: {
-  whine: { src: 'sine', f: 2800, f1: 1100, glide: 0.2, a: 0.01, d: 0.12, g: 1, fm: [0.5, 0.3] },
+export const RICOCHET = { level: -18, n: 3, vary: 0.15, layers: {
+  whine: { src: 'sine', f: 2800, f1: 1100, glide: 0.2, a: 0.01, d: 0.12, fm: [0.5, 0.3] },
   hiss: { src: 'noise', mode: 'bp', f: 4000, f1: 1800, glide: 0.2, q: 4, a: 0.005, d: 0.08, g: 0.3 },
 } };
 // Chance a hit throws a ricochet, times how grazing it is (0 head-on, 1 parallel),
-// and its pitch by surface: metal sings higher, concrete whines lower.
-export const RICOCHET_CHANCE = { metal: 0.6, concrete: 0.3 };
-export const RICOCHET_RATE = { metal: 1.25, concrete: 0.85 };
+// and its pitch by surface: steel sings higher, concrete whines lower.
+export const RICOCHET_CHANCE = { steel: 0.6, concrete: 0.3 };
+export const RICOCHET_RATE = { steel: 1.25, concrete: 0.85 };
 export const IMPACTS_PER_SHOT = 3; // a shotgun's 12 pellets play at most this many
 export const IMPACT_SCATTER = 0.015; // the extra impacts land up to this much later
 
-// Map surfaces: a box's own `surface` wins, else its colour index maps here.
-export const SURFACE_BY_COLOR = ['concrete', 'concrete', 'metal', 'wood', 'concrete', 'metal'];
+// Map surfaces (§2.6): a box's own `surface` wins, else its colour index
+// (slab, board, precast, plywood, dock, rust) maps here.
+export const SURFACE_BY_COLOR = ['concrete', 'concrete', 'concrete', 'wood', 'concrete', 'steel'];
 export const DEFAULT_SURFACE = 'concrete';
+const SURFACE_ALIAS = { metal: 'steel' };
 
-// Footsteps by surface: a heel strike, a scuff and some grit.
+// Footsteps (§5): a noise burst band-passed by surface (concrete 1.8 kHz,
+// wood 600 Hz, steel 1.2 kHz) over a soft heel strike.
 export const FOOTSTEPS = {
-  concrete: { n: 5, gain: 0.3, vary: 0.12, layers: {
-    heel: { src: 'sine', f: 120, f1: 70, glide: 0.015, a: 0.001, d: 0.015, g: 0.6 },
-    scuff: { src: 'noise', mode: 'bp', f: 1500, q: 0.8, a: 0.002, d: 0.02, g: 0.7 },
+  concrete: { level: -22, n: 5, vary: 0.12, layers: {
+    heel: { src: 'sine', f: 120, f1: 70, glide: 0.015, a: 0.001, d: 0.015, g: 0.5 },
+    scuff: { src: 'noise', mode: 'bp', f: 1800, q: 1, a: 0.002, d: 0.018 },
     grit: { src: 'noise', mode: 'hp', f: 4000, density: 0.08, at: 0.008, a: 0.002, d: 0.025, g: 0.3 },
   } },
-  metal: { n: 5, gain: 0.3, vary: 0.12, layers: {
-    heel: { src: 'sine', f: 130, f1: 80, glide: 0.015, a: 0.001, d: 0.015, g: 0.6 },
-    clank: { src: 'sine', f: 450, d: 0.04, g: 0.3, partials: [[1, 1, 1], [2.756, 0.5, 0.6], [5.404, 0.3, 0.4]] },
-    scuff: { src: 'noise', mode: 'bp', f: 3000, q: 1, a: 0.001, d: 0.015, g: 0.5 },
-  } },
-  wood: { n: 5, gain: 0.3, vary: 0.12, layers: {
-    heel: { src: 'sine', f: 160, f1: 110, glide: 0.015, a: 0.001, d: 0.02, g: 0.6 },
+  wood: { level: -22, n: 5, vary: 0.12, layers: {
+    heel: { src: 'sine', f: 160, f1: 110, glide: 0.015, a: 0.001, d: 0.02, g: 0.5 },
     hollow: { src: 'sine', f: 240, d: 0.03, g: 0.4, partials: [[1, 1, 1], [2.3, 0.4, 0.6]] },
-    scuff: { src: 'noise', mode: 'bp', f: 1100, q: 1, a: 0.002, d: 0.02, g: 0.6 },
+    scuff: { src: 'noise', mode: 'bp', f: 600, q: 1.2, a: 0.002, d: 0.02 },
   } },
-  dirt: { n: 5, gain: 0.3, vary: 0.12, layers: {
-    heel: { src: 'sine', f: 90, f1: 60, glide: 0.015, a: 0.001, d: 0.015, g: 0.4 },
-    crunch: { src: 'noise', mode: 'lp', f: 1800, f1: 600, glide: 0.02, a: 0.002, d: 0.03, g: 0.8 },
-    grit: { src: 'noise', mode: 'bp', f: 3000, q: 1, density: 0.1, a: 0.004, d: 0.05, g: 0.5 },
+  steel: { level: -22, n: 5, vary: 0.12, layers: {
+    heel: { src: 'sine', f: 130, f1: 80, glide: 0.015, a: 0.001, d: 0.015, g: 0.5 },
+    clank: { src: 'sine', f: 450, d: 0.04, g: 0.35, partials: [[1, 1, 1], [2.756, 0.5, 0.6], [5.404, 0.3, 0.4]] },
+    scuff: { src: 'noise', mode: 'bp', f: 1200, q: 1.2, a: 0.001, d: 0.016 },
   } },
 };
-// A landing after this long in the air: the footstep, louder and lower.
-export const LAND = { minAir: 0.2, gain: 1.4, rate: 0.82 };
+// Landing (§5): a 70 Hz thump plus the footstep, scaled by min(1, |vy| / fullVy),
+// after at least minAir s aloft.
+export const LAND = { minAir: 0.2, fullVy: 6.3, step: 1.4, stepRate: 0.82 };
+// Own casings (§5): a 4.2 kHz tink this long after the shot, and a smaller bounce.
+export const CASING_DELAY = 0.38;
 
-// Your own confirmations: instant, dry, never jittered, so they read at once.
-const BELL = [[1, 1, 1], [2.756, 0.45, 0.55], [5.404, 0.25, 0.3]];
-const CHIME = [[1, 1, 1], [2, 0.25, 0.6], [3, 0.12, 0.4]];
+// Your own confirmations (§5): instant, dry, never jittered, so they read at once.
 export const CONFIRMS = {
-  hit: { gain: 0.7, layers: {
-    tick: { src: 'sine', f: 1600, f1: 1400, glide: 0.02, a: 0.0005, d: 0.022, g: 1, partials: [[1, 1, 1], [2, 0.3, 0.5]] },
-    click: { src: 'noise', mode: 'hp', f: 6000, d: 0.0015, g: 0.6 },
-    thud: { src: 'sine', f: 150, f1: 90, glide: 0.02, a: 0.001, d: 0.025, g: 0.5 },
+  hit: { level: -15, dry: true, layers: { // body: a 1.3 kHz tick, 50 ms
+    tick: { src: 'sine', f: 1300, a: 0.0005, dur: 0.05, partials: [[1, 1, 1], [2, 0.3, 0.5]] },
+    click: { src: 'noise', mode: 'hp', f: 6000, dur: 0.008, g: 0.5 },
   } },
-  head: { gain: 0.75, layers: {
-    ding: { src: 'sine', f: 2200, a: 0.0005, d: 0.07, g: 1, partials: BELL },
-    click: { src: 'noise', mode: 'hp', f: 7000, d: 0.002, g: 0.6 },
-    tick: { src: 'sine', f: 1600, f1: 1400, glide: 0.02, a: 0.0005, d: 0.022, g: 0.5 },
+  head: { level: -14, dry: true, layers: { // 1.9 kHz plus a 4.5 kHz tink, 70 ms
+    ding: { src: 'sine', f: 1900, a: 0.0005, dur: 0.07, partials: [[1, 1, 1], [2, 0.2, 0.5]] },
+    tink: { src: 'sine', f: 4500, a: 0.0003, dur: 0.07, g: 0.7, partials: BELL },
+    click: { src: 'noise', mode: 'hp', f: 7000, dur: 0.008, g: 0.5 },
   } },
-  kill: { gain: 0.8, layers: {
-    punch: { src: 'sine', f: 160, f1: 50, glide: 0.05, a: 0.001, d: 0.08, g: 1 },
-    crack: { src: 'noise', mode: 'hp', f: 3000, d: 0.004, g: 0.6 },
-    low: { src: 'sine', f: 1046.5, a: 0.002, d: 0.09, g: 0.5, partials: CHIME },
-    high: { src: 'sine', f: 1568, at: 0.05, a: 0.002, d: 0.16, g: 0.55, partials: CHIME },
-    shimmer: { src: 'noise', mode: 'hp', f: 7000, at: 0.05, a: 0.005, d: 0.05, g: 0.12 },
+  shield: { level: -14, dry: true, layers: { // a 2.4 kHz triangle ping, 60 ms
+    ping: { src: 'sine', f: 2400, a: 0.0005, dur: 0.06, partials: TRI },
   } },
-  killHead: { gain: 0.85, layers: {
-    punch: { src: 'sine', f: 160, f1: 50, glide: 0.05, a: 0.001, d: 0.08, g: 1 },
-    ding: { src: 'sine', f: 2200, a: 0.0005, d: 0.07, g: 0.6, partials: BELL },
-    low: { src: 'sine', f: 1046.5, a: 0.002, d: 0.09, g: 0.5, partials: CHIME },
-    high: { src: 'sine', f: 2093, at: 0.05, a: 0.002, d: 0.18, g: 0.55, partials: CHIME },
-    shimmer: { src: 'noise', mode: 'hp', f: 8000, at: 0.05, a: 0.005, d: 0.07, g: 0.15 },
+  kill: { level: -9, dry: true, layers: { // a square ka-chunk 600 → 300 Hz, 40 ms apart, over a 90 Hz thump
+    ka: { src: 'sine', f: 600, a: 0.0008, dur: 0.035, partials: SQUARE },
+    chunk: { src: 'sine', f: 300, at: 0.04, a: 0.0008, dur: 0.06, partials: SQUARE },
+    thump: { src: 'sine', f: 90, a: 0.002, dur: 0.16, g: 1.2 },
   } },
-  hurt: { gain: 0.6, layers: {
-    thud: { src: 'sine', f: 95, f1: 45, glide: 0.04, a: 0.001, d: 0.07, g: 1 },
+  hurt: { level: -10, dry: true, layers: {
+    thud: { src: 'sine', f: 95, f1: 45, glide: 0.04, a: 0.001, d: 0.07 },
     smack: { src: 'noise', mode: 'lp', f: 700, d: 0.025, g: 0.6 },
   } },
-  death: { gain: 0.7, layers: {
-    boom: { src: 'sine', f: 120, f1: 32, glide: 0.15, a: 0.002, d: 0.35, g: 1 },
+  death: { level: -7, dry: true, layers: {
+    boom: { src: 'sine', f: 120, f1: 32, glide: 0.15, a: 0.002, d: 0.35 },
     rumble: { src: 'noise', mode: 'lp', f: 500, f1: 120, glide: 0.3, a: 0.01, d: 0.4, g: 0.5 },
   } },
-  respawn: { gain: 0.35, layers: {
+  respawn: { level: -15, dry: true, layers: {
     rise: { src: 'noise', mode: 'bp', f: 300, f1: 2500, glide: 0.15, q: 1.2, a: 0.08, d: 0.12, g: 0.6 },
     tone: { src: 'sine', f: 440, f1: 880, glide: 0.1, a: 0.05, d: 0.12, g: 0.3 },
   } },
@@ -168,82 +182,147 @@ export const CONFIRMS = {
 export const KILL_STREAK = { window: 6, semitones: 2, max: 4 }; // kills this close climb in pitch
 
 // Menu and match sounds.
-const TRI = [[1, 1, 1], [3, 0.11, 0.7], [5, 0.04, 0.5]]; // a soft, triangle-like tone
 export const UI_SOUNDS = {
-  click: { gain: 0.2, layers: {
-    blip: { src: 'sine', f: 1800, f1: 1500, glide: 0.008, a: 0.0003, d: 0.008, g: 1 },
+  click: { level: -27, dry: true, layers: {
+    blip: { src: 'sine', f: 1800, f1: 1500, glide: 0.008, a: 0.0003, d: 0.008 },
     tick: { src: 'noise', mode: 'hp', f: 5000, d: 0.001, g: 0.4 },
   } },
-  start: { gain: 0.4, layers: {
+  start: { level: -13, dry: true, layers: {
     c: { src: 'sine', f: 523.25, a: 0.004, d: 0.12, g: 0.8, partials: TRI },
     e: { src: 'sine', f: 659.25, at: 0.09, a: 0.004, d: 0.12, g: 0.8, partials: TRI },
-    g: { src: 'sine', f: 783.99, at: 0.18, a: 0.004, d: 0.3, g: 1, partials: TRI },
+    g: { src: 'sine', f: 783.99, at: 0.18, a: 0.004, d: 0.3, partials: TRI },
   } },
-  win: { gain: 0.45, layers: {
+  win: { level: -12, dry: true, layers: {
     c: { src: 'sine', f: 523.25, a: 0.004, d: 0.12, g: 0.8, partials: TRI },
     e: { src: 'sine', f: 659.25, at: 0.1, a: 0.004, d: 0.12, g: 0.8, partials: TRI },
     g: { src: 'sine', f: 783.99, at: 0.2, a: 0.004, d: 0.12, g: 0.8, partials: TRI },
-    c2: { src: 'sine', f: 1046.5, at: 0.3, a: 0.004, d: 0.35, g: 1, partials: TRI },
+    c2: { src: 'sine', f: 1046.5, at: 0.3, a: 0.004, d: 0.35, partials: TRI },
   } },
-  lose: { gain: 0.4, layers: {
+  lose: { level: -13, dry: true, layers: {
     g: { src: 'sine', f: 392, a: 0.004, d: 0.2, g: 0.9, partials: TRI },
-    eb: { src: 'sine', f: 311.13, at: 0.18, a: 0.004, d: 0.35, g: 1, partials: TRI },
+    eb: { src: 'sine', f: 311.13, at: 0.18, a: 0.004, d: 0.35, partials: TRI },
   } },
-  error: { gain: 0.3, layers: {
-    buzz: { src: 'sine', f: 180, fm: [1, 2.5], a: 0.002, d: 0.04, g: 1 },
-    again: { src: 'sine', f: 180, fm: [1, 2.5], at: 0.09, a: 0.002, d: 0.05, g: 1 },
+  error: { level: -16, dry: true, layers: {
+    buzz: { src: 'sine', f: 180, fm: [1, 2.5], a: 0.002, d: 0.04 },
+    again: { src: 'sine', f: 180, fm: [1, 2.5], at: 0.09, a: 0.002, d: 0.05 },
   } },
 };
 
-// Generic power-up hooks. Each kind plays the shared sound at its own pitch.
-export const POWERUPS = {
-  pickup: { gain: 0.45, layers: {
-    e: { src: 'sine', f: 1318.5, a: 0.002, d: 0.12, g: 0.8, partials: [[1, 1, 1], [2.01, 0.3, 0.6], [3.98, 0.12, 0.3]] },
-    b: { src: 'sine', f: 1975.5, at: 0.05, a: 0.002, d: 0.12, g: 0.8, partials: [[1, 1, 1], [2.01, 0.3, 0.6]] },
-    e2: { src: 'sine', f: 2637, at: 0.1, a: 0.002, d: 0.25, g: 0.9, partials: [[1, 1, 1], [2.01, 0.3, 0.6]] },
-    shimmer: { src: 'noise', mode: 'hp', f: 8000, a: 0.01, d: 0.08, g: 0.15 },
+// Power-ups (§4.8). Pickups: three sines 40 ms apart, root by item, then a
+// major third and a fifth above, each down 40 dB after 250 ms.
+export const PICK_ROOTS = { shunt: 523, bolt: 587, barge: 659, shock: 698, mine: 784, nitro: 880, shield: 988, other: 1047 };
+const pickup = (root) => ({ level: -12, vary: 0, layers: {
+  root: { src: 'sine', f: root, a: 0.002, dur: 0.25, partials: CHIME },
+  third: { src: 'sine', f: root * semis(4), at: 0.04, a: 0.002, dur: 0.25, partials: CHIME },
+  fifth: { src: 'sine', f: root * semis(7), at: 0.08, a: 0.002, dur: 0.25, partials: CHIME },
+} });
+// Each item's own sounds, named power.<kind>.<phase>. A known kind with no
+// sound for a phase stays silent there: Bolt's use is its three shots
+// (gunshot('bolt')), and Barge's wave plays on use, so its boom is silent.
+export const POWER_SOUNDS = {
+  ...Object.fromEntries(Object.entries(PICK_ROOTS).map(([k, root]) => [`pick.${k}`, pickup(root)])),
+  'shunt.use': { level: -11, slap: true, layers: { // launch: band-passed noise 900 → 2200 Hz over 0.4 s
+    pop: { src: 'noise', mode: 'lp', f: 900, a: 0.001, dur: 0.04, g: 0.7 },
+    rush: { src: 'noise', mode: 'bp', f: 900, f1: 2200, sweep: 0.4, q: 1.5, a: 0.03, dur: 0.4 },
   } },
-  use: { n: 2, gain: 0.45, layers: {
-    whoosh: { src: 'noise', mode: 'bp', f: 250, f1: 3000, glide: 0.15, q: 1.2, a: 0.08, d: 0.1, g: 1 },
-    air: { src: 'noise', mode: 'lp', f: 500, a: 0.05, d: 0.12, g: 0.3 },
+  'shunt.hiss': { level: -20, loop: 1, layers: { // flight, looped where the rocket is
+    hiss: { src: 'noise', mode: 'bp', f: 2000, q: 1.5, am: [9, 0.3] },
+    roar: { src: 'noise', mode: 'lp', f: 400, g: 0.5 },
   } },
-  explosion: { n: 2, gain: 1, drive: 2.5, send: 1.6, layers: {
+  'shunt.lock': { level: -14, dry: true, vary: 0, layers: { // a 1.6 kHz beep, 30 ms
+    beep: { src: 'sine', f: 1600, a: 0.001, dur: 0.03, partials: [[1, 1, 1], [3, 0.15, 1]] },
+  } },
+  'shunt.boom': { level: -4, drive: 2.5, send: 1.6, slap: true, layers: {
     crack: { src: 'noise', mode: 'hp', f: 2000, d: 0.006, g: 0.8 },
-    boom: { src: 'sine', f: 80, f1: 28, glide: 0.12, a: 0.003, d: 0.3, g: 1 },
+    boom: { src: 'sine', f: 80, f1: 28, glide: 0.12, a: 0.003, d: 0.3 },
     body: { src: 'noise', mode: 'lp', f: 1500, f1: 120, glide: 0.3, a: 0.005, d: 0.35, g: 0.9 },
     debris: { src: 'noise', mode: 'bp', f: 2500, q: 1, density: 0.02, at: 0.12, a: 0.05, d: 0.3, g: 0.5 },
   } },
-  shield: { n: 2, gain: 0.45, layers: {
-    zap: { src: 'sine', f: 1200, f1: 600, glide: 0.08, fm: [1.5, 2.5], a: 0.001, d: 0.1, g: 0.8 },
-    shimmer: { src: 'noise', mode: 'bp', f: 6000, q: 3, a: 0.001, d: 0.06, g: 0.4 },
-    hum: { src: 'sine', f: 220, a: 0.005, d: 0.15, g: 0.4, partials: [[1, 1, 1], [2, 0.5, 1]] },
+  'barge.use': { level: -5, drive: 2, slap: true, layers: { // a 45 Hz sub and a 300 → 80 Hz whomp, 350 ms
+    sub: { src: 'sine', f: 45, a: 0.01, dur: 0.35 },
+    whomp: { src: 'sine', f: 300, f1: 80, sweep: 0.3, a: 0.004, dur: 0.35, g: 0.9, partials: [[1, 1, 1], [2, 0.3, 0.7]] },
+    air: { src: 'noise', mode: 'lp', f: 900, f1: 200, sweep: 0.3, a: 0.01, dur: 0.35, g: 0.5 },
   } },
-  boost: { loop: 1, gain: 0.25, layers: {
-    hum: { src: 'sine', f: 55, g: 0.6, am: [6, 0.35], partials: [[1, 1, 1], [2, 0.6, 1], [3, 0.35, 1], [4, 0.2, 1]] },
-    wind: { src: 'noise', mode: 'bp', f: 900, q: 0.8, g: 0.5, am: [6, 0.2] },
+  'shock.use': { level: -16, layers: { // the telegraph whine, 400 → 1600 Hz over 1.2 s
+    whine: { src: 'sine', f: 400, f1: 1600, sweep: 1.2, a: 1.1, dur: 1.2, am: [14, 0.5], partials: [[1, 1, 1], [2, 0.35, 1], [3, 0.15, 1]] },
+  } },
+  'shock.boom': { level: -8, drive: 2, slap: true, layers: { // strike: 3 kHz noise 80 ms and a 110 Hz buzz 300 ms
+    crack: { src: 'noise', mode: 'bp', f: 3000, q: 0.7, a: 0.0005, dur: 0.08 },
+    buzz: { src: 'sine', f: 110, a: 0.002, dur: 0.3, g: 0.8, partials: SAW },
+  } },
+  'mine.use': { level: -16, layers: { // drop: a 200 Hz clunk, 60 ms
+    clunk: { src: 'sine', f: 200, a: 0.001, dur: 0.06, partials: [[1, 1, 1], [2.76, 0.4, 0.6], [5.4, 0.2, 0.4]] },
+    knock: { src: 'noise', mode: 'lp', f: 1200, a: 0.0005, dur: 0.03, g: 0.6 },
+  } },
+  'mine.arm': { level: -20, vary: 0, layers: { // a 2 kHz click, 15 ms
+    click: { src: 'sine', f: 2000, a: 0.0005, dur: 0.015, partials: [[1, 1, 1], [2, 0.3, 1]] },
+  } },
+  'mine.fuse': { level: -14, vary: 0, layers: { // beeps at 8 Hz through the 0.25 s fuse
+    b0: { src: 'sine', f: 2600, a: 0.001, dur: 0.05, partials: SQUARE },
+    b1: { src: 'sine', f: 2600, at: 0.125, a: 0.001, dur: 0.05, partials: SQUARE },
+    b2: { src: 'sine', f: 2600, at: 0.25, a: 0.001, dur: 0.05, partials: SQUARE },
+  } },
+  'mine.boom': { level: -5, drive: 2.5, send: 1.6, slap: true, layers: { // noise low-passed at 600 Hz for 0.5 s, a 50 Hz thump
+    body: { src: 'noise', mode: 'lp', f: 600, a: 0.002, dur: 0.5 },
+    thump: { src: 'sine', f: 50, a: 0.003, dur: 0.4 },
+    crack: { src: 'noise', mode: 'hp', f: 2500, dur: 0.02, g: 0.5 },
+  } },
+  'nitro.use': { level: -12, layers: { // a sawtooth spool 220 → 660 Hz over 300 ms through a lowpass
+    spool: { src: 'sine', f: 220, f1: 660, sweep: 0.3, a: 0.05, dur: 0.3, partials: SAW_LP },
+    whoosh: { src: 'noise', mode: 'bp', f: 500, f1: 2500, sweep: 0.3, q: 1, a: 0.08, dur: 0.3, g: 0.4 },
+  } },
+  'shield.use': { level: -12, vary: 0, layers: { // on: a 1.2 / 1.8 / 2.4 kHz shimmer, 400 ms
+    a: { src: 'sine', f: 1200, a: 0.01, dur: 0.4, am: [18, 0.6] },
+    b: { src: 'sine', f: 1800, a: 0.02, dur: 0.4, am: [23, 0.6], g: 0.8 },
+    c: { src: 'sine', f: 2400, a: 0.03, dur: 0.4, am: [29, 0.6], g: 0.6 },
+  } },
+  'shield.break': { level: -12, layers: { // noise high-passed at 4 kHz, 200 ms
+    shatter: { src: 'noise', mode: 'hp', f: 4000, a: 0.0005, dur: 0.2 },
+    tinkle: { src: 'noise', mode: 'bp', f: 7000, q: 3, density: 0.1, a: 0.001, dur: 0.2, g: 0.6 },
+  } },
+  fizzle: { level: -16, layers: { // noise low-passed at 800 Hz, 150 ms
+    fizz: { src: 'noise', mode: 'lp', f: 800, a: 0.002, dur: 0.15 },
+  } },
+  use: { level: -14, layers: { // any other item's use
+    whoosh: { src: 'noise', mode: 'bp', f: 250, f1: 3000, glide: 0.15, q: 1.2, a: 0.08, d: 0.1 },
+    air: { src: 'noise', mode: 'lp', f: 500, a: 0.05, d: 0.12, g: 0.3 },
+  } },
+  hum: { level: -32, vary: 0, loop: 1, layers: { // a pad's 110 Hz hum
+    hum: { src: 'sine', f: 110, partials: [[1, 1, 1], [2, 0.25, 1]], am: [1, 0.15] },
   } },
 };
-export const POWERUP_SEMITONES = { shunt: 0, bolt: 5, barge: -5, shock: 7, mine: -3, nitro: 3, shield: 10, repair: 12 }; // others hash to -6..6
-export const BOOST = { fade: 0.06, timeout: 0.2 }; // a loop not refreshed this long fades out
+// Kinds with no sound of their own (the engine's Repair) borrow these.
+const POWER_FALLBACK = { pick: 'power.pick.other', use: 'power.use', boom: 'power.shunt.boom' };
+export const LOCK = { range: 40, slow: 3, fast: 9, lookahead: 0.05 }; // beeps/s from range m in to 0 m
+export const SHOCK_TARGET = 2; // the whine at your feet plays this much louder
+export const HUM_RANGE = 8; // m: the two nearest pads hum, fading out by here
+export const HOLD = { fade: 0.06, timeout: 0.35 }; // a held loop not refreshed this long fades out
 
-// Mix: buses, reverb, distance, ducking.
-export const MIX = { master: 0.7, sfx: 1, confirm: 0.9, reverb: 0.6 };
-// Glues the world bus. The Web Audio compressor always adds its own makeup
-// gain (about +7 dB at these settings), so the world sits hotter than its gains say.
-export const COMPRESSOR = { threshold: -14, knee: 10, ratio: 6, attack: 0.003, release: 0.15 };
+// The quarry's wind bed (§5): noise band-passed 300–600 Hz, its band and
+// level swaying on a 0.1 Hz LFO.
+export const WIND = { level: -30, lfo: 0.1, sway: 0.4, band: [300, 600], fade: 1.5 };
+const WIND_SOUND = { level: WIND.level, loop: 4, layers: {
+  wind: { src: 'noise', mode: 'bp', f: Math.sqrt(WIND.band[0] * WIND.band[1]), q: 1.4 },
+} };
+
+// Mix (§5): buses, master, compressor, slapback, reverb, distance, ducking.
+export const MIX = { master: 0.6, sfx: 1, confirm: 1, reverb: 0.6 };
+export const COMPRESSOR = { threshold: -12, knee: 6, ratio: 4, attack: 0.003, release: 0.12 };
+// The quarry slapback: one shared delay, low-passed, this many dB under the dry sound.
+export const SLAP = { delay: 0.18, db: -14, cutoff: 1500 };
 // The last stage, a soft clipper: untouched below knee, then bending toward
-// full scale, so a pile-up can never clip. Inputs up to ±range are shaped.
-export const CLIP = { knee: 0.6, range: 4 };
+// ceiling (-1 dBFS), so a pile-up can never clip. Inputs up to ±range are shaped.
+export const CLIP = { knee: 0.6, ceiling: 0.89, range: 4 };
 export const REVERB = { seconds: 1.5, rt60: 1.2, predelay: 0.01, early: 10, earlySpread: 0.06, earlyGain: 0.4, bright: 8000, dark: 900 };
 // Others are quieter (half the level at halfGainDist), darker and relatively
 // wetter with distance, and culled past maxDist.
 export const SPACE = { halfGainDist: 10, cutoffNear: 18000, cutoffHalfDist: 18, cutoffFar: 1200, panWidth: 0.8, wet: 0.25, maxDist: 90 };
-export const DUCK = { kill: 0.35, hurt: 0.25, explosion: 0.5, attack: 0.005, hold: 0.06, release: 0.15 }; // dips the world under big moments
+export const DUCK = { kill: 0.35, hurt: 0.25, boom: 0.5, attack: 0.005, hold: 0.06, release: 0.15 }; // dips the world under big moments
 export const MUFFLE = { open: 20000, dead: 650, time: 0.2 }; // the world goes dull while you are dead
 export const JITTER = { rate: 0.035, gain: 0.12 }; // ± per play, on top of the variants
-export const VOICE_LIMIT = 32; // one-shots at once; the lowest priority is stolen
+export const VOICE_LIMIT = 48; // one-shots and loops at once; the oldest is stolen
 export const VARY = 0.06;
-export const PEAK = 0.9; // every rendered one-shot peaks here before its gain
+export const PEAK = 0.9; // every rendered sound peaks here, before its level
 
 /* ---------------------------------------------------------------------------
  * DSP: pure, seeded, and run once at start().
@@ -254,12 +333,17 @@ const TAIL = Math.log(100); // buffers run until their longest layer is down 40 
 const LOOP_XFADE = 0.05;
 const FADE_OUT = 0.004;
 
-// Every sound by name ('gun.rifle', 'impact.wood', 'step.metal', …), in the
-// order start() renders them: the ones a fight needs first.
+// Every sound by name ('gun.rifle', 'power.mine.boom', …), in the order
+// start() renders them: the ones a fight needs first.
 const group = (prefix, sounds) => Object.fromEntries(Object.entries(sounds).map(([k, v]) => [`${prefix}.${k}`, v]));
 export const SOUNDS = {
   ...group('confirm', CONFIRMS), ...group('gun', GUNSHOTS), ...group('impact', IMPACTS), ...group('step', FOOTSTEPS),
-  ricochet: RICOCHET, ...group('ui', UI_SOUNDS), ...group('power', POWERUPS),
+  land: { level: -16, n: 2, layers: { thump: { src: 'sine', f: 70, f1: 50, sweep: 0.1, a: 0.002, dur: 0.16 } } },
+  casing: { level: -26, n: 3, vary: 0.04, layers: {
+    tink: { src: 'sine', f: 4200, a: 0.0002, dur: 0.06, partials: BELL },
+    bounce: { src: 'sine', f: 4200, at: 0.09, a: 0.0002, dur: 0.04, g: 0.4, partials: BELL },
+  } },
+  ricochet: RICOCHET, ...group('power', POWER_SOUNDS), ...group('ui', UI_SOUNDS), wind: WIND_SOUND,
 };
 
 // FNV-1a: a stable number per name, so adding a sound reshuffles no other.
@@ -269,27 +353,39 @@ export function hash(s) {
   return h >>> 0;
 }
 
-const tremolo = (am, t) => (am ? 1 - am[1] * (0.5 + 0.5 * Math.sin(TAU * am[0] * t)) : 1);
+// A sine table, so the sample loops skip Math.sin: sin(x) for any x, to 1e-6.
+const SIN_N = 4096;
+const SIN = Float64Array.from({ length: SIN_N + 1 }, (_, i) => Math.sin((TAU * i) / SIN_N));
+const sin = (x) => {
+  let u = x * (SIN_N / TAU);
+  u -= Math.floor(u / SIN_N) * SIN_N;
+  const i = u | 0;
+  return SIN[i] + (SIN[i + 1] - SIN[i]) * (u - i);
+};
+const tremolo = (am, t) => (am ? 1 - am[1] * (0.5 + 0.5 * sin(TAU * am[0] * t)) : 1);
 
 // The shared inner loop: a linear attack, then an exponential decay (or held
-// at 1 for loops), and a frequency gliding exponentially from f toward f1.
-// Both run as per-sample multiplies; each layer stops once below -60 dB.
-// sample(f, t) returns the raw source at frequency f and time t; the
-// envelope and gain are applied here.
+// at 1 for loops), and a frequency moving from f toward f1: a log sweep that
+// lands at `sweep` s, or an exponential glide. Both run as per-sample
+// multiplies; each layer stops once below -60 dB. sample(f, t) returns the
+// raw source at frequency f and time t; the envelope and gain are applied here.
 function addLayer(out, l, fs, held, gain, decay, sample) {
   const start = Math.round(l.at * fs);
   const attack = Math.max(1, Math.round(l.a * fs));
   const fall = Math.exp(-1 / (decay * fs));
-  const sweep = l.f1 === undefined ? 1 : Math.exp(-1 / (l.glide * fs));
   const target = l.f1 ?? l.f;
-  let dev = l.f - target;
+  const sweepN = l.f1 !== undefined && l.sweep ? Math.max(1, Math.round(l.sweep * fs)) : 0;
+  const k = sweepN ? (target / l.f) ** (1 / sweepN) : l.f1 === undefined ? 1 : Math.exp(-1 / (l.glide * fs));
+  let f = l.f; // the swept frequency
+  let dev = l.f - target; // the glide's distance still to go
   let e = 0;
   for (let i = start, j = 0; i < out.length; i++, j++) {
     if (held) e = 1;
     else if (j < attack) e = j / attack;
     else if ((e = j === attack ? 1 : e * fall) < 1e-3) break;
-    out[i] += sample(target + dev, j / fs) * e * gain;
-    dev *= sweep;
+    out[i] += sample(sweepN ? f : target + dev, j / fs) * e * gain;
+    if (sweepN) f = j < sweepN ? f * k : target;
+    else dev *= k;
   }
 }
 
@@ -317,12 +413,13 @@ function addNoise(out, l, fs, rand, held) {
 
 // Sine partials, each with its own decay, all following the pitch glide.
 function addSine(out, l, fs, held) {
+  const top = Math.max(l.f, l.f1 ?? 0);
   for (const [ratio, pg, pd] of l.partials ?? [[1, 1, 1]]) {
-    if (l.f * ratio >= fs * 0.45) continue;
+    if (top * ratio >= fs * 0.45) continue;
     let ph = 0;
     let mph = 0;
     addLayer(out, l, fs, held, l.g * pg, l.d * pd, (f, t) => {
-      const x = Math.sin(ph + (l.fm ? l.fm[1] * Math.sin(mph) : 0));
+      const x = sin(ph + (l.fm ? l.fm[1] * sin(mph) : 0));
       if ((ph += (TAU * f * ratio) / fs) > TAU) ph -= TAU;
       if (l.fm && (mph += (TAU * f * ratio * l.fm[0]) / fs) > TAU) mph -= TAU;
       return x * tremolo(l.am, t);
@@ -334,10 +431,11 @@ function addSine(out, l, fs, held) {
 export function renderSound(recipe, fs, rand) {
   const vary = recipe.vary ?? VARY;
   const jit = (v) => v * (1 + (rand() * 2 - 1) * vary);
-  const layers = Object.values(recipe.layers).map((l) => ({
-    ...l, at: l.at ?? 0, a: Math.max(l.a ?? 0, 2 / fs), d: jit(l.d ?? 1), g: jit(l.g),
-    f: jit(l.f), f1: l.f1 === undefined ? undefined : jit(l.f1),
-  }));
+  const layers = Object.values(recipe.layers).map((l) => {
+    const a = Math.max(l.a ?? 0, 2 / fs);
+    const d = l.dur === undefined ? l.d ?? 1 : Math.max(1 / fs, (l.dur - a) / TAIL);
+    return { ...l, at: l.at ?? 0, a, d: jit(d), g: jit(l.g ?? 1), f: jit(l.f), f1: l.f1 === undefined ? undefined : jit(l.f1) };
+  });
   const held = !!recipe.loop;
   const seconds = held ? recipe.loop + LOOP_XFADE
     : Math.max(...layers.map((l) => l.at + l.a + l.d * TAIL * Math.max(...(l.partials ?? [[1, 1, 1]]).map((p) => p[2]))));
@@ -368,6 +466,21 @@ export function renderSound(recipe, fs, rand) {
   return out;
 }
 
+// Short-term level: the loudest 50 ms RMS, +3 dB so a full-scale sine reads
+// 1 (0 dB). A recipe's `level` sets this, so its gain is level / shortTerm.
+export function shortTerm(buf, fs) {
+  const w = Math.max(1, Math.round(0.05 * fs));
+  let acc = 0;
+  let best = 0;
+  for (let i = 0; i < buf.length; i++) {
+    acc += buf[i] * buf[i];
+    if (i >= w) acc -= buf[i - w] * buf[i - w];
+    if (acc > best) best = acc;
+  }
+  return Math.sqrt((2 * best) / w);
+}
+export const dbToGain = (db) => 10 ** (db / 20);
+
 // A stereo room: early reflections, then exponentially decaying noise that
 // darkens as it fades (high frequencies die first). Each channel rolls its
 // own noise, so the tail is wide.
@@ -391,26 +504,31 @@ export function renderIR(fs, r, rand) {
 }
 
 // The output soft clipper as a WaveShaper curve over inputs -range..range:
-// the identity up to knee, then a tanh bend that never reaches 1.
-export function clipCurve(n, knee, range) {
+// the identity up to knee, then a tanh bend toward ceiling, never reaching it.
+export function clipCurve(n, knee, range, ceiling = 1) {
   return Float32Array.from({ length: n }, (_, i) => {
     const x = ((2 * i) / (n - 1) - 1) * range;
     const a = Math.abs(x);
-    return Math.sign(x) * (a <= knee ? a : knee + (1 - knee) * Math.tanh((a - knee) / (1 - knee)));
+    return Math.sign(x) * (a <= knee ? a : knee + (ceiling - knee) * Math.tanh((a - knee) / (ceiling - knee)));
   });
 }
 
 /* ---------------------------------------------------------------------------
- * Space and surfaces: pure.
+ * Space, surfaces and game state: pure.
  * ------------------------------------------------------------------------ */
 // Distance in metres → level, lowpass cutoff and reverb send of a voice.
 export const distGain = (d) => 1 / (1 + d / SPACE.halfGainDist);
 export const distCutoff = (d) => Math.max(SPACE.cutoffFar, SPACE.cutoffNear / (1 + d / SPACE.cutoffHalfDist));
 export const wetSend = (d) => SPACE.wet * Math.sqrt(distGain(d)); // falls slower than the dry level
 
+// A locked Shunt's beeps per second at distance d: slow at LOCK.range, fast at 0.
+export const beepRate = (d) => LOCK.slow + (LOCK.fast - LOCK.slow) * (1 - Math.min(1, Math.max(0, d / LOCK.range)));
+
+const surfaceOf = (s) => SURFACE_ALIAS[s] ?? s;
+
 // Map JSON → boxes ({ min, max, surface }), in map order.
 export function surfacesOf(map) {
-  return prepareMap(map).boxes.map((b, i) => ({ ...b, surface: map.boxes[i].surface ?? SURFACE_BY_COLOR[map.boxes[i].color] ?? DEFAULT_SURFACE }));
+  return prepareMap(map).boxes.map((b, i) => ({ ...b, surface: surfaceOf(map.boxes[i].surface ?? SURFACE_BY_COLOR[map.boxes[i].color] ?? DEFAULT_SURFACE) }));
 }
 
 // What a shot from origin that ended at end ([x, y, z]) hit: { surface, axis }
@@ -448,18 +566,50 @@ export function pickVariant(n, last, rand = Math.random) {
   return last >= 0 && i >= last ? i + 1 : i;
 }
 
+// Which playing voice ({ pri }, oldest first) to stop so one more of
+// priority pri fits under limit: -1 when there is room, null when every
+// voice outranks it (it is dropped), else the oldest voice it may replace.
+export function voiceToSteal(voices, pri, limit) {
+  if (voices.length < limit) return -1;
+  const i = voices.findIndex((v) => v.pri <= pri);
+  return i < 0 ? null : i;
+}
+
+// Power-up entities since the last snapshot. list: [{ id, kind, state }]
+// with state 0 arming, 1 armed, 2 fused (or armed: bool); seen carries ids
+// between calls. on(what, e): 'fly' for every Shunt in the air, 'arm' and
+// 'fuse' when a mine changes state, 'new' on first sight of any other kind.
+export function diffEntities(seen, list, on) {
+  for (const e of list) {
+    const state = e.state ?? (e.armed ? 1 : 0);
+    const was = seen.get(e.id);
+    if (e.kind === 'shunt') on('fly', e);
+    else if (e.kind === 'mine') {
+      if (was !== undefined && state > was) on(state === 1 ? 'arm' : 'fuse', e);
+    } else if (was === undefined) on('new', e);
+    seen.set(e.id, state);
+  }
+  if (seen.size > list.length) {
+    for (const id of seen.keys()) if (!list.some((e) => e.id === id)) seen.delete(id);
+  }
+}
+
 /* ---------------------------------------------------------------------------
  * Runtime.
  * ------------------------------------------------------------------------ */
 let ctx = null; // set last in init(), so every export stays a no-op until audio fully works
 let out; // master gain → soft clipper → speakers
-let sfx; // the world: ducked, muffled while dead, compressed
+let sfx; // the world: ducked, muffled while dead
 let confirm; // your own feedback and UI: dry and never ducked
 let send; // → the convolution reverb
+let slap; // → the quarry slapback
 let muffle;
-let banks = {}; // name → { bufs, last, gain, send, exact }
-const active = []; // playing one-shots: { src, g, pri }
-const loops = new Map(); // boost loops by id
+let ready = Promise.resolve(); // the banks, rendered after start()
+const banks = {}; // name → { bufs, gains, last, send, slap, exact, dry }
+const active = []; // playing one-shots, oldest first: { src, g, pri }
+const loops = new Map(); // held loops by key: { src, g, p, seen, level, pan }
+const ents = new Map(); // power-up entity id → state
+let wind = null;
 let surfaces = [];
 let volume = 1;
 let renderMs = 0;
@@ -467,6 +617,9 @@ let warned = false;
 let streak = 0;
 let lastKill = -Infinity;
 let airSince = -1;
+let fallVy = 0;
+let nextBeep = 0;
+let shockOn = false;
 
 const PRI = { step: 0, impact: 1, world: 2, gun: 3, self: 4 };
 const finite = (v) => (Number.isFinite(v) ? v : 0);
@@ -490,38 +643,49 @@ function toBuffer(c, channels) {
   return b;
 }
 
-function init() {
-  const c = new AudioContext({ latencyHint: 'interactive' });
+function init(c) {
   const t0 = performance.now();
   const fs = c.sampleRate;
+  // speakers ← clip ← master ← compressor ← muffle ← sfx (world) and the returns; confirm skips the muffle.
   out = c.createGain();
   out.gain.value = MIX.master * volume;
   const pre = c.createGain();
   pre.gain.value = 1 / CLIP.range; // the curve spans ±range
   const clip = c.createWaveShaper();
-  clip.curve = clipCurve(4097, CLIP.knee, CLIP.range);
+  clip.curve = clipCurve(4097, CLIP.knee, CLIP.range, CLIP.ceiling);
   out.connect(pre).connect(clip).connect(c.destination);
   const comp = c.createDynamicsCompressor();
   for (const [k, v] of Object.entries(COMPRESSOR)) comp[k].value = v;
+  comp.connect(out);
   muffle = c.createBiquadFilter();
   muffle.frequency.value = MUFFLE.open;
+  muffle.connect(comp);
   sfx = c.createGain();
   sfx.gain.value = MIX.sfx;
-  sfx.connect(muffle).connect(comp).connect(out);
+  sfx.connect(muffle);
   confirm = c.createGain();
   confirm.gain.value = MIX.confirm;
-  confirm.connect(out);
+  confirm.connect(comp);
   const verb = c.createConvolver();
   verb.buffer = toBuffer(c, renderIR(fs, REVERB, shotRng(SEED, hash('reverb'), 0)));
   const ret = c.createGain();
   ret.gain.value = MIX.reverb;
   send = c.createGain();
   send.connect(verb).connect(ret).connect(muffle);
+  slap = c.createDelay(1);
+  slap.delayTime.value = SLAP.delay;
+  const slapLp = c.createBiquadFilter();
+  slapLp.frequency.value = SLAP.cutoff;
+  const slapRet = c.createGain();
+  slapRet.gain.value = dbToGain(SLAP.db);
+  slap.connect(slapLp).connect(slapRet).connect(muffle);
   renderMs = performance.now() - t0;
-  renderBanks(c);
+  ctx = c;
+  ready = renderBanks(c);
   setInterval(safe(watchLoops), 100);
   document.addEventListener('click', (e) => { if (e.target instanceof Element && e.target.closest('button')) ui('click'); });
-  ctx = c;
+  const q = new URLSearchParams(location.search);
+  if (q.has('debug') && q.has('sfx')) ready.then(() => { ambience(true); playBoard(); });
 }
 
 // Rendering every variant takes a few hundred ms of CPU, so it runs one
@@ -530,37 +694,42 @@ async function renderBanks(c) {
   try {
     for (const [name, r] of Object.entries(SOUNDS)) {
       const bufs = [];
+      const gains = [];
       for (let v = 0; v < (r.n ?? 1); v++) {
         await new Promise((resolve) => setTimeout(resolve));
         const t0 = performance.now();
-        bufs.push(toBuffer(c, [renderSound(r, c.sampleRate, shotRng(SEED, hash(name), v))]));
+        const s = renderSound(r, c.sampleRate, shotRng(SEED, hash(name), v));
+        bufs.push(toBuffer(c, [s]));
+        gains.push(dbToGain(r.level ?? -12) / (shortTerm(s, c.sampleRate) || 1));
         renderMs += performance.now() - t0;
       }
-      banks[name] = { bufs, last: -1, gain: r.gain, send: r.send ?? 1, exact: /^(confirm|ui)\./.test(name) };
+      banks[name] = { bufs, gains, last: -1, send: r.send ?? 1, slap: !!r.slap, dry: !!r.dry, exact: !!r.dry || r.vary === 0 };
     }
   } catch (e) { fail(e); }
 }
 
-export function start() {
+// given: an OfflineAudioContext, for tests. Returns a promise of the banks.
+export function start(given) {
   try {
-    if (!ctx) init();
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    if (!ctx) init(given ?? new AudioContext({ latencyHint: 'interactive' }));
+    if (ctx.state === 'suspended' && !ctx.startRendering) ctx.resume().catch(() => {});
   } catch (e) {
     ctx = null;
     fail(e);
   }
+  return ready;
 }
 
-// Room for one more voice: steal the lowest-priority, oldest one if full.
+// Room for one more voice: steal the oldest one it outranks if full.
 function admit(pri) {
-  if (active.length < VOICE_LIMIT) return true;
-  let k = -1;
-  for (let i = 0; i < active.length; i++) if (active[i].pri < pri && (k < 0 || active[i].pri < active[k].pri)) k = i;
-  if (k < 0) return false;
-  const [v] = active.splice(k, 1);
-  const t = ctx.currentTime;
-  v.g.gain.setTargetAtTime(0, t, 0.004);
-  v.src.stop(t + 0.03);
+  const i = voiceToSteal(active, pri, VOICE_LIMIT - loops.size);
+  if (i === null) return false;
+  if (i >= 0) {
+    const [v] = active.splice(i, 1);
+    const t = ctx.currentTime;
+    v.g.gain.setTargetAtTime(0, t, 0.004);
+    v.src.stop(t + 0.03);
+  }
   return true;
 }
 
@@ -574,7 +743,7 @@ function play(name, { dist = 0, pan = 0, gain = 1, rate = 1, delay = 0, pri = PR
   bank.last = pickVariant(bank.bufs.length, bank.last);
   src.buffer = bank.bufs[bank.last];
   src.playbackRate.value = finite(rate * (bank.exact ? 1 : jitter(JITTER.rate))) || 1;
-  const level = bank.gain * gain * (bank.exact ? 1 : jitter(JITTER.gain));
+  const level = bank.gains[bank.last] * gain * (bank.exact ? 1 : jitter(JITTER.gain));
   let head = src;
   if (dist > 0) {
     const lp = ctx.createBiquadFilter();
@@ -589,11 +758,16 @@ function play(name, { dist = 0, pan = 0, gain = 1, rate = 1, delay = 0, pri = PR
     p.pan.value = clampPan(pan);
     tail = g.connect(p);
   }
-  tail.connect(bank.exact ? confirm : sfx);
-  if (!bank.exact) {
+  tail.connect(bank.dry ? confirm : sfx);
+  if (!bank.dry) {
     const w = ctx.createGain();
     w.gain.value = finite(level * wetSend(dist) * bank.send);
     head.connect(w).connect(send);
+    if (bank.slap) {
+      const s = ctx.createGain();
+      s.gain.value = finite(level * Math.sqrt(distGain(dist)));
+      head.connect(s).connect(slap);
+    }
   }
   const v = { src, g, pri };
   active.push(v);
@@ -602,6 +776,43 @@ function play(name, { dist = 0, pan = 0, gain = 1, rate = 1, delay = 0, pri = PR
     if (i >= 0) active.splice(i, 1);
   };
   src.start(t);
+}
+
+// A held loop under key: call it every frame (or snapshot) while it should
+// sound; it fades out on its own once the calls stop. gain scales its level
+// (distance included).
+function hold(key, name, gain, pan) {
+  const t = ctx.currentTime;
+  let l = loops.get(key);
+  if (!l) {
+    const bank = banks[name];
+    if (!bank || active.length + loops.size >= VOICE_LIMIT) return;
+    const src = ctx.createBufferSource();
+    src.buffer = bank.bufs[0];
+    src.loop = true;
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    const p = ctx.createStereoPanner();
+    src.connect(g).connect(p).connect(sfx);
+    src.start(t);
+    l = { src, g, p, seen: t, level: -1, pan: 0, base: bank.gains[0] };
+    loops.set(key, l);
+  }
+  l.seen = t;
+  const level = l.base * finite(gain);
+  if (Math.abs(level - l.level) > 0.05 * l.level + 1e-4) l.g.gain.setTargetAtTime((l.level = level), t, HOLD.fade);
+  const p = clampPan(pan);
+  if (Math.abs(p - l.pan) > 0.02) l.p.pan.setTargetAtTime((l.pan = p), t, 0.03);
+}
+
+function watchLoops() {
+  const t = ctx.currentTime;
+  for (const [key, l] of loops) {
+    if (t - l.seen < HOLD.timeout) continue;
+    l.g.gain.setTargetAtTime(0, t, HOLD.fade);
+    l.src.stop(t + HOLD.fade * 8);
+    loops.delete(key);
+  }
 }
 
 // Dip the world for a moment, so a big moment cuts through.
@@ -622,8 +833,12 @@ function muffleTo(hz) {
 }
 
 // --- Weapons and the world. dist in metres, pan from -1 (left) to 1 (right). ---
+// weapon: 'rifle' | 'pistol' | 'shotgun' | 'bolt'.
 export const gunshot = safe((weapon, dist = 0, pan = 0) => {
-  play(`gun.${GUNSHOTS[weapon] ? weapon : 'rifle'}`, { dist, pan, pri: dist > 0 ? PRI.gun : PRI.self });
+  const kind = GUNSHOTS[weapon] && weapon !== 'transient' ? weapon : 'rifle';
+  const pri = dist > 0 ? PRI.gun : PRI.self;
+  play(`gun.${kind}`, { dist, pan, pri });
+  if (kind !== 'bolt' && finite(dist) <= TRANSIENT_RANGE) play('gun.transient', { dist, pan, pri });
 });
 
 // A shot's bullet ends ([x, y, z] each) from origin: surface hits and the
@@ -645,10 +860,21 @@ export const impacts = safe((origin, ends, heard) => {
   }
 });
 
-// feet: { x, y, z } of the stepping player, for the surface underfoot.
-export const footstep = safe((dist = 0, pan = 0, feet = null) => {
-  const surface = feet ? surfaceUnder(feet, surfaces) : DEFAULT_SURFACE;
-  play(`step.${FOOTSTEPS[surface] ? surface : DEFAULT_SURFACE}`, { dist, pan, pri: PRI.step });
+// surface: 'concrete' | 'wood' | 'steel', or { x, y, z } feet to look it up on the map.
+const stepName = (surface) => {
+  const s = surfaceOf(typeof surface === 'string' ? surface : surface ? surfaceUnder(surface, surfaces) : DEFAULT_SURFACE);
+  return `step.${FOOTSTEPS[s] ? s : DEFAULT_SURFACE}`;
+};
+export const footstep = safe((dist = 0, pan = 0, surface = DEFAULT_SURFACE) => {
+  play(stepName(surface), { dist, pan, pri: PRI.step });
+});
+
+// Your own landing at vertical speed vy (m/s, either sign).
+export const landing = safe((vy, surface = DEFAULT_SURFACE) => {
+  const g = Math.min(1, Math.abs(finite(vy)) / LAND.fullVy);
+  if (!(g > 0)) return;
+  play('land', { gain: g, pri: PRI.self });
+  play(stepName(surface), { gain: LAND.step * g, rate: LAND.stepRate, pri: PRI.self });
 });
 
 // Call every frame with your own mover: a landing plays after LAND.minAir aloft.
@@ -658,15 +884,16 @@ export function ground(grounded, feet) {
     const t = ctx.currentTime;
     if (!grounded) {
       if (airSince < 0) airSince = t;
+      fallVy = finite(feet?.vy);
       return;
     }
-    if (airSince >= 0 && t - airSince >= LAND.minAir) {
-      const surface = surfaceUnder(feet, surfaces);
-      play(`step.${FOOTSTEPS[surface] ? surface : DEFAULT_SURFACE}`, { gain: LAND.gain, rate: LAND.rate, pri: PRI.self });
-    }
+    if (airSince >= 0 && t - airSince >= LAND.minAir) landing(fallVy, feet);
     airSince = -1;
   } catch (e) { fail(e); }
 }
+
+// An own shot's case hits the ground a moment later.
+export const casing = safe(() => play('casing', { delay: CASING_DELAY, pri: PRI.step }));
 
 // The map, for impact and footstep surfaces. Works before start().
 export function setWorld(map) {
@@ -674,14 +901,16 @@ export function setWorld(map) {
 }
 
 // --- Your own feedback: instant, dry and loud. ---
-export const hitTick = safe((head = false) => play(head ? 'confirm.head' : 'confirm.hit', { pri: PRI.self }));
+// kind: 'body' | 'head' | 'shield' (a hit the target's Shield took).
+export const hit = safe((kind = 'body') => play(kind === 'head' ? 'confirm.head' : kind === 'shield' ? 'confirm.shield' : 'confirm.hit', { pri: PRI.self }));
+export const hitTick = (head = false) => hit(head ? 'head' : 'body');
 
 // Kills close together climb in pitch.
-export const kill = safe((head = false) => {
+export const kill = safe(() => {
   const t = ctx.currentTime;
   streak = t - lastKill < KILL_STREAK.window ? Math.min(streak + 1, KILL_STREAK.max) : 0;
   lastKill = t;
-  play(head ? 'confirm.killHead' : 'confirm.kill', { rate: 2 ** ((streak * KILL_STREAK.semitones) / 12), pri: PRI.self });
+  play('confirm.kill', { rate: semis(streak * KILL_STREAK.semitones), pri: PRI.self });
   duck(DUCK.kill);
 });
 
@@ -706,53 +935,104 @@ export const respawn = safe(() => {
 // name: a UI_SOUNDS key ('click', 'start', 'win', 'lose', 'error').
 export const ui = safe((name) => play(`ui.${name}`, { pri: PRI.self }));
 
-// --- Power-up hooks; kind is any power-up name. Omit dist and pan for your own. ---
-const kindRate = (kind) => 2 ** ((POWERUP_SEMITONES[kind] ?? (hash(String(kind)) % 13) - 6) / 12);
-export const pickup = safe((kind, dist = 0, pan = 0) => play('power.pickup', { dist, pan, rate: kindRate(kind), pri: PRI.world }));
-export const use = safe((kind, dist = 0, pan = 0) => play('power.use', { dist, pan, rate: kindRate(kind), pri: PRI.world }));
-export const shieldHit = safe((dist = 0, pan = 0) => play('power.shield', { dist, pan, pri: PRI.world }));
-export const explosion = safe((dist = 0, pan = 0) => {
-  play('power.explosion', { dist, pan, pri: PRI.gun });
-  duck(DUCK.explosion * distGain(finite(dist)));
+// --- Power-ups. Omit dist and pan for your own. ---
+// phase: 'pick' | 'use' | 'boom' | 'arm' | 'fuse' | 'break' | 'fizzle'.
+export const power = safe((kind, phase, dist = 0, pan = 0) => {
+  const key = phase === 'pick' ? `pick.${kind}` : phase === 'fizzle' ? 'fizzle' : `${kind}.${phase}`;
+  const name = POWER_SOUNDS[key] ? `power.${key}` : POWER_COLORS[kind] ? null : POWER_FALLBACK[phase];
+  if (!name) return;
+  const boom = phase === 'boom';
+  play(name, { dist, pan, pri: boom ? PRI.gun : dist > 0 ? PRI.world : PRI.self });
+  if (boom) duck(DUCK.boom * distGain(finite(dist)));
 });
 
-// A boost loop per id (a player): call it every frame while boosting; it
-// fades out on its own once the calls stop.
-export function boost(id, dist = 0, pan = 0) {
-  if (!ctx) return;
-  try {
-    const t = ctx.currentTime;
-    let l = loops.get(id);
-    if (!l) {
-      if (!banks['power.boost'] || !(finite(dist) <= SPACE.maxDist)) return;
+// Threats aimed at you. 'lock': a locked Shunt's beeps per second (0 off;
+// beepRate(distance) gives it), called every frame. 'shock': 0 none, else
+// you are a Shock's target: its whine plays at your feet, louder.
+export const warn = safe((kind, level) => {
+  const t = ctx.currentTime;
+  if (kind === 'lock') {
+    const rate = Math.min(LOCK.fast, Math.max(0, finite(level)));
+    if (!rate) nextBeep = 0;
+    else if ((nextBeep = Math.max(nextBeep, t)) < t + LOCK.lookahead) {
+      play('power.shunt.lock', { delay: nextBeep - t, pri: PRI.self });
+      nextBeep += 1 / rate;
+    }
+  } else if (kind === 'shock') {
+    const on = finite(level) > 0;
+    if (on && !shockOn) play('power.shock.use', { gain: SHOCK_TARGET, pri: PRI.self });
+    shockOn = on;
+  }
+});
+
+// list: [{ distance, pan, up? }], every pad; the two nearest that are up
+// (up !== false) hum, fading out toward HUM_RANGE m. Call it a few times a second.
+export const padHums = safe((list) => {
+  let first = null;
+  for (let k = 0; k < 2; k++) {
+    let best = null;
+    for (const p of list) {
+      if (p === first || p.up === false || !(p.distance <= HUM_RANGE) || (best && p.distance >= best.distance)) continue;
+      best = p;
+    }
+    if (!best) return;
+    hold(`hum${k}`, 'power.hum', 1 - best.distance / HUM_RANGE, best.pan);
+    first = best;
+  }
+});
+
+// Per snapshot: the power-up entities, [{ id, kind, x, z, state | armed }];
+// heard(x, z) → [dist, pan]. Shunts hiss where they fly and mines click as
+// they arm and beep on their fuse. The engine wave's Bolts, which fly as
+// entities, zap as they appear.
+export const entities = safe((list, heard) => {
+  diffEntities(ents, list, (what, e) => {
+    const [dist, pan] = heard(e.x, e.z);
+    if (what === 'fly') { if (dist <= SPACE.maxDist) hold(`shunt${e.id}`, 'power.shunt.hiss', distGain(dist), pan); }
+    else if (what === 'new' && e.kind === 'bolt') gunshot('bolt', dist, pan);
+    else if (what !== 'new') power('mine', what, dist, pan);
+  });
+});
+
+// The wind bed, faded in or out.
+export const ambience = safe((on) => {
+  ready.then(() => {
+    if (on && !wind && banks.wind) {
+      const t = ctx.currentTime;
       const src = ctx.createBufferSource();
-      src.buffer = banks['power.boost'].bufs[0];
+      src.buffer = banks.wind.bufs[0];
       src.loop = true;
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.Q.value = 1;
+      const [lo, hi] = WIND.band;
+      band.frequency.value = (lo + hi) / 2;
       const g = ctx.createGain();
       g.gain.value = 0;
-      const p = ctx.createStereoPanner();
-      src.connect(g).connect(p).connect(sfx);
+      g.gain.setTargetAtTime(banks.wind.gains[0], t, WIND.fade);
+      const sway = ctx.createGain(); // the LFO's depth on the level
+      sway.gain.value = banks.wind.gains[0] * WIND.sway;
+      const lfoBand = ctx.createGain(); // and on the band's centre
+      lfoBand.gain.value = (hi - lo) / 2;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = WIND.lfo;
+      lfo.connect(sway).connect(g.gain);
+      lfo.connect(lfoBand).connect(band.frequency);
+      src.connect(band).connect(g).connect(sfx);
       src.start(t);
-      l = { src, g, p, seen: t, level: -1, pan: 0 };
-      loops.set(id, l);
+      lfo.start(t);
+      wind = { src, lfo, g, sway };
+    } else if (!on && wind) {
+      const t = ctx.currentTime;
+      wind.g.gain.cancelScheduledValues(t);
+      wind.g.gain.setTargetAtTime(0, t, WIND.fade / 3);
+      wind.sway.gain.setTargetAtTime(0, t, WIND.fade / 3);
+      wind.src.stop(t + WIND.fade * 2);
+      wind.lfo.stop(t + WIND.fade * 2);
+      wind = null;
     }
-    l.seen = t;
-    const level = POWERUPS.boost.gain * distGain(finite(dist));
-    if (Math.abs(level - l.level) > 0.01) l.g.gain.setTargetAtTime((l.level = level), t, BOOST.fade);
-    const p = dist > 0 ? clampPan(pan) : 0;
-    if (Math.abs(p - l.pan) > 0.02) l.p.pan.setTargetAtTime((l.pan = p), t, 0.03);
-  } catch (e) { fail(e); }
-}
-
-function watchLoops() {
-  const t = ctx.currentTime;
-  for (const [id, l] of loops) {
-    if (t - l.seen < BOOST.timeout) continue;
-    l.g.gain.setTargetAtTime(0, t, BOOST.fade);
-    l.src.stop(t + BOOST.fade * 8);
-    loops.delete(id);
-  }
-}
+  }).catch(fail);
+});
 
 // 0..1, on top of MIX.master. Works before start().
 export function setVolume(v) {
@@ -760,8 +1040,69 @@ export function setVolume(v) {
   if (out) out.gain.value = MIX.master * volume;
 }
 
-// For the debug overlay and tests: banks counts the sounds rendered so far.
+// For the debug overlay and tests: voices counts one-shots and loops; banks
+// counts the sounds rendered so far.
 export const stats = () => ({
-  state: ctx?.state ?? 'off', voices: active.length, loops: loops.size,
+  state: ctx?.state ?? 'off', voices: active.length + loops.size, loops: loops.size,
   banks: `${Object.keys(banks).length}/${Object.keys(SOUNDS).length}`, renderMs: Math.round(renderMs),
 });
+
+/* ---------------------------------------------------------------------------
+ * ?debug&sfx: the whole board, BOARD_STEP s per sound. Each entry is
+ * [label, seconds, fn(k)], fn called every BOARD_TICK s with k = 0, 1, …
+ * ------------------------------------------------------------------------ */
+export const BOARD_TICK = 0.05;
+const BOARD_STEP = 0.6;
+const once = (fn) => (k) => k === 0 && fn();
+const near = [6, 0.7];
+const far = [35, -0.6];
+export const BOARD = [
+  ...['rifle', 'pistol', 'shotgun', 'bolt'].map((w) => [w, BOARD_STEP, once(() => gunshot(w))]),
+  ['rifle 6 m right', BOARD_STEP, once(() => gunshot('rifle', ...near))],
+  ['shotgun 35 m left', BOARD_STEP, once(() => gunshot('shotgun', ...far))],
+  ...Object.keys(IMPACTS).map((s) => [`impact ${s}`, BOARD_STEP, once(() => play(`impact.${s}`, { dist: 4 }))]),
+  ['ricochet', BOARD_STEP, once(() => play('ricochet', { dist: 4, pan: 0.5 }))],
+  ...Object.keys(FOOTSTEPS).map((s) => [`steps ${s}`, BOARD_STEP, (k) => k % 4 === 0 && footstep(0, 0, s)]),
+  ['landing', BOARD_STEP, once(() => landing(6.3))],
+  ['casing', BOARD_STEP, once(() => casing('rifle'))],
+  ...['body', 'head', 'shield'].map((h) => [`hit ${h}`, BOARD_STEP, once(() => hit(h))]),
+  ['kill', BOARD_STEP, once(() => kill())],
+  ['hurt', BOARD_STEP, once(() => hurt())],
+  ['death', BOARD_STEP * 2, once(() => deathThud())],
+  ['respawn', BOARD_STEP, once(() => respawn())],
+  ...Object.keys(UI_SOUNDS).map((n) => [`ui ${n}`, BOARD_STEP, once(() => ui(n))]),
+  ...Object.keys(PICK_ROOTS).map((k) => [`pick ${k}`, BOARD_STEP, once(() => power(k, 'pick'))]),
+  ...['shunt', 'barge', 'mine', 'nitro', 'shield'].map((k) => [`use ${k}`, BOARD_STEP, once(() => power(k, 'use'))]),
+  ['use shock (others)', BOARD_STEP * 2, once(() => power('shock', 'use', ...near))],
+  ['shock target', BOARD_STEP * 2, (k) => warn('shock', k < 20 ? 1 : 0)],
+  ['shock strikes', BOARD_STEP * 2, (k) => k % 8 === 0 && power('shock', 'boom', 5, 0.3)],
+  ['shunt flies by', BOARD_STEP * 3, (k) => hold('board', 'power.shunt.hiss', distGain(Math.abs(18 - k)), (k - 18) / 18)],
+  ['shunt lock closing', BOARD_STEP * 4, (k) => warn('lock', k < 46 ? beepRate(40 - k) : 0)],
+  ['shunt boom', BOARD_STEP * 2, once(() => power('shunt', 'boom', 8, -0.3))],
+  ['mine arm', BOARD_STEP, once(() => power('mine', 'arm', 2))],
+  ['mine fuse', BOARD_STEP, once(() => power('mine', 'fuse', 2))],
+  ['mine boom', BOARD_STEP * 2, once(() => power('mine', 'boom', 3))],
+  ['shield break', BOARD_STEP, once(() => power('shield', 'break'))],
+  ['fizzle', BOARD_STEP, once(() => power('shunt', 'fizzle', 6))],
+  ['pad hums', BOARD_STEP * 3, (k) => k % 2 === 0 && padHums([{ distance: 1 + k / 10, pan: -0.5 }, { distance: 4, pan: 0.6 }])],
+];
+export const BOARD_SECONDS = BOARD.reduce((s, b) => s + b[1], 0);
+
+// The board at t s from its start; call every BOARD_TICK s.
+export const boardTick = safe((t) => {
+  watchLoops();
+  for (let i = 0, from = 0; i < BOARD.length; from += BOARD[i][1], i++) {
+    if (t < from - 1e-6 || t >= from + BOARD[i][1] - 1e-6) continue;
+    const k = Math.round((t - from) / BOARD_TICK);
+    if (k === 0) console.info(`sfx: ${BOARD[i][0]}`);
+    BOARD[i][2](k);
+  }
+});
+
+function playBoard() {
+  let k = 0;
+  const timer = setInterval(() => {
+    if (k * BOARD_TICK >= BOARD_SECONDS) return clearInterval(timer);
+    boardTick(k++ * BOARD_TICK);
+  }, BOARD_TICK * 1000);
+}

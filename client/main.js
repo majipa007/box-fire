@@ -16,6 +16,8 @@ import { prepareMap } from '../shared/collision.js';
 import { Vector3 } from 'three';
 import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf, hitboxes } from '../shared/weapons.js'; // effects: hitboxes
 import { shotRng } from '../shared/rng.js';
+import { readEntity, PLAYER_FLAGS } from '../shared/protocol.js'; // audio: power-up entities, the Shield flag
+import { padsFor } from '../shared/powerups.js'; // audio: pad hums
 
 const STEP_MS = 1000 / TICK_RATE;
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -69,9 +71,11 @@ const net = connect({
       correct(d);
     }
     powerups.onSnapshot(m); // powerups: pads and entities
+    if (m.pu) powerSounds(m); // audio: Shunt hiss, mines arming, pad hums, our Shield breaking
   },
   event(m) {
     powerups.onEvent(m, myId); // powerups: pickups, uses, blasts
+    powerEvent(m); // audio: pickups, uses, blasts
     if (m.e === 'spawn' && m.id === myId) {
       Object.assign(self, freshLife(m.x, m.y, m.z, m.primary)); // exactly as the server builds it
       self.pending = [];
@@ -91,7 +95,8 @@ const net = connect({
       hitFlash(m.v); // characters: the victim flashes white
       if (m.a === myId) {
         ui.hitMarker(m.head);
-        audio.hitTick(m.head);
+        const shield = m.sh ? !m.dmg : others(performance.now()).find((o) => o.id === m.v)?.flags & PLAYER_FLAGS.BUBBLE; // audio: a hit their Shield took
+        audio.hit(shield ? 'shield' : m.head ? 'head' : 'body'); // audio:
       }
       if (m.v === myId) audio.hurt(); // audio:
       const attacker = m.v === myId && self.mover && others(performance.now()).find((o) => o.id === m.a);
@@ -124,6 +129,7 @@ const net = connect({
 
 ui.onJoin((raw) => {
   audio.start(); // audio: the join is the first user gesture, so lobby sounds work and rendering starts early
+  audio.ambience(true); // audio: the quarry's wind
   const name = cleanName(raw);
   if (!name) return ui.showJoinError('bad-name');
   net.send({ t: 'join', name });
@@ -158,6 +164,7 @@ function fixedStep() {
     ownShot(inp); // along this packet's angles, before the kick moves them
     recoil(weaponOf(self.arsenal));
     audio.gunshot(weaponOf(self.arsenal));
+    audio.casing(weaponOf(self.arsenal)); // audio: the case lands a moment later
   }
   net.send(encodeInput(inp));
 }
@@ -171,6 +178,34 @@ function heard(x, z) {
   const right = dx * Math.cos(yaw) - dz * Math.sin(yaw); // + to our right
   const dist = Math.hypot(dx, dz);
   return [dist, dist > 0.5 ? Math.max(-1, Math.min(1, right / dist)) : 0];
+}
+
+// audio: power-up events as we hear them. The engine's names (pickup,
+// powerup, blast), then the bible's (pick, use, boom); a boom of radius 0 is
+// a fizzle. Our own play at full level.
+function powerEvent(m) {
+  const kind = { pickup: 'pick', pick: 'pick', powerup: 'use', use: 'use', blast: 'boom', boom: 'boom' }[m.e];
+  if (!kind) return;
+  const who = m.id !== undefined && others(performance.now()).find((o) => o.id === m.id);
+  const at = kind === 'boom' ? heard(m.x, m.z) : m.id === myId ? [] : who ? heard(who.x, who.z) : m.x !== undefined ? heard(m.x, m.z) : [];
+  audio.power(m.k, kind === 'boom' && m.r === 0 ? 'fizzle' : kind, ...at);
+}
+
+// audio: once per snapshot: Shunts hiss and mines arm where they are, the
+// two nearest pads that are up hum (a few times a second), and our own
+// Shield breaking pops.
+const hums = [];
+let humTick = 0;
+let shieldWas = 0;
+function powerSounds(m) {
+  audio.entities(m.pu.ents.map(readEntity), heard);
+  if (++humTick % 6 === 0) {
+    hums.length = 0;
+    if (self.mover && self.alive) padsFor(mapId).forEach(([x, , z], i) => { const [distance, pan] = heard(x, z); hums.push({ distance, pan, up: !m.pu.pads[i] }); });
+    audio.padHums(hums);
+  }
+  if (shieldWas > 0 && !(self.shield > 0) && self.alive) audio.power('shield', 'break');
+  shieldWas = self.shield;
 }
 
 // Footsteps: one every 2.2 m on the ground, only when running. Walking and
