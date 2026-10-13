@@ -40,7 +40,8 @@
   .dim { color: var(--dim); }
   /* A slot colour as text: same hue, lifted to at least OKLCH L 0.72 so the
      dark slots (blue, purple, red) still read on a dark panel. */
-  .who, #confirm-name, #death-killer, #leader-name { color: oklch(from var(--c, var(--text)) max(l, 0.72) c h); }
+  .who, #confirm-name, #death-killer, #leader-name { color: var(--c, var(--text)); }
+  @supports (color: oklch(from red l c h)) { .who, #confirm-name, #death-killer, #leader-name { color: oklch(from var(--c, var(--text)) max(l, 0.72) c h); } }
   .error { color: var(--danger); min-height: 1.4em; }
   .eyebrow { font: 700 12px var(--font); letter-spacing: 0.22em; text-transform: uppercase; color: var(--dim); }
   .swatch { width: 12px; height: 12px; flex: none; box-shadow: 0 0 0 1px var(--ink); }
