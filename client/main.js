@@ -412,13 +412,13 @@ function frame(now) {
     if (over || tabHeld) ui.renderScoreboard(lobby.players, myId, over ? { winner, secondsLeft } : null);
   }
   updateEffects(now, render.camera); // effects: the camera, for the casing range and ?debug&fx
-  if (ui.settings.dynres) render.frameTime?.(frameMs); // hud: once render has dynamic resolution
+  if (ui.settings.dynres && !photo) render.frameTime(frameMs); // hud: never in ?cam= stills (SwiftShader frames are all slow)
   render.draw();
   frames++;
   if (debug && now - statsAt > 500) {
     const { calls, triangles } = render.renderer.info.render;
     const pos = me ? [me.x, me.y, me.z].map((v) => v.toFixed(2)).join(', ') : '-';
-    ui.showStats(`${Math.round((frames * 1000) / (now - statsAt))} fps · ${calls} draws · ${triangles} tris · ${pos} · pending ${self.pending.length} · ${feelStats()} · ${audio.stats().voices} voices`); // feel, audio: stats
+    ui.showStats(`${Math.round((frames * 1000) / (now - statsAt))} fps · ${calls} draws · ${triangles} tris · scale ${render.scaleNow()} · ${pos} · pending ${self.pending.length} · ${feelStats()} · ${audio.stats().voices} voices`); // feel, audio: stats
     frames = 0;
     statsAt = now;
   }

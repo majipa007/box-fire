@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { sun, configureRenderer, updateWorld, LIGHTS } from './world.js'; // world:
 import { viewScene, viewCamera, updateViewmodel } from './viewmodel.js';
 import { settings } from './ui.js'; // world: Low has no MSAA (the chain-link falls back to an alpha test)
+import { createDynres } from './dynres.js';
 
 export const renderer = new THREE.WebGLRenderer({ antialias: settings.quality !== 'low' && settings.msaa !== false, powerPreference: 'high-performance' }); // world:
 renderer.info.autoReset = false; // count both passes of a frame (reset in draw)
@@ -14,6 +15,8 @@ camera.rotation.order = 'YXZ';
 
 let hfov = 90; // horizontal degrees; the vertical fov follows the aspect ratio
 let renderScale = 1; // fraction of native resolution
+let userScale = 1; // the setting; dynamic resolution stays at or below it
+const dynres = createDynres();
 let fovKick = 0; // feel: degrees added to hfov (Nitro)
 
 export function init() {
@@ -29,9 +32,19 @@ export function setFov(degrees) {
 }
 
 export function setRenderScale(scale) {
-  renderScale = scale;
+  renderScale = userScale = scale;
   resize();
 }
+
+// Dynamic resolution, fed every frame's length while the setting is on.
+export function frameTime(ms) {
+  const next = dynres(ms, performance.now(), renderScale, userScale, settings.quality === 'low' ? 0.5 : 0.6);
+  if (next === null) return;
+  renderScale = next;
+  resize();
+}
+
+export const scaleNow = () => renderScale; // for ?debug
 
 // Turning shadows on or off recompiles the materials.
 export function setShadows(on) {
