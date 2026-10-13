@@ -5,13 +5,13 @@ import * as render from './render.js';
 import { buildWorld, sun } from './world.js'; // effects: sun, for puffs in shade
 import { charactersGroup, syncPlayers, hitFlash, fireKick, shatter as breakRig } from './characters.js'; // characters: rig events
 import { setGun, gunKick, setSunShade, sunBlocked, muzzleWorld } from './viewmodel.js'; // viewmodel: sun shade, drawn muzzle
-import { effectsGroup, updateEffects, initEffects, shot, muzzle as muzzleFlash, casing, blast, pickupBurst, deathBurst as explode } from './effects.js'; // effects: shots, blasts, pickups, deaths, casings
+import { effectsGroup, updateEffects, initEffects, shot, muzzle as muzzleFlash, casing, deathBurst as explode } from './effects.js'; // effects: shots, deaths, casings
 import { addRecoil, correct, resetFeel, updateFeel, crosshair, spreadPixels, feelStats } from './feel.js'; // feel:
 import * as input from './input.js';
 import * as audio from './audio.js';
 import * as powerups from './powerups.js'; // powerups: pads, entities, HUD
 import { cleanName, encodeInput, byScore } from '../shared/protocol.js';
-import { EYE_STAND, EYE_CROUCH, TICK_RATE, RESPAWN_SECONDS, WALK_SPEED, NEUTRAL_MS, PLAYER_COLORS, POWER_COLORS } from '../shared/constants.js'; // effects: PLAYER_COLORS, POWER_COLORS
+import { EYE_STAND, EYE_CROUCH, TICK_RATE, RESPAWN_SECONDS, WALK_SPEED, NEUTRAL_MS, PLAYER_COLORS } from '../shared/constants.js'; // effects: PLAYER_COLORS
 import { prepareMap } from '../shared/collision.js';
 import { Vector3 } from 'three';
 import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf, hitboxes } from '../shared/weapons.js'; // effects: hitboxes
@@ -102,11 +102,6 @@ const net = connect({
         const { yaw } = input.look;
         ui.damageArc(Math.atan2(dx * Math.cos(yaw) - dz * Math.sin(yaw), -dx * Math.sin(yaw) - dz * Math.cos(yaw)));
       }
-    } else if ((m.e === 'blast' || m.e === 'boom') && !(m.k === 'barge' && m.id === myId)) { // effects: a power-up going off; r 0 is a fizzle; our own Barge was drawn on use
-      blast(m.k, [m.x, m.y, m.z], m.r); // effects:
-    } else if (m.e === 'pickup' || m.e === 'pick') { // effects: a burst at the picker's glyph height
-      const p = m.id === myId ? self.mover : others(performance.now()).find((o) => o.id === m.id); // effects:
-      if (p) pickupBurst([p.x, p.y + 1, p.z], POWER_COLORS[m.k]); // effects:
     } else if (m.e === 'match_end') {
       winner = m.winner === null ? null : nameOf(m.winner);
       audio.ui(m.winner === myId ? 'win' : 'lose'); // audio:
@@ -164,8 +159,6 @@ function fixedStep() {
     recoil(weaponOf(self.arsenal));
     audio.gunshot(weaponOf(self.arsenal));
   }
-  if (inp.power === 'bolt') ownShot(inp, 'bolt'); // effects: our own Bolt, along the aim (set by predict() once power-ups land)
-  else if (inp.power === 'barge') blast('barge', [me.x, me.y, me.z]); // effects: our own Barge ring, at once
   net.send(encodeInput(inp));
 }
 
@@ -206,11 +199,11 @@ function recoil(weapon) {
 // Draw our own tracers at once: the same seeded pellets the server will
 // test, along the packet's angles, ending where each would hit the map or a
 // player we can see.
-function ownShot(inp, power) { // effects: power 'bolt' fires one beam with no spread
+function ownShot(inp) {
   const origin = eyeOf(self.mover);
   const targets = shotTargets(); // effects: in their slot colours
   const muzzle = muzzleWorld(render.camera, ownMuzzle).toArray(); // where the drawn gun's muzzle shows
-  const dirs = power ? [aimDir(inp.yaw, inp.pitch)] : shotDirs(inp.yaw, inp.pitch, weaponOf(self.arsenal), self.mover, shotRng(seed, myId, self.shots)); // effects:
+  const dirs = shotDirs(inp.yaw, inp.pitch, weaponOf(self.arsenal), self.mover, shotRng(seed, myId, self.shots)); // effects: named, for the count
   const ends = []; // audio: world hits only; the host confirms player hits
   const all = []; // effects: every pellet's end
   for (const dir of dirs) {
@@ -219,15 +212,15 @@ function ownShot(inp, power) { // effects: power 'bolt' fires one beam with no s
     all.push(end); // effects:
     if (id === null) ends.push(end);
   }
-  shot({ from: muzzle, eye: origin, ends: all, weapon: power ?? weaponOf(self.arsenal), targets }); // effects: tracers and impacts, capped per shot; our casings are the viewmodel's
+  shot({ from: muzzle, eye: origin, ends: all, weapon: weaponOf(self.arsenal), targets }); // effects: tracers and impacts, capped per shot; our casings are the viewmodel's
   audio.impacts(origin, ends, heard); // audio:
 }
 
 // effects: the living players a shot can hit (never our own body: we look
 // out from inside it), in their slot colours.
 const shotTargets = () => others(performance.now()) // effects:
-  .filter((o) => o.alive && o.id !== myId)
-  .map((o) => ({ ...o, color: PLAYER_COLORS[roster.get(o.id)?.slot] }));
+  .filter((o) => o.alive && o.id !== myId) // effects:
+  .map((o) => ({ ...o, color: PLAYER_COLORS[roster.get(o.id)?.slot] })); // effects:
 
 const ownMuzzle = new Vector3();
 const remoteMuzzle = new Vector3();
