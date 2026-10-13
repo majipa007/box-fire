@@ -18,6 +18,7 @@ import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf, hitboxes } fro
 import { shotRng } from '../shared/rng.js';
 import { readEntity, PLAYER_FLAGS } from '../shared/protocol.js'; // audio: power-up entities, the Shield flag
 import { padsFor } from '../shared/powerups.js'; // audio: pad hums
+import { KEY } from '../shared/movement.js'; // audio: which slot a use takes
 
 const STEP_MS = 1000 / TICK_RATE;
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -160,12 +161,14 @@ function fixedStep() {
   if (!me || !world || !self.alive || lobby.phase !== 'playing') return;
   prev = { x: me.x, y: me.y, z: me.z };
   const inp = { ...input.sample(), rt: renderTick(performance.now()) };
+  const first = self.inv[0], second = self.inv[1], held = self.inv.length; // audio: the slots before this step
   if (predict(inp, world.boxes)) {
     ownShot(inp); // along this packet's angles, before the kick moves them
     recoil(weaponOf(self.arsenal));
     audio.gunshot(weaponOf(self.arsenal));
     audio.casing(weaponOf(self.arsenal)); // audio: the case lands a moment later
   }
+  if (self.inv.length < held) audio.power(inp.keys & KEY.CYCLE && held > 1 ? second : first, 'use'); // audio: our own use, predicted (a cycle first moves the queue on)
   net.send(encodeInput(inp));
 }
 
@@ -182,10 +185,11 @@ function heard(x, z) {
 
 // audio: power-up events as we hear them. The engine's names (pickup,
 // powerup, blast), then the bible's (pick, use, boom); a boom of radius 0 is
-// a fizzle. Our own play at full level.
+// a fizzle. Our own play at full level; our own uses already played when
+// fixedStep predicted them.
 function powerEvent(m) {
   const kind = { pickup: 'pick', pick: 'pick', powerup: 'use', use: 'use', blast: 'boom', boom: 'boom' }[m.e];
-  if (!kind) return;
+  if (!kind || (kind === 'use' && m.id === myId)) return;
   const who = m.id !== undefined && others(performance.now()).find((o) => o.id === m.id);
   const at = kind === 'boom' ? heard(m.x, m.z) : m.id === myId ? [] : who ? heard(who.x, who.z) : m.x !== undefined ? heard(m.x, m.z) : [];
   audio.power(m.k, kind === 'boom' && m.r === 0 ? 'fizzle' : kind, ...at);
