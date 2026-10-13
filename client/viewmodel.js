@@ -31,16 +31,19 @@ export const LOOK = {
     shell: '#b33a2e', brass: '#c9a24e', slot: '#ffffff', // slot boxes take setArmband's colour
   },
   // Surface. Blinn-Phong strength of the sun's highlight per colour key.
-  shine: { metal: 0.5, dark: 0.3, tan: 0.12, kit: 0.08, glove: 0.25, shell: 0.3, brass: 0.9, slot: 0.2 },
-  shininess: 40,
+  shine: { metal: 0.6, dark: 0.12, tan: 0.12, kit: 0.08, glove: 0.25, shell: 0.3, brass: 0.9, slot: 0.2 },
+  shininess: 90, // tight, so flat faces glint at an angle rather than glaze over
   bevel: 0.004, // m: the band along every box edge that catches the light,
   bevelLift: 2, // where the albedo becomes albedo × (1 + lift) + add,
-  bevelAdd: 0.06, // and the highlight doubles
+  bevelAdd: 0.06, // and the highlight doubles;
+  groove: [0.008, 0.0095, 0.55, 0.045], // and a panel line this far in (from, to), darkened to this share, on faces wider than the last
   // The sky light's colours reflected off each face (ground below, sky above),
   // × shine and a Schlick fresnel: metal reads as metal, and every part
   // keeps a rim where it turns away from us.
-  env: 0.2, // reflection gain at full shine
-  rim: 0.06, // fresnel rim on every surface, shine or not
+  env: 0.16, // reflection gain at full shine
+  envFloor: 0.3, // share of it facing us; the rest comes in at grazing angles
+  rim: 0.06, // fresnel rim on every surface, shine or not,
+  sheen: { kit: 0.35, glove: 0.3 }, // and stronger on cloth: dark sleeves and gloves read by their edges
   grain: 0.08, // ± share of the albedo per grain voxel: pixel-art texture with no texture
   grainSize: 0.004, // m
   bottomShade: 0.3, // each box's lower vertices darken by this share: cheap baked AO
@@ -62,7 +65,7 @@ export const LOOK = {
   flash: {
     core: '#ffd27a', edge: '#ff8a3d', frames: 2, jitter: 0.3, // star: crossed additive quads at a random roll
     tongue: [0.6, 1.4], points: 6, rays: 6, coreGain: 1.6, // quads along the barrel, × the flash size; the star mask
-    glow: 0.5, glowColor: '#ff9a4a', glowAlpha: 0.3, glowSeconds: 0.05,
+    glow: 0.5, glowColor: '#ff9a4a', glowAlpha: 0.45, glowSeconds: 0.05,
     pulse: '#ff9a4a', pulseGain: 0.6, pulseSeconds: 0.04, // emissive on the barrel boxes
     hemiBoost: 0.3, // the view's sky light rises this share while the barrel glows
   },
@@ -95,6 +98,7 @@ function rightArm(elbow) {
     box('body', 'glove', [0.105, 0.105, 0.115], [0.006, -0.014, 0.006]), // fist
     box('body', 'glove', [0.028, 0.03, 0.075], [-0.05, 0.042, -0.03]), // thumb along the receiver
     box('body', 'glove', [0.02, 0.02, 0.05], [-0.024, 0.012, -0.068]), // trigger finger
+    ...[0, 1, 2].map((k) => box('body', 'glove', [0.022, 0.024, 0.07], [-0.047, -0.002 - k * 0.027, -0.014 - k * 0.004])), // fingers round the grip
     limb('body', 'slot', [0.12, 0.12], wrist, band), // armband
     limb('body', 'kit', [0.115, 0.115], band, toward(band, elbow, 0.32)), // forearm
   ];
@@ -187,6 +191,7 @@ export const MODELS = {
       box('left', 'glove', [0.105, 0.09, 0.1], [-0.052, -0.026, -0.004]),
       box('left', 'glove', [0.06, 0.045, 0.03], [-0.012, -0.03, -0.058]),
       box('left', 'glove', [0.024, 0.024, 0.06], [-0.036, 0.04, -0.04]),
+      ...[0, 1, 2].map((k) => box('left', 'glove', [0.018, 0.024, 0.07], [-0.106, 0.008 - k * 0.027, -0.012 - k * 0.004])), // fingers
       limb('left', 'slot', [0.12, 0.12], [-0.075, -0.06, 0.035], [-0.09, -0.08, 0.07]),
       limb('left', 'kit', [0.115, 0.115], [-0.09, -0.08, 0.07], [-0.2, -0.24, 0.3]),
       limb('left', 'kit', [0.125, 0.125], [-0.2, -0.24, 0.3], [-0.32, -0.42, 0.5]),
@@ -317,9 +322,9 @@ const vmUniforms = {
 const material = new THREE.MeshPhongMaterial({ vertexColors: true, specular: '#ffffff', shininess: LOOK.shininess });
 material.onBeforeCompile = (s) => {
   Object.assign(s.uniforms, vmUniforms);
-  const decl = 'varying vec4 vEdge;\nvarying vec3 vMat;\nvarying vec3 vGrain;\n';
+  const decl = 'varying vec4 vEdge;\nvarying vec4 vMat;\nvarying vec3 vGrain;\n';
   s.vertexShader = s.vertexShader
-    .replace('#include <common>', `#include <common>\nattribute vec4 edge;\nattribute vec3 mat;\n${decl}`)
+    .replace('#include <common>', `#include <common>\nattribute vec4 edge;\nattribute vec4 mat;\n${decl}`)
     .replace('#include <color_vertex>', `#include <color_vertex>
       vEdge = edge;
       vMat = mat;
@@ -331,7 +336,8 @@ material.onBeforeCompile = (s) => {
       diffuseColor.rgb *= 1.0 + ${f(2 * LOOK.grain)} * ( fract( sin( dot( floor( vGrain ), vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 ) - 0.5 );
       float vmEdge = min( min( vEdge.x, vEdge.z - vEdge.x ), min( vEdge.y, vEdge.w - vEdge.y ) );
       float vmBevel = 1.0 - smoothstep( ${f(LOOK.bevel * 0.5)}, ${f(LOOK.bevel)}, vmEdge );
-      diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * ${f(1 + LOOK.bevelLift)} + ${f(LOOK.bevelAdd)}, vmBevel );`)
+      diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * ${f(1 + LOOK.bevelLift)} + ${f(LOOK.bevelAdd)}, vmBevel );
+      if ( min( vEdge.z, vEdge.w ) > ${f(LOOK.groove[3])} && vmEdge > ${f(LOOK.groove[0])} && vmEdge < ${f(LOOK.groove[1])} ) diffuseColor.rgb *= ${f(LOOK.groove[2])};`)
     .replace('#include <specularmap_fragment>', 'float specularStrength = vMat.x * ( 1.0 + vmBevel );')
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       totalEmissiveRadiance += diffuseColor.rgb * ${f(LOOK.lift)} + vmPulse * vMat.y;
@@ -340,7 +346,7 @@ material.onBeforeCompile = (s) => {
         float vmF = pow( 1.0 - saturate( dot( normal, vmV ) ), 5.0 );
         float vmUp = dot( reflect( - vmV, normal ), hemisphereLights[ 0 ].direction ) * 0.5 + 0.5;
         vec3 vmEnv = mix( hemisphereLights[ 0 ].groundColor, hemisphereLights[ 0 ].skyColor, vmUp );
-        totalEmissiveRadiance += vmEnv * ( ${f(LOOK.env)} * vMat.x * mix( 0.3, 1.0, vmF ) * ( 1.0 + vmBevel ) + ${f(LOOK.rim)} * vmF );
+        totalEmissiveRadiance += vmEnv * ( ${f(LOOK.env)} * vMat.x * mix( ${f(LOOK.envFloor)}, 1.0, vmF ) * ( 1.0 + vmBevel ) + vMat.w * vmF );
       #endif`);
 };
 
@@ -348,7 +354,7 @@ const BONES = ['body', 'part', 'left', 'slide', 'shell'];
 const Z = new THREE.Vector3(0, 0, 1);
 
 // One box: its colour (lower half shaded), the face-local edge distances
-// (u·w, v·h, w, h) the bevel needs, its surface (shine, hot, slot) and its bone.
+// (u·w, v·h, w, h) the bevel needs, its surface (shine, hot, slot, rim) and its bone.
 function boxGeometry(b) {
   const dir = b.from && new THREE.Vector3(...b.to).sub(new THREE.Vector3(...b.from));
   const [w, h, d] = [b.size[0], b.size[1], dir ? dir.length() : b.size[2]];
@@ -358,7 +364,7 @@ function boxGeometry(b) {
   const n = g.attributes.position.count;
   const color = new Float32Array(n * 3);
   const edge = new Float32Array(n * 4);
-  const mat = new Float32Array(n * 3);
+  const mat = new Float32Array(n * 4);
   const skinIndex = new Uint16Array(n * 4);
   const skinWeight = new Float32Array(n * 4);
   const uv = g.attributes.uv;
@@ -367,14 +373,14 @@ function boxGeometry(b) {
     color.set([c.r * k, c.g * k, c.b * k], i * 3);
     const [fu, fv] = faces[i >> 2];
     edge.set([uv.getX(i) * fu, uv.getY(i) * fv, fu, fv], i * 4);
-    mat.set([LOOK.shine[b.color], b.hot ? 1 : 0, b.color === 'slot' ? 1 : 0], i * 3);
+    mat.set([LOOK.shine[b.color], b.hot ? 1 : 0, b.color === 'slot' ? 1 : 0, LOOK.sheen[b.color] ?? LOOK.rim], i * 4);
     skinIndex[i * 4] = BONES.indexOf(b.part);
     skinWeight[i * 4] = 1;
   }
   g.deleteAttribute('uv');
   g.setAttribute('color', new THREE.BufferAttribute(color, 3));
   g.setAttribute('edge', new THREE.BufferAttribute(edge, 4));
-  g.setAttribute('mat', new THREE.BufferAttribute(mat, 3));
+  g.setAttribute('mat', new THREE.BufferAttribute(mat, 4));
   g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));
   g.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeight, 4));
   if (dir) {
@@ -451,7 +457,7 @@ const flashMesh = new THREE.Mesh(
         if ( vLayer < 0.5 ) {
           float m = ${f(LOOK.flash.coreGain)} * k * k * k + pow( abs( cos( atan( vUv.x, vUv.y ) * ${f(LOOK.flash.points / 2)} ) ), ${f(LOOK.flash.rays)} ) * k * k;
           c = mix( edge, core, clamp( m * 1.5 - 0.3, 0.0, 1.0 ) );
-          a = star * min( 1.0, m );
+          a = star * min( 1.0, 1.6 * m );
         }
         gl_FragColor = vec4( c, a );
         #include <colorspace_fragment>
