@@ -1,7 +1,8 @@
 // First-person arms and gun (bible §3.2). Each weapon is a few dozen boxes
 // from the data below, merged into one skinned, vertex-coloured mesh: one
 // draw for the gun and both arms, with bones for what moves on its own (the
-// magazine or pump, the left hand, the pistol's slide, a shell in the hand).
+// magazine or pump, the left hand, the pistol's slide, what the hand brings
+// in, and the two forearms, which bend at the wrist).
 // Springs move it with the mouse, strafing and recoil; footsteps, landings,
 // reloads, pumps and switches follow the mover and the arsenal's own timers,
 // so prediction, cancels and corrections need nothing extra. It has its own
@@ -121,12 +122,12 @@ function rightArm(elbow, wrist = [0.012, -0.04, 0.055]) {
 
 // The left hand under a handguard or pump whose centre line is at `at`; the
 // upper arm carries the sleeve off the bottom of the screen.
-function leftArm(at, elbow, part = 'left') {
+function leftArm(at, elbow) {
   const wrist = add(at, [-0.03, -0.085, 0.06]);
   const fore = toward(wrist, elbow, 0.36);
   return [
-    box(part, 'glove', [0.105, 0.105, 0.115], add(at, [-0.016, -0.062, 0.004])), // palm and fingers under
-    box(part, 'glove', [0.026, 0.026, 0.07], add(at, [-0.04, 0.012, -0.016])), // thumb along the near side
+    box('left', 'glove', [0.105, 0.105, 0.115], add(at, [-0.016, -0.062, 0.004])), // palm and fingers under
+    box('left', 'glove', [0.026, 0.026, 0.07], add(at, [-0.04, 0.012, -0.016])), // thumb along the near side
     ...sleeve('lfore', wrist, elbow),
     limb('lfore', 'kit', [0.125, 0.125], fore, toward(fore, elbow, 0.3)),
   ];
@@ -756,7 +757,8 @@ const toParent = new THREE.Quaternion();
 const toCamera = new THREE.Matrix4();
 function aimForearms(arms) {
   pose.updateMatrix();
-  for (const { bone, dir, elbow } of arms) {
+  for (let i = 0; i < arms.length; i++) {
+    const { bone, dir, elbow } = arms[i];
     const parent = bone.parent; // body (fixed in the mesh) or the left hand
     parent.updateMatrix();
     toCamera.multiplyMatrices(pose.matrix, parent.matrix);
