@@ -59,7 +59,7 @@ const rules = (w) => `Ground rules:
   - The bible's API sections and its descriptions of "today's" code were drafted against an older code base, before the engine wave. Where they differ from current main, current main wins for compatibility: keep every export that main.js and the other modules use working, or update the caller with a marked edit. Implement the bible's features and numbers on top.
   - Screenshots: use 960x540 while iterating; 1280x720 is fine for the final acceptance stills.
 - main already holds an engine for every workstream, merged from an earlier wave that worked from a draft. Bring yours to the bible's spec (its look, numbers and missing features) and keep what already meets it; do not rewrite for the sake of it.
-- Commit early and often, with the checks passing: this machine rebooted mid-run once and every uncommitted change was lost.
+- Commit early and often, with the checks passing: this machine has rebooted mid-run twice, and every uncommitted change was lost the first time.
 - Scratch files (debug scripts, steps files, notes) go under ${W}/tmp/${w.name}/ only, never in the repo, the harness or another worktree. Pass steps files to smoke.mjs by absolute path.
 - Known open items for your workstream, from the last integration: ${(args.open[w.name] || ['none']).join(' | ')}
 - Every check must pass before each commit: REPO=${W}/ws/${w.name} PORT=${w.port} ${H}/all.sh (syntax, npm test, the in-process server checks and the live netcode checks). Add tests for new shared logic. Never break the game: it must still start, join, play and shoot.
@@ -77,6 +77,18 @@ const buildPrompt = (w) => `You are the builder for the "${w.name}" workstream o
 ${rules(w)}
 
 First read ${BIBLE} in full: the vision, then your workstream's section, then the integration checklist. Then read the code you own, plus the code around it. Then build your workstream to the bible's spec and acceptance criteria. Finish with tests, screenshots and a commit, and return the structured summary.`
+
+// Set when relaunching after an interrupted run: { transcripts: dir, ids: { name: agentId }, notes: { name: text } }
+const R = args.resume
+const resumePrompt = (w) => `You are the builder for the "${w.name}" workstream of the Boxfire visual, feel and power-up overhaul. Boxfire is a browser LAN FPS built on three.js r186, a Node.js server and shared deterministic simulation code.
+You take over from a builder whose run was cut off mid-Build when the machine rebooted. Pick up where it stopped; do not start over.
+${rules(w)}
+
+1. See what it did: git -C ${W}/ws/${w.name} log --oneline main..HEAD, then git -C ${W}/ws/${w.name} diff for its uncommitted edits (also saved, if any, as ${W}/tmp/${w.name}/pre-reboot.patch). They were never checked: finish them or deliberately discard them, then commit with the checks passing.
+2. Its last notes: ${R?.notes[w.name] || 'none'}
+3. Its full transcript, if you need more context: ${R?.transcripts}/agent-${R?.ids[w.name]}.jsonl. It is JSON lines and long: read only the tail (tail -n 60 FILE | cut -c1-1500).
+4. The known open items above were written before its commits, and some may already be done: check each against the code instead of redoing it.
+Then read what you need of ${BIBLE} (the vision, your workstream's section, the integration checklist) and finish the workstream to the bible's spec and acceptance criteria. Finish with tests, screenshots and a commit, and return the structured summary.`
 
 const critiquePrompt = (w, summary) => `You are an adversarial critic reviewing the "${w.name}" workstream of the Boxfire overhaul. Default to finding problems: your job is to stop anything mediocre, broken, slow or off-spec from merging.
 The spec is ${BIBLE}: read the vision and the "${w.name}" section. The work is on branch ws/${w.name} in the worktree ${W}/ws/${w.name}. See it with: git -C ${W}/ws/${w.name} diff main...HEAD
@@ -109,7 +121,7 @@ Fix every must_fix item. If one is wrong, say why with evidence instead. Take th
 
 const results = await pipeline(
   args.workstreams,
-  (w) => agent(buildPrompt(w), { label: `build:${w.name}`, phase: 'Build', schema: SUMMARY_SCHEMA }),
+  (w) => agent(R ? resumePrompt(w) : buildPrompt(w), { label: `build:${w.name}`, phase: 'Build', schema: SUMMARY_SCHEMA }),
   (summary, w) => agent(critiquePrompt(w, summary), { label: `critique:${w.name}`, phase: 'Critique', schema: CRITIQUE_SCHEMA })
     .then((critique) => ({ summary, critique })),
   ({ summary, critique }, w) => {
