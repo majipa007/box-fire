@@ -4,7 +4,9 @@
 
 **Blocked by:** 15
 
-**Status:** needs-decision — how is the map chosen? Either the host picks it in the lobby, or it rotates each match.
+**Status:** ready-for-agent, after the art pass lands (the world workstream is reshaping the arena). Decided on 13/10/2026: players vote for the map in the lobby and on the scoreboard. See the plan, after the v1 map paragraph.
 
-- [ ] Decision recorded in the plan.
-- [ ] The second map is playable end to end.
+- [x] Decision recorded in the plan.
+- [ ] Lobby and scoreboard show a card per map with live vote tallies; a player can change their vote.
+- [ ] The winner follows the plan's rules: most votes, then the host's pick, then list order, and no votes keeps the current map.
+- [ ] The second map is playable end to end, including a late joiner and a rejoin by name mid-match.
