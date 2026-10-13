@@ -22,8 +22,11 @@ const D = Math.PI / 180;
 const LOOK = {
   paints: { kit: '#24272d', boot: '#1b1d22', glove: '#3a3d44', pack: '#c7b48e', gun: '#2e3136' },
   lift: 0.35, // self-lit share of the albedo, so slot hues hold in shade
+  // Bevels: every box's edges lighten (albedo × gain + add) over `width` m, so dark kit, gloves and
+  // gun read as separate parts up close; they fade out between `fade` m, where the outline takes over.
+  bevel: { width: [0.006, 0.016], gain: 1.6, add: 0.035, fade: [8, 20] },
   outline: { color: '#15171c', min: 0.03, perMetre: 0.0021 }, // per side: ~2 px at 1080p and 90° hfov
-  blob: { radius: 0.42, darkness: 0.38, lift: 0.015 }, // shrinks by 1 / (1 + height above the ground)
+  blob: { radius: 0.42, darkness: 0.38, core: 0.4, lift: 0.015 }, // full darkness out to `core` × radius; shrinks by 1 / (1 + height above the ground)
   // Motion. Swing amounts are at run speed and scale with ground speed / RUN_SPEED.
   step: 2.2, // m per step, like the footstep sound: the stride phase moves π per step
   thigh: 32 * D, thighSide: 20 * D, knee: 45 * D, // swing either side, strafing swing, knee fold on the back-swing
@@ -43,7 +46,7 @@ const LOOK = {
   protect: { hz: 5, white: 0.25 },
   sunFallback: { heights: [0.4, 1.0, 1.6], min: 0.62, halflife: 150 }, // shadows off: lit share from 3 rays to the sun
   bubble: { radius: 1.1, y: 0.95, yCrouch: 0.65, color: '#66fff0', alpha: [0.08, 0.6] },
-  ribbon: { width: 0.35, ms: 600, alpha: 0.7, fringe: '#15171c', fringeAlpha: 0.45, height: 0.14, sampleMs: 30 },
+  ribbon: { width: 0.35, ms: 600, alpha: 0.7, fringe: '#15171c', fringeAlpha: 0.45, height: 0.18, apart: 0.12, sampleMs: 30 }, // along the path, `apart` either side, `height` up
   sparks: { count: 6, size: 0.04, color: '#ffb300', hops: 7 }, // hops per second from part to part
   tags: { range: 12, cone: 4 * D, lift: 0.28, fadeMs: 120 },
   shatter: { voxel: 0.15, hideMs: 1000 },
@@ -117,12 +120,15 @@ const SMOOTH_VELOCITY = 0.08; // s to ~63% of a change
 const SMOOTH_AIR = 0.05;
 
 // ?debug&lineup[=shade|fx] replaces the players with the 10 slot rigs in a
-// row 0.9 m apart, dropping 30 HP every second to show the hit flash.
-// sun: z 3, x −4.05…4.05, facing +z. shade: x 9.6, z 5…13.1, facing +x
-// (in the lane wall's shadow). fx: the sun row with Shield, slowed and Nitro.
-// Cameras (?debug&lineup&cam=x,y,z,yaw,pitch):
+// row 0.9 m apart, all dropping 30 HP at each whole second (3 seconds in 4)
+// to show the hit flash (not in fx). sun: z 3, x −4.05…4.05, facing +z. shade: x 8.9,
+// z 4…12.1, facing +x: the bible's x 9.6, z 5…13.1 leaves heads and the far
+// end in sun, under main's sun and the bible's alike. fx: the sun row with
+// Shield (Red, Blue, Cyan, Pink), slowed (Green, Orange, Magenta) and Nitro
+// (Yellow, Purple, Lime, circling 2 m in front of the row).
+// Cameras (?debug&lineup&cam=x,y,z,yaw,pitch; the far ones look over a wall):
 //   sun   10 m: 0,1.6,13,0,-0.03   25 m: 0,8,28,0,-0.27   35 m: 0,11,38,0,-0.29
-//   shade 10 m: 19.6,1.6,9.05,1.5708,-0.03   25 m: 34.6,11,9.05,1.5708,-0.4   35 m: 44.6,15,9.05,1.5708,-0.4
+//   shade 10 m: 18.9,1.6,8.05,1.5708,-0.03   25 m: 33.9,11,8.05,1.5708,-0.4   35 m: 43.9,15,8.05,1.5708,-0.4
 const params = new URLSearchParams(globalThis.location?.search ?? '');
 const LINEUP = params.has('debug') && params.has('lineup') ? params.get('lineup') || 'sun' : null;
 
@@ -157,16 +163,33 @@ const SPARK_PARTS = ['torso', 'pack', 'helmet', 'thighL', 'thighR', 'shinL', 'sh
 
 const cube = new THREE.BoxGeometry(1, 1, 1);
 const bodyMaterial = new THREE.MeshLambertMaterial({ fog: false });
-// The character lift: a share of the albedo is self-lit, so slot hues read in shade.
+// The character lift (a share of the albedo is self-lit, so slot hues read in
+// shade) and the bevels. The unit cube's local position and the instance's
+// scale give each fragment its distance in metres to the nearest box edge.
+const glsl = (n) => n.toFixed(4);
 bodyMaterial.onBeforeCompile = (shader) => {
-  shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>\n\ttotalEmissiveRadiance += diffuseColor.rgb * ${LOOK.lift.toFixed(3)};`);
+  const { bevel } = LOOK;
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vBox;\nvarying vec3 vSize;')
+    .replace('#include <begin_vertex>', `#include <begin_vertex>
+      vBox = position;
+      vSize = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));`);
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vBox;\nvarying vec3 vSize;')
+    .replace('#include <color_fragment>', `#include <color_fragment>
+      vec3 q = (0.5 - abs(vBox)) * vSize; // to each pair of faces; the smallest is this face's own
+      float edge = q.x + q.y + q.z - min(q.x, min(q.y, q.z)) - max(q.x, max(q.y, q.z));
+      float bevel = (1.0 - smoothstep(${glsl(bevel.width[0])}, ${glsl(bevel.width[1])}, edge))
+        * (1.0 - smoothstep(${glsl(bevel.fade[0])}, ${glsl(bevel.fade[1])}, -vViewPosition.z));
+      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * ${glsl(bevel.gain)} + ${glsl(bevel.add)}, bevel);
+      totalEmissiveRadiance += diffuseColor.rgb * ${glsl(LOOK.lift)};`);
 };
 bodyMaterial.customProgramCacheKey = () => 'boxfire-character-lift';
 const body = new THREE.InstancedMesh(cube, bodyMaterial, RIGS * LIT_PER_RIG);
 const hull = new THREE.InstancedMesh(cube, new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: false }), RIGS * HULL_PER_RIG);
 const unlit = new THREE.InstancedMesh(cube, new THREE.MeshBasicMaterial({ fog: false, toneMapped: false }), RIGS * UNLIT_PER_RIG);
 // Blob shadows darken what is under them: dst × (1 − colour × alpha), so each
-// instance's colour is its darkness and overlaps need no sorting.
+// instance's colour is its darkness (in display terms) and overlaps need no sorting.
 const blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({
   map: blobTexture(), transparent: true, depthWrite: false, blending: THREE.SubtractiveBlending, premultipliedAlpha: true,
   toneMapped: false, fog: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4,
@@ -238,6 +261,10 @@ for (const mesh of [...INSTANCED, ribbons]) {
   mesh.castShadow = false;
 }
 ribbonGeometry.setDrawRange(0, 0);
+// After any other blended pass at the default order (a blended floor would otherwise paint
+// over the blobs and ribbons): blobs and ribbons, then the bubbles over everything.
+blobs.renderOrder = ribbons.renderOrder = 2;
+bubbles.renderOrder = 3;
 body.receiveShadow = true; // world shadows fall on players; players never cast into the (static) shadow map
 charactersGroup.add(body, hull, unlit, blobs, bubbles, ribbons);
 
@@ -733,7 +760,8 @@ function drawBlob(rig, p) {
   const k = 1 / (1 + Math.max(0, height));
   const size = 2 * LOOK.blob.radius * k;
   blobs.setMatrixAt(nblob, _s.makeScale(size, 1, size).setPosition(p.x, rig.ground + LOOK.blob.lift, p.z));
-  blobs.setColorAt(nblob++, _c.setScalar(LOOK.blob.darkness * k));
+  const dark = LOOK.blob.darkness * k;
+  blobs.setColorAt(nblob++, _c.setRGB(dark, dark, dark, THREE.SRGBColorSpace)); // the output encoding brings it back to `dark`
 }
 
 function drawBubble(rig, p) {
@@ -741,7 +769,10 @@ function drawBubble(rig, p) {
   bubbles.setMatrixAt(nbubble++, _s.makeScale(r, r, r).setPosition(p.x, p.y + lerp(LOOK.bubble.y, LOOK.bubble.yCrouch, rig.c), p.z));
 }
 
-// Nitro: record where the boots have been, and draw a ribbon behind each.
+// Nitro: record the path under each boot (the hip line, so the stride's
+// swing doesn't zig-zag it) and draw a ribbon along each.
+const bootX = (p, s) => p.x + (s ? 1 : -1) * LOOK.ribbon.apart * Math.cos(p.yaw);
+const bootZ = (p, s) => p.z - (s ? 1 : -1) * LOOK.ribbon.apart * Math.sin(p.yaw);
 function drawRibbons(rig, p, now, camera) {
   const { ms, sampleMs, width, height } = LOOK.ribbon;
   if (p.nitro && now - rig.trailAt >= sampleMs) {
@@ -749,11 +780,10 @@ function drawRibbons(rig, p, now, camera) {
     rig.trailHead = (rig.trailHead + 1) % HISTORY;
     rig.trailAt = now;
     for (let s = 0; s < 2; s++) {
-      const e = bones[B.footL + 3 * s].elements;
       const at = rig.trailHead * 4;
-      rig.trail[s][at] = e[12];
-      rig.trail[s][at + 1] = e[13] + height;
-      rig.trail[s][at + 2] = e[14];
+      rig.trail[s][at] = bootX(p, s);
+      rig.trail[s][at + 1] = rig.ground > -Infinity ? rig.ground + height : p.y + height;
+      rig.trail[s][at + 2] = bootZ(p, s);
       rig.trail[s][at + 3] = now;
     }
   }
@@ -762,10 +792,7 @@ function drawRibbons(rig, p, now, camera) {
     const trail = rig.trail[s];
     const base = nribbon * POINTS;
     let n = 0;
-    if (p.nitro) {
-      const e = bones[B.footL + 3 * s].elements;
-      n = ribbonPoint(base, n, e[12], e[13] + height, e[14], 0, rig.colors[1]);
-    }
+    if (p.nitro) n = ribbonPoint(base, n, bootX(p, s), (rig.ground > -Infinity ? rig.ground : p.y) + height, bootZ(p, s), 0, rig.colors[1]);
     for (let k = 0; k < HISTORY; k++) {
       const at = ((rig.trailHead - k + HISTORY) % HISTORY) * 4;
       const age = (now - trail[at + 3]) / ms;
@@ -774,6 +801,7 @@ function drawRibbons(rig, p, now, camera) {
     }
     if (n < 2) continue;
     for (let k = n; k < POINTS; k++) copyPoint(base + n - 1, base + k); // unused points collapse onto the last
+    _pole.set(0, 0, 0); // the previous point's side, so the strip never twists where the path doubles back
     for (let k = 0; k < n; k++) sidePoint(base, k, n, width / 2);
     nribbon++;
   }
@@ -814,6 +842,8 @@ function sidePoint(base, k, n, half) {
   _x.crossVectors(_t, _d);
   if (_x.lengthSq() < 1e-10) _x.set(0, 1, 0);
   _x.normalize().multiplyScalar(half);
+  if (_x.dot(_pole) < 0) _x.negate();
+  _pole.copy(_x);
   ribbonPos[v] -= _x.x;
   ribbonPos[v + 1] -= _x.y;
   ribbonPos[v + 2] -= _x.z;
@@ -841,7 +871,7 @@ function blobTexture() {
   const data = new Uint8Array(n * n * 4).fill(255);
   for (let y = 0; y < n; y++) {
     for (let x = 0; x < n; x++) {
-      const a = Math.max(0, 1 - Math.hypot(x + 0.5 - n / 2, y + 0.5 - n / 2) / (n / 2));
+      const a = Math.min(1, Math.max(0, 1 - Math.hypot(x + 0.5 - n / 2, y + 0.5 - n / 2) / (n / 2)) / (1 - LOOK.blob.core)); // (runs before clamp exists)
       data[(y * n + x) * 4 + 3] = 255 * a * a * (3 - 2 * a);
     }
   }
@@ -858,7 +888,7 @@ function lineup(now) {
   if (!fakes) {
     const shade = LINEUP === 'shade';
     const list = NAMES.map((name, i) => ({
-      id: 1001 + i, x: shade ? 9.6 : -4.05 + 0.9 * i, y: 0, z: shade ? 5 + 0.9 * i : 3, yaw: shade ? -Math.PI / 2 : Math.PI, pitch: 0,
+      id: 1001 + i, x: shade ? 8.9 : -4.05 + 0.9 * i, y: 0, z: shade ? 4 + 0.9 * i : 3, yaw: shade ? -Math.PI / 2 : Math.PI, pitch: 0,
       crouch: false, alive: true, shielded: false, hp: 100, weapon: ['rifle', 'pistol', 'shotgun'][i % 3],
       bubble: false, nitro: false, slowed: false,
     }));
@@ -866,15 +896,17 @@ function lineup(now) {
   }
   const t = now / 1000;
   fakes.list.forEach((p, i) => {
-    p.hp = 100 - 30 * (Math.floor(t + i * 0.1) % 4);
-    if (LINEUP !== 'fx') return;
+    if (LINEUP !== 'fx') {
+      p.hp = 100 - 30 * (Math.floor(t) % 4);
+      return;
+    }
     p.bubble = i % 3 === 0;
     p.slowed = i % 3 === 1;
     p.nitro = i % 3 === 2;
-    if (p.nitro) {
-      p.z = 5;
-      p.x = fakes.x[i] + 1.2 * Math.sin(4 * t);
-      p.yaw = Math.cos(4 * t) > 0 ? -Math.PI / 2 : Math.PI / 2;
+    if (p.nitro) { // circling 1 m round a point 2 m in front of the row, at 5 m/s
+      p.x = fakes.x[i] + Math.cos(5 * t);
+      p.z = 5 + Math.sin(5 * t);
+      p.yaw = Math.PI - 5 * t;
     }
   });
   return fakes;
