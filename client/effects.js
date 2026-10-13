@@ -562,6 +562,8 @@ attribute vec4 aB;
 attribute vec4 aC;
 attribute vec4 aD;
 uniform vec2 uNearFade;
+uniform float uHalfHeight;
+uniform float uMinPixels;
 varying vec2 vUv;
 varying vec4 vColor;
 varying vec4 vParam;
@@ -580,10 +582,12 @@ void main() {
     float l = length(side);
     side = l > 0.0 ? side / l : vec3(0.0);
     float dist = length(p - cameraPosition);
-    float w = aA.w + aB.w * dist + 2.0 * aD.y;
+    float w = aA.w + aB.w * dist;
+    float minW = uMinPixels * max(-(viewMatrix * vec4(p, 1.0)).z, 0.01) / (projectionMatrix[1][1] * uHalfHeight);
+    vColor.a *= min(1.0, w / minW) * smoothstep(uNearFade.x, uNearFade.y, dist); // thinner than a pixel and a half: wider, fainter, never broken up
+    w = max(w, minW) + 2.0 * aD.y;
     p += side * position.y * w * 0.5;
     vMetres = vec2(position.x * length(b - a), w);
-    vColor.a *= smoothstep(uNearFade.x, uNearFade.y, dist);
   } else if (style == 2) {
     float r = aA.w;
     p = aA.xyz + vec3((position.x * 2.0 - 1.0) * r, 0.0, position.y * r);
@@ -669,6 +673,8 @@ const streakGeometry = quadGeometry(POOLS.streaks);
 const streaks = new THREE.Mesh(streakGeometry, new THREE.ShaderMaterial({
   uniforms: {
     uNearFade: nearFade,
+    uHalfHeight: halfHeight,
+    uMinPixels: { value: 1.5 },
     uTracerCore: { value: new THREE.Color(LOOK.tracer.core) },
     uTracerFringe: { value: new THREE.Color(LOOK.tracer.fringe) },
     uBeamCore: { value: new THREE.Color(LOOK.bolt.core) },
@@ -683,6 +689,7 @@ const streaks = new THREE.Mesh(streakGeometry, new THREE.ShaderMaterial({
 }));
 streaks.frustumCulled = false;
 streaks.renderOrder = 1;
+streaks.onBeforeRender = trackViewport;
 // Per streak on the CPU. p: start or centre; d: unit direction, or a band's
 // [cos, 0, sin] of its middle angle, or a puff's drift; len: a tracer's or
 // beam's length, a ring's or band's final radius, a puff's burning share of
@@ -1424,7 +1431,7 @@ function debugLoop(dt) {
     const from = _p.copy(cam.pos).addScaledVector(right, -2.5).addScaledVector(cam.fwd, 1.5).toArray();
     from[1] -= 0.3;
     if (n % 4 === 3) { // a miss into the sky, across the view
-      _v.copy(cam.fwd).addScaledVector(right, 0.5).add(_u.set(0, 0.25, 0)).normalize();
+      _v.copy(cam.fwd).multiplyScalar(0.8).addScaledVector(right, 0.9).add(_u.set(0, 0.3, 0)).normalize();
       shot({ from, ends: [from.map((o, a) => o + _v.getComponent(a) * SHOT_RANGE)], weapon: 'rifle' });
     }
     const target = boxes[debug.targets[['concrete', 'wood', 'steel'][n % 4]]];
