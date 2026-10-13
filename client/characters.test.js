@@ -281,5 +281,5 @@ test('ten players with every power-up effect: 6 draws and at most 10k triangles'
     assert.equal(m.frustumCulled, false);
   }
   assert.ok(meshes.every((m) => m.visible), 'every effect drawn');
-  assert.ok(triangles <= 10500, `${triangles} triangles`);
+  assert.ok(triangles <= 10000, `${triangles} triangles`);
 });
