@@ -40,17 +40,17 @@ export const LOOK = {
   bevel: 0.004, // m: the band along every box edge that catches the light,
   bevelLift: 2, // where the albedo becomes albedo × (1 + lift) + add,
   bevelAdd: 0.06, // and the highlight doubles;
-  bevelCatch: 0.3, // share of that kept on downward faces; upward faces catch the sky in full
+  bevelCatch: 0.1, // share of that kept on an edge facing down; one facing up catches the sky in full
   groove: [0.008, 0.0095, 0.55, 0.045], // and a panel line this far in (from, to), darkened to this share, on faces wider than the last
   // The sky light's colours reflected off each face (ground below, sky above),
   // × shine and a Schlick fresnel: metal reads as metal, and every part
   // keeps a rim where it turns away from us.
-  env: 0.16, // reflection gain at full shine
+  env: 0.28, // reflection gain at full shine
   envFloor: 0.3, // share of it facing us; the rest comes in at grazing angles
   rim: 0.06, // fresnel rim on every surface, shine or not,
   sheen: { kit: 0.35, glove: 0.3 }, // and stronger on cloth: dark sleeves and gloves read by their edges
   grain: 0.08, // ± share of the albedo per grain voxel: pixel-art texture with no texture,
-  grainAbs: 0.005, // plus ± this much linear albedo, so near-black keys show it too
+  grainAbs: 0.008, // plus ± this much linear albedo, so near-black keys show it too
   grainSize: 0.004, // m
   bottomShade: 0.3, // each box's lower vertices darken by this share: cheap baked AO
   lift: 0.25, // share of the albedo added unlit, so dark kit keeps its shape in shade
@@ -69,7 +69,7 @@ export const LOOK = {
   cast: { dip: 0.04, roll: 4 * DEG, seconds: 0.12 }, // using a power-up
   actionHalflife: 0.045, // reload and pump poses; also smooths cancels
   flash: {
-    core: '#ffd27a', edge: '#ff8a3d', frames: 2, jitter: 0.3, // star: crossed additive quads at a random roll
+    core: '#ffd27a', edge: '#ff8a3d', frames: 2, // star: crossed additive quads at a random roll
     tongue: [0.6, 1.4], points: 6, rays: 6, coreGain: 1.6, // quads along the barrel, × the flash size; the star mask
     glow: 0.5, glowColor: '#ff9a4a', glowAlpha: 0.45, glowSeconds: 0.05,
     pulse: '#ff9a4a', pulseGain: 0.6, pulseSeconds: 0.04, // emissive on the barrel boxes
@@ -168,7 +168,7 @@ export const MODELS = {
       box('body', 'metal', [0.04, 0.012, 0.03], [0, 0.121, 0.11]), // charging handle
       box('body', 'slot', [0.062, 0.01, 0.08], [0, 0.1, -0.17]), // slot stripe
       box('body', 'metal', [0.064, 0.03, 0.08], [0, 0.03, -0.15]), // magazine well
-      box('body', 'dark', [0.034, 0.09, 0.05], [0, -0.005, 0.01], [-15 * DEG, 0, 0]), // grip
+      box('body', 'dark', [0.035, 0.09, 0.05], [0, -0.005, 0.01], [-15 * DEG, 0, 0]), // grip
       box('body', 'dark', [0.01, 0.01, 0.07], [0, 0, -0.065]), // trigger guard
       box('body', 'tan', [0.055, 0.06, 0.22], [0, 0.075, -0.36]), // handguard
       box('body', 'dark', [0.03, 0.01, 0.2], [0, 0.11, -0.36]), // handguard rail
@@ -354,13 +354,14 @@ const vmUniforms = {
 const material = new THREE.MeshPhongMaterial({ vertexColors: true, specular: '#ffffff' });
 material.onBeforeCompile = (s) => {
   Object.assign(s.uniforms, vmUniforms);
-  const decl = 'varying vec4 vEdge;\nvarying vec4 vMat;\nvarying vec3 vGrain;\nvarying float vGloss;\n';
+  const decl = 'varying vec4 vEdge;\nvarying vec4 vMat;\nvarying vec3 vGrain;\nvarying float vGloss;\nvarying vec4 vEdgeUp;\n';
   s.vertexShader = s.vertexShader
-    .replace('#include <common>', `#include <common>\nattribute vec4 edge;\nattribute vec4 mat;\nattribute float gloss;\n${decl}`)
+    .replace('#include <common>', `#include <common>\nattribute vec4 edge;\nattribute vec4 mat;\nattribute float gloss;\nattribute vec4 edgeUp;\n${decl}`)
     .replace('#include <color_vertex>', `#include <color_vertex>
       vEdge = edge;
       vMat = mat;
       vGloss = gloss;
+      vEdgeUp = edgeUp;
       vGrain = ( position - normal * 0.001 ) / ${f(LOOK.grainSize)};`);
   s.fragmentShader = s.fragmentShader
     .replace('#include <common>', `#include <common>\nuniform vec3 vmSlot;\nuniform vec3 vmPulse;\n${decl}`)
@@ -368,11 +369,12 @@ material.onBeforeCompile = (s) => {
       diffuseColor.rgb *= mix( vec3( 1.0 ), vmSlot, vMat.z );
       float vmN = fract( sin( dot( floor( vGrain ), vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 ) - 0.5;
       diffuseColor.rgb = max( vec3( 0.0 ), diffuseColor.rgb * ( 1.0 + ${f(2 * LOOK.grain)} * vmN ) + ${f(2 * LOOK.grainAbs)} * vmN );
-      float vmEdge = min( min( vEdge.x, vEdge.z - vEdge.x ), min( vEdge.y, vEdge.w - vEdge.y ) );
+      float vmU = min( vEdge.x, vEdge.z - vEdge.x );
+      float vmW = min( vEdge.y, vEdge.w - vEdge.y );
+      float vmEdge = min( vmU, vmW );
       float vmBevel = 1.0 - smoothstep( ${f(LOOK.bevel * 0.5)}, ${f(LOOK.bevel)}, vmEdge );
-      #if NUM_HEMI_LIGHTS > 0
-        vmBevel *= mix( ${f(LOOK.bevelCatch)}, 1.0, dot( normalize( vNormal ), hemisphereLights[ 0 ].direction ) * 0.5 + 0.5 );
-      #endif
+      float vmEdgeUp = vmU < vmW ? ( vEdge.x < vEdge.z - vEdge.x ? vEdgeUp.x : vEdgeUp.y ) : ( vEdge.y < vEdge.w - vEdge.y ? vEdgeUp.z : vEdgeUp.w );
+      vmBevel *= mix( ${f(LOOK.bevelCatch)}, 1.0, saturate( vmEdgeUp * 0.7 + 0.5 ) );
       diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * ${f(1 + LOOK.bevelLift)} + ${f(LOOK.bevelAdd)}, vmBevel );
       if ( min( vEdge.z, vEdge.w ) > ${f(LOOK.groove[3])} && vmEdge > ${f(LOOK.groove[0])} && vmEdge < ${f(LOOK.groove[1])} ) diffuseColor.rgb *= ${f(LOOK.groove[2])};`)
     .replace('#include <specularmap_fragment>', `float specularStrength = vMat.x * ( 1.0 + vmBevel * step( ${f(LOOK.edgeGlint)}, vGloss ) );`)
@@ -397,6 +399,7 @@ function boxGeometry(b) {
   const dir = b.from && new THREE.Vector3(...b.to).sub(new THREE.Vector3(...b.from));
   const [w, h, d] = [b.size[0], b.size[1], dir ? dir.length() : b.size[2]];
   const g = new THREE.BoxGeometry(w, h, d);
+  const turn = dir ? new THREE.Quaternion().setFromUnitVectors(Z, dir.clone().normalize()) : new THREE.Quaternion().setFromEuler(new THREE.Euler(...(b.rot ?? [0, 0, 0])));
   const faces = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]]; // BoxGeometry's px, nx, py, ny, pz, nz
   const c = new THREE.Color(LOOK.colors[b.color]); // sRGB hex to linear
   const n = g.attributes.position.count;
@@ -406,7 +409,22 @@ function boxGeometry(b) {
   const skinIndex = new Uint16Array(n * 4);
   const skinWeight = new Float32Array(n * 4);
   const uv = g.attributes.uv;
+  const pos = g.attributes.position;
+  const nor = g.attributes.normal;
+  const up = new Float32Array(n * 4);
+  const tu = new THREE.Vector3();
+  const tv = new THREE.Vector3();
+  const p0 = new THREE.Vector3();
   for (let i = 0; i < n; i++) {
+    if (i % 4 === 0) { // a face's vertices run (u, v) = (0, 1), (1, 1), (0, 0), (1, 0)
+      p0.fromBufferAttribute(pos, i);
+      tu.fromBufferAttribute(pos, i + 1).sub(p0).normalize().applyQuaternion(turn);
+      tv.copy(p0).sub(p0.clone().fromBufferAttribute(pos, i + 2)).normalize().applyQuaternion(turn);
+    }
+    // How far up each edge's bevel faces, between this face and the one past
+    // that edge: top edges catch the sky, bottom ones stay dark.
+    const ny = p0.set(nor.getX(i), nor.getY(i), nor.getZ(i)).applyQuaternion(turn).y;
+    up.set([ny - tu.y, ny + tu.y, ny - tv.y, ny + tv.y].map((v) => v * Math.SQRT1_2), i * 4);
     const k = g.attributes.position.getY(i) < 0 ? 1 - LOOK.bottomShade : 1;
     color.set([c.r * k, c.g * k, c.b * k], i * 3);
     const [fu, fv] = faces[i >> 2];
@@ -420,14 +438,11 @@ function boxGeometry(b) {
   g.setAttribute('edge', new THREE.BufferAttribute(edge, 4));
   g.setAttribute('mat', new THREE.BufferAttribute(mat, 4));
   g.setAttribute('gloss', new THREE.BufferAttribute(new Float32Array(n).fill(LOOK.gloss[b.color]), 1));
+  g.setAttribute('edgeUp', new THREE.BufferAttribute(up, 4));
   g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));
   g.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeight, 4));
-  if (dir) {
-    g.translate(0, 0, d / 2).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(Z, dir.normalize()));
-    return g.translate(...b.from);
-  }
-  if (b.rot) g.applyQuaternion(new THREE.Quaternion().setFromEuler(new THREE.Euler(...b.rot)));
-  return g.translate(...b.at);
+  if (dir) return g.translate(0, 0, d / 2).applyQuaternion(turn).translate(...b.from);
+  return g.applyQuaternion(turn).translate(...b.at);
 }
 
 // One weapon: a skinned mesh, bound with every bone at rest. The gun turns
@@ -519,8 +534,10 @@ flashMesh.visible = false;
 pose.add(flashMesh);
 const pulse = new THREE.Color(LOOK.flash.pulse).multiplyScalar(LOOK.flash.pulseGain);
 
-// ---- Our own casings: a pooled instanced box in the camera's frame, live
-// ones packed at the front so `count` is the number alive.
+// ---- Our own casings: a pooled instanced box in the view scene, which
+// turns with the world, so a flick leaves them behind and they fall down,
+// not toward the bottom of the screen. Live ones are packed at the front so
+// `count` is the number alive.
 const C = LOOK.casings;
 const casings = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshPhongMaterial({ specular: '#ffffff', shininess: 60 }), C.pool);
 casings.name = 'casings';
@@ -530,7 +547,7 @@ const shellRed = new THREE.Color(LOOK.colors.shell);
 for (let i = 0; i < C.pool; i++) casings.setColorAt(i, brass); // makes instanceColor now, so the shader is compiled with it
 casings.count = 0;
 casings.visible = false;
-viewCamera.add(casings);
+viewScene.add(casings);
 const cases = Array.from({ length: C.pool }, () => ({ p: new THREE.Vector3(), v: new THREE.Vector3(), age: 0, d: 0, l: 0, color: brass }));
 const dummy = new THREE.Object3D();
 
@@ -538,15 +555,17 @@ function eject(weapon, port) {
   if (casings.count === C.pool) return;
   const c = cases[casings.count++];
   pose.updateMatrix();
-  c.p.fromArray(port).applyMatrix4(pose.matrix);
+  c.p.fromArray(port).applyMatrix4(pose.matrix).applyQuaternion(viewCamera.quaternion);
   const r = () => 1 + (Math.random() - 0.5) * 2 * C.spread;
-  c.v.set(C.velocity[0] * r(), C.velocity[1] * r(), C.velocity[2] * r());
+  c.v.set(C.velocity[0] * r(), C.velocity[1] * r(), C.velocity[2] * r()).applyQuaternion(viewCamera.quaternion);
   c.age = 0;
   [c.d, c.l] = C.size[weapon];
   c.color = weapon === 'shotgun' ? shellRed : brass;
+  casings.visible = true;
 }
 
 function stepCasings(dt) {
+  if (!casings.visible) return;
   for (let i = 0; i < casings.count;) {
     const c = cases[i];
     c.age += dt;
@@ -716,10 +735,12 @@ export function powerCast() {
 }
 
 function show(weapon) {
+  ejectAt = Infinity; // a pending shell belongs to the gun going away
   if (shown) rigs[shown].mesh.visible = false;
   shown = weapon;
   rigs[shown].mesh.visible = true;
   flashMesh.position.fromArray(MODELS[shown].muzzle);
+  flashUniforms.starSize.value = MODELS[shown].flash;
 }
 
 function place(bone, pivot, x) {
@@ -766,6 +787,7 @@ export function updateViewmodel(now, camera, scene, renderer) {
   shots = 0;
   if (!pose.visible || !mover || !arsenal) {
     flashMesh.visible = false;
+    ejectAt = Infinity; // dead or hidden: no shell on the first frame back
     stepCasings(dt);
     syncLights(dt, 0);
     return;
@@ -917,11 +939,9 @@ export function updateViewmodel(now, camera, scene, renderer) {
     glowUntil = now + LOOK.flash.glowSeconds * 1000;
     pulseUntil = now + LOOK.flash.pulseSeconds * 1000;
     flashMesh.rotation.z = Math.random() * 2 * Math.PI;
-    flashUniforms.starSize.value = m.flash * (1 + (Math.random() - 0.5) * LOOK.flash.jitter);
   }
   const star = flashFrames > 0 || (VM?.pose === 'recoil' && VM.t <= 0.2);
   if (flashFrames > 0) flashFrames--;
-  if (VM?.pose === 'recoil') flashUniforms.starSize.value = m.flash;
   const glow = fired || now < glowUntil || star;
   const hotNow = fired || now < pulseUntil || star;
   flashUniforms.star.value = star ? 1 : 0;

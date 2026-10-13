@@ -181,6 +181,21 @@ async function suite() {
     assert.equal(casings.count, 0, 'not yet: the pump is still going back');
     frames(10); // 0.5 s
     assert.equal(casings.count, 1, 'out at the pump');
+    frames(30);
+    vm.gunKick(); // a shot, then the pistol before the pump comes back: no shell from the pistol
+    frames(5);
+    self.arsenal.slot = 1;
+    vm.setGun('pistol', true);
+    frames(40);
+    assert.equal(casings.count, 0, 'the switch drops the pending shell');
+    spawn('shotgun');
+    vm.gunKick(); // a shot, then death: nothing on the first frame back
+    frames(5);
+    vm.setGun('shotgun', false);
+    frames(30);
+    vm.setGun('shotgun', true);
+    frames(1);
+    assert.equal(casings.count, 0, 'death drops the pending shell');
   });
 
   // What the player sees of some boxes (picked by bone and colour): the share
