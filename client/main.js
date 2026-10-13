@@ -16,6 +16,9 @@ import { prepareMap } from '../shared/collision.js';
 import { Vector3 } from 'three';
 import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf, hitboxes } from '../shared/weapons.js'; // effects: hitboxes
 import { shotRng } from '../shared/rng.js';
+import { WEAPONS } from '../shared/constants.js'; // hud: reload progress
+import * as characters from './characters.js'; // hud: nameTags(), once characters has it
+import * as feel from './feel.js'; // hud: setBob(), once feel has it
 
 const STEP_MS = 1000 / TICK_RATE;
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -34,6 +37,9 @@ let stage = null; // the world, built behind the lobby as soon as we are welcome
 let stepStart = 0; // the fixed-step clock: started when the match view opens
 let steps = 0;
 const nameOf = (id) => roster.get(id)?.name ?? '?';
+const colorOf = (id) => PLAYER_COLORS[roster.get(id)?.slot]; // hud: names in their slot colour
+const hudExtra = { reloadFrac: 0, shield: 0, nitro: 0, slowed: 0 }; // hud: reused every frame
+const rankInfo = { rank: 0, of: 0 }; // hud:
 
 const net = connect({
   welcome(m) {
@@ -72,6 +78,7 @@ const net = connect({
   },
   event(m) {
     powerups.onEvent(m, myId); // powerups: pickups, uses, blasts
+    if ((m.e === 'pickup' || m.e === 'pick') && m.id === myId) ui.powerToast(m.k); // hud:
     if (m.e === 'spawn' && m.id === myId) {
       Object.assign(self, freshLife(m.x, m.y, m.z, m.primary)); // exactly as the server builds it
       self.pending = [];
@@ -90,10 +97,11 @@ const net = connect({
     } else if (m.e === 'hit') {
       hitFlash(m.v); // characters: the victim flashes white
       if (m.a === myId) {
-        ui.hitMarker(m.head);
+        ui.hitMarker(m.head, m.sh && !m.dmg ? 'shield' : undefined); // hud: shield kind
         audio.hitTick(m.head);
       }
       if (m.v === myId) audio.hurt(); // audio:
+      if (m.v === myId) ui.damageTaken(m.dmg); // hud:
       const attacker = m.v === myId && self.mover && others(performance.now()).find((o) => o.id === m.a);
       if (attacker) {
         // Direction to the attacker relative to where we look: 0 ahead, + to the right.
@@ -108,13 +116,14 @@ const net = connect({
       ui.hideDeath();
       ui.showPicker(false);
     } else if (m.e === 'kill') {
-      ui.addKill(nameOf(m.k), nameOf(m.v), m.w, m.head, m.k === myId || m.v === myId);
+      ui.addKill(nameOf(m.k), nameOf(m.v), m.w, m.head, m.k === myId || m.v === myId, { killer: colorOf(m.k), victim: colorOf(m.v) }); // hud: colours
       deathBurst(m.k, m.v);
       if (m.k === myId) audio.kill(m.head); // audio: layers over the hit tick
+      if (m.k === myId && m.v !== myId) ui.killConfirm(nameOf(m.v), colorOf(m.v)); // hud:
       if (m.v === myId) {
         audio.deathThud();
         self.alive = false;
-        ui.showDeath(nameOf(m.k), RESPAWN_SECONDS);
+        ui.showDeath(nameOf(m.k), RESPAWN_SECONDS, { color: colorOf(m.k), weapon: m.w, killerHp: others(performance.now()).find((o) => o.id === m.k)?.hp }); // hud: death card
         ui.showPicker(true);
       }
     }
@@ -143,8 +152,10 @@ function pick(primary) {
 function applySettings() {
   input.setSensitivity(ui.settings.sens);
   render.setFov(ui.settings.fov);
-  render.setRenderScale(Math.min(1, Math.max(0.5, ui.settings.scale / 100)));
+  render.setRenderScale(Math.min(ui.settings.quality === 'low' ? 0.7 : 1, Math.max(0.5, ui.settings.scale / 100))); // hud: Low caps the scale at 70%
   render.setShadows(!!ui.settings.shadows);
+  render.setBrightness(ui.settings.brightness); // hud:
+  feel.setBob?.(ui.settings.bob); // hud:
   ui.applyCrosshair();
 }
 
@@ -158,6 +169,7 @@ function fixedStep() {
     ownShot(inp); // along this packet's angles, before the kick moves them
     recoil(weaponOf(self.arsenal));
     audio.gunshot(weaponOf(self.arsenal));
+    ui.crosshairPulse(); // hud:
   }
   net.send(encodeInput(inp));
 }
@@ -357,7 +369,13 @@ function frame(now) {
     // feel: the crosshair gap for the HUD, as --spread (CSS px) on #hud.
     const gap = Math.round(spreadPixels(crosshair.spread, render.camera.fov, innerHeight));
     if (gap !== shownGap) document.getElementById('hud').style.setProperty('--spread', `${(shownGap = gap)}px`);
-    ui.updateHud(self.hp, weaponOf(self.arsenal), self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0);
+    hudExtra.reloadFrac = 1 - self.arsenal.reload / WEAPONS[weaponOf(self.arsenal)].reload; // hud:
+    hudExtra.shield = self.pw?.shield ?? self.shield; // hud:
+    hudExtra.nitro = me.boost; // hud: seconds on main; the bible's mover counts ticks (divide by TICK_RATE)
+    hudExtra.slowed = (me.slow ?? 0) / TICK_RATE; // hud: ticks, once the mover has slow
+    ui.updateHud(self.hp, weaponOf(self.arsenal), self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0, hudExtra); // hud: extra
+    ui.updatePowers(self.pw ?? self); // hud: the bible's pw, else main's self.inv queue
+    ui.threat(powerups.threats?.(myId), me, input.look.yaw); // hud: once powerups has threats()
     setGun(weaponOf(self.arsenal), self.alive && lobby.phase === 'playing');
     setSunShade(ui.settings.shadows && sunBlocked(eyeOf(me), world.boxes) ? 1 : 0); // viewmodel: darker in the sun's shadow, when shadows are drawn
   } else {
@@ -367,6 +385,7 @@ function frame(now) {
   if (photo) render.setView(...photo);
   const visible = others(now).filter((o) => o.alive && o.id !== myId);
   syncPlayers(visible, roster, frameMs / 1000, world.boxes); // characters: the ground under each player
+  ui.renderNameTags(characters.nameTags?.(render.camera, innerWidth, innerHeight)); // hud: DOM tags, once characters has nameTags()
   powerups.update(now, visible); // powerups: draw this frame
   // Our own steps from our velocity, which is exact; frame-to-frame position
   // changes jump around because the mover only moves at 60 Hz.
@@ -382,13 +401,17 @@ function frame(now) {
   if (inGame) {
     // Match clock and leader; the scoreboard on Tab, and forced between matches.
     const secondsLeft = (lobby.end - serverTick(now)) / TICK_RATE;
-    const [leader] = [...lobby.players].sort(byScore);
-    ui.updateMatchInfo(lobby.phase === 'playing' ? secondsLeft : 0, leader?.kills ? leader : null);
+    const ranked = [...lobby.players].sort(byScore); // hud: ranked, for your rank
+    const [leader] = ranked;
+    rankInfo.rank = ranked.findIndex((p) => p.id === myId) + 1; // hud:
+    rankInfo.of = ranked.length; // hud:
+    ui.updateMatchInfo(lobby.phase === 'playing' ? secondsLeft : 0, leader?.kills ? leader : null, rankInfo); // hud: rank
     const over = lobby.phase === 'scoreboard';
     ui.showScoreboard(over || tabHeld);
     if (over || tabHeld) ui.renderScoreboard(lobby.players, myId, over ? { winner, secondsLeft } : null);
   }
   updateEffects(now);
+  if (ui.settings.dynres) render.frameTime?.(frameMs); // hud: once render has dynamic resolution
   render.draw();
   frames++;
   if (debug && now - statsAt > 500) {
