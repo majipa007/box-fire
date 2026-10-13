@@ -163,7 +163,7 @@ function buildFar() {
   const ridge = farRidge(LIGHTS.sunDir);
   const T = FAR.turbines;
   const blade = new THREE.BoxGeometry(...T.blade).translate(0, T.blade[1] / 2, 0);
-  const blades = new THREE.InstancedMesh(blade, unlit({ vertexColors: false, color: T.color }), ridge.hubs.length * 3);
+  const blades = new THREE.InstancedMesh(blade, unlit({ vertexColors: false, color: ridge.color }), ridge.hubs.length * 3);
   const C = LOOK.clouds;
   const uniforms = {
     cloudTime: { value: 0 },

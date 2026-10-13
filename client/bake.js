@@ -440,11 +440,16 @@ export function decals(mapBoxes, seed = 3) {
 }
 
 // The far group, locked to the camera's x/z and drawn unlit with colours pre-hazed toward
-// the horizon: a notched ridge ring with three turbine towers in the opening.
+// the horizon: a notched ridge ring with three turbine towers in the opening. Returns
+// { quads, hubs: blade hubs, color: the turbines' hazed colour, for the blades }.
 export const FAR = {
-  seed: 9, inner: 150, outer: 175, columns: 96, height: [30, 45], openHeight: [24, 32], notch: 0.18,
+  seed: 9, inner: 150, outer: 175, columns: 96, height: [30, 45], notch: 0.18,
   sunlit: '#d2d0c8', backlit: '#b5b3b2', top: '#dcdad3',
-  turbines: { radius: 165, azimuths: [215, 245, 275], tower: 40, width: 0.8, nacelle: [2, 2, 3], color: '#c4c2bf', blade: [1.2, 14, 0.4], rpm: 12 },
+  // Towers stand on the ridge, but never with their foot above `footCap` m (sunk into a taller
+  // column instead), so the nacelle stays inside the 182 m bound: √(166.5² + 73.5²) = 182.
+  // Colour: the bible's #f3e7d4, pre-hazed 60% toward the horizon like the ridge, then
+  // backlit by the ridge's backlit/sunlit ratio: all three stand in the sun's direction.
+  turbines: { radius: 165, azimuths: [215, 245, 275], tower: 40, footCap: 31.5, width: 0.8, nacelle: [2, 2, 3], base: '#f3e7d4', haze: 0.6, blade: [1.2, 14, 0.4], rpm: 12 },
 };
 export function farRidge(sunDir, F = FAR) {
   const out = [];
@@ -456,8 +461,7 @@ export function farRidge(sunDir, F = FAR) {
   const phase = [rand(), rand(), rand()].map((v) => v * 2 * Math.PI);
   for (let i = 0; i < F.columns; i++) {
     const az = (360 * (i + 0.5)) / F.columns;
-    const open = az > 200 && az < 290;
-    const [lo, hi] = open ? F.openHeight : F.height;
+    const [lo, hi] = F.height;
     const wave = 0.5 + 0.25 * Math.sin(rad(az) * 2 + phase[0]) + 0.15 * Math.sin(rad(az) * 5 + phase[1]) + 0.1 * Math.sin(rad(az) * 11 + phase[2]);
     let h = lo + (hi - lo) * wave;
     if (rand() < F.notch) h -= 4 + rand() * 6; // notches
@@ -484,16 +488,17 @@ export function farRidge(sunDir, F = FAR) {
   }
   // Turbine towers on the ridge, nacelles facing the arena; hubs for the blades.
   const T = F.turbines;
+  const color = shadeHex(mixHex(T.base, '#d6dbdf', T.haze), hexRgb(F.backlit)[1] / hexRgb(F.sunlit)[1]);
   const hubs = T.azimuths.map((az) => {
     const [x, z] = at(az, T.radius);
-    const base = heights[Math.floor((az / 360) * F.columns)] - 2;
+    const base = Math.min(heights[Math.floor((az / 360) * F.columns)], T.footCap) - 2;
     const yaw = Math.PI - rad(az); // local z points out from the arena
-    block(out, [x, base + T.tower / 2, z], [T.width, T.tower, T.width], T.color, { yaw });
-    block(out, [x, base + T.tower + 1, z], T.nacelle, T.color, { yaw });
+    block(out, [x, base + T.tower / 2, z], [T.width, T.tower, T.width], color, { yaw });
+    block(out, [x, base + T.tower + 1, z], T.nacelle, color, { yaw });
     const [hx, hz] = at(az, T.radius - T.nacelle[2] / 2 - 0.3);
     return { x: hx, y: base + T.tower + 1, z: hz, yaw };
   });
-  return { quads: out, hubs };
+  return { quads: out, hubs, color };
 }
 
 // Clouds: clusters of voxel boxes, some side by side and some stacked on the first, each
