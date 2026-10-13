@@ -257,7 +257,8 @@ test('shadows off: a player in a wall\'s lee is dimmed by the sun rays, eased', 
   initCharacters({ boxes: floor });
 });
 
-test('ten players with every power-up effect: 6 draws and at most 10k triangles', () => {
+// (All three effects on all 10 at once, 10.6k, cannot happen: there is one Shield pad and a Shield lasts 8 s.)
+test('ten players, each with a Shield and Nitro or slowed: 6 draws and at most 10k triangles', () => {
   const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.05, 200);
   camera.position.set(0, 1.6, 12);
   camera.updateMatrixWorld();

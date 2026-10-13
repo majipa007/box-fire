@@ -26,7 +26,7 @@ const LOOK = {
   // gun read as separate parts up close; they fade out between `fade` m, where the outline takes over.
   bevel: { width: [0.006, 0.016], gain: 1.6, add: 0.035, fade: [8, 20] },
   outline: { color: '#15171c', min: 0.03, perMetre: 0.0021 }, // per side: ~2 px at 1080p and 90° hfov
-  blob: { radius: 0.42, darkness: 0.38, core: 0.4, lift: 0.015 }, // full darkness out to `core` × radius; shrinks by 1 / (1 + height above the ground)
+  blob: { radius: 0.42, darkness: 0.38, core: 0.6, lift: 0.015 }, // full darkness out to `core` × radius; shrinks by 1 / (1 + height above the ground)
   // Motion. Swing amounts are at run speed and scale with ground speed / RUN_SPEED.
   step: 2.2, // m per step, like the footstep sound: the stride phase moves π per step
   thigh: 32 * D, thighSide: 20 * D, knee: 45 * D, // swing either side, strafing swing, knee fold on the back-swing
@@ -47,8 +47,9 @@ const LOOK = {
   protect: { hz: 5, white: 0.25 },
   sunFallback: { heights: [0.4, 1.0, 1.6], min: 0.62, halflife: 150 }, // shadows off: lit share from 3 rays to the sun
   bubble: { radius: 1.1, y: 0.95, yCrouch: 0.65, color: '#66fff0', alpha: [0.08, 0.6] },
-  ribbon: { width: 0.35, ms: 600, alpha: 0.7, fringe: '#15171c', fringeAlpha: 0.45, height: 0.18, apart: 0.12, sampleMs: 30 }, // along the path, `apart` either side, `height` up
-  sparks: { count: 6, size: 0.04, color: '#ffb300', hops: 7 }, // hops per second from part to part
+  // Along the path, `apart` either side (so the strips never overlap), `height` up; full alpha for the first `hold` of the trail, then a linear fade.
+  ribbon: { width: 0.35, ms: 600, alpha: 0.7, hold: 0.4, fringe: '#15171c', fringeAlpha: 0.45, height: 0.18, apart: 0.18, sampleMs: 30 },
+  sparks: { count: 6, size: 0.06, color: '#ffb300', hops: 7 }, // hops per second from part to part; 6 cm, not the bible's 4, so they read past 7 m
   tags: { range: 12, cone: 4 * D, lift: 0.28, fadeMs: 120 },
   shatter: { voxel: 0.15, hideMs: 1000 },
 };
@@ -247,7 +248,7 @@ const ribbons = new THREE.Mesh(ribbonGeometry, new THREE.ShaderMaterial({
   fragmentShader: `uniform vec3 fringe; uniform vec2 alpha; varying vec3 vColor; varying vec2 vUv;
     void main() {
       float edge = smoothstep(0.62, 0.78, abs(vUv.x));
-      float fade = 1.0 - vUv.y;
+      float fade = clamp((1.0 - vUv.y) / ${glsl(1 - LOOK.ribbon.hold)}, 0.0, 1.0);
       gl_FragColor = vec4(mix(vColor, fringe, edge), mix(alpha.x, alpha.y, edge) * fade);
       #include <colorspace_fragment>
     }`,
@@ -392,14 +393,8 @@ function finish(mesh, n) {
   mesh.count = n;
   mesh.visible = n > 0; // an empty mesh still costs its state changes
   if (!n) return;
-  mesh.instanceMatrix.clearUpdateRanges();
-  mesh.instanceMatrix.addUpdateRange(0, n * 16);
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) {
-    mesh.instanceColor.clearUpdateRanges();
-    mesh.instanceColor.addUpdateRange(0, n * 3);
-    mesh.instanceColor.needsUpdate = true;
-  }
+  mesh.instanceMatrix.needsUpdate = true; // whole buffers (≤ 17 KB): an update range would allocate each frame
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
 }
 
 // A hit landed on this player: flash them. (Drops in hp flash them too.)
