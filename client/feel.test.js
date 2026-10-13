@@ -6,7 +6,8 @@ import {
 import { self, reconcile } from './net.js';
 import { WEAPONS, SNAP_DISTANCE, RUN_SPEED, WALK_SPEED, KICK_CLIMB_SHOTS, GRAVITY, JUMP_HEIGHT } from '../shared/constants.js';
 import { spreadDegrees, createArsenal, stepWeapon } from '../shared/weapons.js';
-import { createMover } from '../shared/movement.js';
+import { createMover, step, KEY } from '../shared/movement.js';
+import { prepareMap } from '../shared/collision.js';
 
 const DEG = Math.PI / 180;
 const near = (a, b, eps, what) => assert.ok(Math.abs(a - b) <= eps, `${what}: ${a} vs ${b}`);
@@ -238,6 +239,29 @@ test('landing dips the eye 0.009 m per m/s of fall, 70 ms down and 140 ms back',
   near(view.y, 0, 1e-12, 'never airborne');
 });
 
+test('a real 1 m jump through shared step() dips 57 ± 1 mm at any frame rate', () => {
+  const boxes = prepareMap({ boxes: [{ pos: [0, -0.5, 0], size: [100, 1, 100] }], spawns: [] }).boxes;
+  for (const frameMs of [1000 / 144, 1000 / 60, 1000 / 30]) {
+    const look = fresh();
+    const s = createMover(0, 0, 0);
+    step(s, { keys: 0, yaw: 0 }, boxes); // onto the floor
+    let ticks = 0, low = 0;
+    for (let t = frameMs; t < 1000; t += frameMs) {
+      for (; ticks < Math.floor(t / (1000 / 60)); ticks++) step(s, { keys: ticks ? 0 : KEY.JUMP, yaw: 0 }, boxes);
+      updateFeel(frameMs, (now += frameMs), look, s, 'rifle');
+      low = Math.min(low, view.y);
+    }
+    assert.ok(s.grounded && ticks > 40, 'jumped and landed');
+    near(low, -0.057, 0.001, `deepest dip with ${frameMs.toFixed(2)} ms frames`);
+  }
+});
+
+test('dying in the air is not a landing', () => {
+  const look = fresh();
+  frames(look, mover({ y: 3, grounded: false, vy: -5 }), 32);
+  frames(look, null, 300, 16, 'rifle', () => near(view.y, 0, 1e-12, 'eye after death'));
+});
+
 test('landing again mid-dip carries on down from where the eye is', () => {
   const look = fresh();
   frames(look, mover({ grounded: false, vy: -6 }), 32);
@@ -268,6 +292,10 @@ test('bob dips 8 mm on each footfall and rolls ±0.2°, only when running on the
   near(roll, 0.2 * DEG, 0.002 * DEG, 'roll');
   near(steps, (RUN_SPEED * 2) / LOOK.stride, 1, 'a footfall every 2.2 m');
   for (const y of stepY) near(y, -LOOK.bobDip, 3e-4, 'the dip bottoms out on the footfall');
+  // At 15 fps the footfalls keep pace.
+  let slow = 0;
+  frames(look, run, 3000, 1000 / 15, 'rifle', () => { slow += view.step; });
+  near(slow, (RUN_SPEED * 3) / LOOK.stride, 1, 'footfalls in 3 s at 15 fps');
   // Walking, at the footstep threshold or below: no bob, no footfalls.
   let walkSteps = 0;
   frames(look, mover({ vz: -WALK_SPEED }), 1000, 16, 'rifle', () => { walkSteps += view.step; });

@@ -4,7 +4,7 @@
 // the HUD. Plain numbers in and out (no three.js, no DOM), so Node tests
 // drive it directly. The spec is docs/bible.md §5.
 import {
-  WEAPONS, KICK_SPRAY_GAP_MS, KICK_CLIMB_SHOTS, KICK_WOBBLE, SNAP_DISTANCE, RUN_SPEED, WALK_SPEED, PITCH_LIMIT,
+  WEAPONS, KICK_SPRAY_GAP_MS, KICK_CLIMB_SHOTS, KICK_WOBBLE, SNAP_DISTANCE, RUN_SPEED, WALK_SPEED, PITCH_LIMIT, GRAVITY,
 } from '../shared/constants.js';
 import { spreadDegrees } from '../shared/weapons.js';
 
@@ -64,7 +64,9 @@ export const LOOK = {
 };
 
 const DEG = Math.PI / 180;
-const MAX_DT_MS = 50; // a long hitch eases like a short one instead of leaping
+// Below 10 fps a hitch eases like a short one instead of leaping. It also
+// keeps a frame's bob phase under π, which the footfall wrap needs.
+const MAX_DT_MS = 100;
 const STILL = { vx: 0, vy: 0, vz: 0, grounded: true, crouch: false, boost: 0 };
 // A critically damped spring let go from rest has (1 + u)·e^−u of its gap
 // left at time u / w, which is one half at u = 1.6783.
@@ -86,7 +88,7 @@ let corrX = 0, corrY = 0, corrZ = 0; // correction offset (m)
 let bloom = 0, spread = 0; // degrees
 let bobOn = true;
 let bob = 0, phase = 0, foot = 1; // bob strength 0..1; phase 0..π through a stride; the foot that lands next
-let dip = 0, dipFrom = 0, dipDepth = 0, dipT = Infinity, airVy = 0, wasGrounded = true;
+let dip = 0, dipFrom = 0, dipDepth = 0, dipT = Infinity, airVy = 0, airY = 0, wasGrounded = true;
 let trauma = 0;
 let nitro = 0; // 0..1 through the fov kick
 
@@ -120,9 +122,11 @@ export function correct(d) {
 
 export const addTrauma = (amount) => { trauma = Math.min(1, trauma + amount); };
 
-// A blast event ('blast' today, the bible's 'boom' later) shakes the camera
-// when it goes off near our mover. Bolt impacts and fizzles (r 0) are not
-// blasts, and our own Barge goes off on us (one with no id may be ours).
+// The one owner of blast shake: a 'blast' event (today's, handled as it
+// arrives, when it is drawn) or a 'boom' (the bible's, called from powerups'
+// queued play() at its render tick) shakes the camera when it goes off near
+// our mover. Bolt impacts and fizzles (r 0) are not blasts, and our own Barge
+// goes off on us (one with no id may be ours).
 export function blastShake(m, myId, me) {
   if (!me || m.k === 'bolt' || m.r === 0 || (m.k === 'barge' && (m.id ?? myId) === myId)) return;
   const d = Math.hypot(m.x - me.x, m.y - (me.y + 1), m.z - me.z); // from our chest
@@ -143,7 +147,7 @@ export function resetFeel() {
   kickPitch = kickYaw = owedPitch = owedYaw = 0;
   backPitch = backYaw = backVPitch = backVYaw = 0;
   corrX = corrY = corrZ = 0;
-  bloom = bob = dip = dipFrom = dipDepth = airVy = trauma = nitro = 0;
+  bloom = bob = dip = dipFrom = dipDepth = airVy = airY = trauma = nitro = 0;
   dipT = Infinity;
   wasGrounded = true;
 }
@@ -222,14 +226,18 @@ export function updateFeel(frameMs, now, look, me, weapon, trigger) {
   const bobY = -LOOK.bobDip * bob * (1 - Math.sin(phase));
   const bobRoll = LOOK.bobRollDeg * DEG * bob * foot * Math.cos(phase); // leans onto each foot as it lands
 
-  // Landing dip: down, then back. step() zeroes vy on touchdown, so remember
-  // the fall speed. A landing mid-dip carries on down from where the eye is.
-  if (!me.grounded) airVy = Math.min(airVy, me.vy);
-  else if (!wasGrounded) {
-    dipDepth = Math.max(dip, Math.min(LOOK.landDipMax, -LOOK.landDipPerVy * airVy));
+  // Landing dip: down, then back. step() zeroes vy on touchdown, so the
+  // impact speed comes from the last airborne frame, v² = vy² + 2g·(drop
+  // since), exact however frames and ticks line up. A landing mid-dip carries
+  // on down from where the eye is. Dying in the air is not a landing.
+  if (!me.grounded) {
+    airVy = me.vy;
+    airY = me.y;
+  } else if (!wasGrounded && me !== STILL) {
+    const fall = Math.sqrt(Math.max(0, airVy * airVy + 2 * GRAVITY * (airY - me.y)));
+    dipDepth = Math.max(dip, Math.min(LOOK.landDipMax, LOOK.landDipPerVy * fall));
     dipFrom = dip;
     dipT = 0;
-    airVy = 0;
   }
   wasGrounded = me.grounded;
   dipT += dt;
