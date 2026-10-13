@@ -5,13 +5,13 @@ import * as render from './render.js';
 import { buildWorld } from './world.js';
 import { charactersGroup, syncPlayers, hitFlash, fireKick, shatter as breakRig } from './characters.js'; // characters: rig events
 import { setGun, gunKick, setSunShade, sunBlocked, muzzleWorld } from './viewmodel.js'; // viewmodel: sun shade, drawn muzzle
-import { effectsGroup, addTracer, updateEffects, setMap, classifyHit, impact, playerHit, shatter as explode, casing } from './effects.js'; // effects: impacts, hits, shatter, casings
+import { effectsGroup, updateEffects, initEffects, shot, muzzle as muzzleFlash, casing, blast, pickupBurst, deathBurst as explode } from './effects.js'; // effects: shots, blasts, pickups, deaths, casings
 import { addRecoil, correct, resetFeel, updateFeel, crosshair, spreadPixels, feelStats } from './feel.js'; // feel:
 import * as input from './input.js';
 import * as audio from './audio.js';
 import * as powerups from './powerups.js'; // powerups: pads, entities, HUD
 import { cleanName, encodeInput, byScore } from '../shared/protocol.js';
-import { EYE_STAND, EYE_CROUCH, TICK_RATE, RESPAWN_SECONDS, WALK_SPEED, NEUTRAL_MS, PLAYER_COLORS } from '../shared/constants.js'; // effects: PLAYER_COLORS
+import { EYE_STAND, EYE_CROUCH, TICK_RATE, RESPAWN_SECONDS, WALK_SPEED, NEUTRAL_MS, PLAYER_COLORS, POWER_COLORS } from '../shared/constants.js'; // effects: PLAYER_COLORS, POWER_COLORS
 import { prepareMap } from '../shared/collision.js';
 import { Vector3 } from 'three';
 import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf, hitboxes } from '../shared/weapons.js'; // effects: hitboxes
@@ -84,7 +84,7 @@ const net = connect({
       ui.showPicker(false);
       audio.respawn(); // audio: un-muffles the world
     } else if (m.e === 'shot') {
-      remoteShot(m.id, m.o, m.h); // their gun kicks; tracers from its muzzle, impacts, a casing
+      remoteShot(m.id, m.o, m.h, m.w); // their gun kicks; tracers from its muzzle, impacts, a casing
       audio.gunshot(m.w, ...heard(m.o[0], m.o[2]));
       audio.impacts(m.o, m.h, heard); // audio: surface hits and ricochets
     } else if (m.e === 'hit') {
@@ -102,6 +102,11 @@ const net = connect({
         const { yaw } = input.look;
         ui.damageArc(Math.atan2(dx * Math.cos(yaw) - dz * Math.sin(yaw), -dx * Math.sin(yaw) - dz * Math.cos(yaw)));
       }
+    } else if (m.e === 'blast' || m.e === 'boom') { // effects: a power-up going off; r 0 is a fizzle
+      blast(m.k, [m.x, m.y, m.z], m.r);
+    } else if (m.e === 'pickup' || m.e === 'pick') { // effects: a burst at the picker's glyph height
+      const p = m.id === myId ? self.mover : others(performance.now()).find((o) => o.id === m.id);
+      if (p) pickupBurst([p.x, p.y + 1, p.z], POWER_COLORS[m.k]);
     } else if (m.e === 'match_end') {
       winner = m.winner === null ? null : nameOf(m.winner);
       audio.ui(m.winner === myId ? 'win' : 'lose'); // audio:
@@ -109,7 +114,7 @@ const net = connect({
       ui.showPicker(false);
     } else if (m.e === 'kill') {
       ui.addKill(nameOf(m.k), nameOf(m.v), m.w, m.head, m.k === myId || m.v === myId);
-      deathBurst(m.k, m.v);
+      deathBurst(m.k, m.v, m.head); // effects: a headshot pops the helmet
       if (m.k === myId) audio.kill(m.head); // audio: layers over the hit tick
       if (m.v === myId) {
         audio.deathThud();
@@ -201,31 +206,26 @@ function recoil(weapon) {
 // player we can see.
 function ownShot(inp) {
   const origin = eyeOf(self.mover);
-  const targets = others(performance.now()).filter((o) => o.alive && o.id !== myId);
-  const right = [Math.cos(inp.yaw), 0, -Math.sin(inp.yaw)];
-  const fwd = aimDir(inp.yaw, inp.pitch);
+  const targets = shotTargets(); // effects: in their slot colours
   const muzzle = muzzleWorld(render.camera, ownMuzzle).toArray(); // where the drawn gun's muzzle shows
-  const dirs = shotDirs(inp.yaw, inp.pitch, weaponOf(self.arsenal), self.mover, shotRng(seed, myId, self.shots)); // effects: named, for the count
+  const dirs = shotDirs(inp.yaw, inp.pitch, weaponOf(self.arsenal), self.mover, shotRng(seed, myId, self.shots));
   const ends = []; // audio: world hits only; the host confirms player hits
+  const all = []; // effects: every pellet's end
   for (const dir of dirs) {
     const { t, id } = traceShot(origin, dir, world.boxes, targets);
-    const end = origin.map((o, i) => o + dir[i] * t); // effects: named, for the impact
-    addTracer(muzzle, end);
-    hitEffects(origin, end, targets, 1 / Math.sqrt(dirs.length)); // effects:
+    const end = origin.map((o, i) => o + dir[i] * t);
+    all.push(end); // effects:
     if (id === null) ends.push(end);
   }
+  shot({ from: muzzle, eye: origin, ends: all, weapon: weaponOf(self.arsenal), targets }); // effects: tracers and impacts, capped per shot; our casings are the viewmodel's
   audio.impacts(origin, ends, heard); // audio:
-  // effects: the case flies out right of the gun, carried along with us.
-  casing(origin.map((o, i) => o + right[i] * 0.3 + fwd[i] * 0.35 - (i === 1 ? 0.2 : 0)), right, [self.mover.vx, self.mover.vy, self.mover.vz]);
 }
 
-// effects: what a shot's end hit: chips and a hole in the map, cubes off a
-// player (never our own body: we look out from inside it).
-function hitEffects(origin, end, players, scale) {
-  const hit = classifyHit(origin, end, players);
-  if (hit.kind === 'wall') impact(end, hit.normal, hit.surface, scale);
-  else if (hit.kind === 'player' && hit.id !== myId) playerHit(end, hit.dir, PLAYER_COLORS[roster.get(hit.id)?.slot], hit.head, scale);
-}
+// effects: the living players a shot can hit (never our own body: we look
+// out from inside it), in their slot colours.
+const shotTargets = () => others(performance.now())
+  .filter((o) => o.alive && o.id !== myId)
+  .map((o) => ({ ...o, color: PLAYER_COLORS[roster.get(o.id)?.slot] }));
 
 const ownMuzzle = new Vector3();
 const remoteMuzzle = new Vector3();
@@ -234,27 +234,28 @@ const remoteMuzzle = new Vector3();
 // killer. characters.js hides the rig and hands back its posed parts (one
 // box per part); effects.js voxelises and throws them. A victim we cannot see
 // falls back to their hitboxes; our own death has no body to break.
-function deathBurst(killerId, victimId) {
+function deathBurst(killerId, victimId, head) {
   if (victimId === myId) return;
   const now = performance.now();
   const victim = others(now).find((o) => o.id === victimId);
   const killer = killerId === myId ? self.mover : others(now).find((o) => o.id === killerId);
   const push = victim && killer ? [victim.x - killer.x, 0, victim.z - killer.z] : null;
-  const parts = breakRig(victimId, Infinity).map(({ position: p, scale: s, color }) => ({
+  const parts = breakRig(victimId, Infinity).map(({ part, position: p, scale: s, color }) => ({
+    part, // effects: the helmet flies off whole on a headshot
     min: [p.x - s.x / 2, p.y - s.y / 2, p.z - s.z / 2],
     max: [p.x + s.x / 2, p.y + s.y / 2, p.z + s.z / 2],
     color,
   }));
   const color = PLAYER_COLORS[roster.get(victimId)?.slot];
-  if (parts.length) explode(parts, color, push);
-  else if (victim) explode(Object.values(hitboxes(victim)), color, push);
+  if (parts.length) explode(parts, color, push, head);
+  else if (victim) explode(Object.values(hitboxes(victim)), color, push, head);
 }
 
 // Someone else's shot. The host sends their eye; the tracers start at the
 // drawn shooter's muzzle, or where it would be (0.3 m right of the eye,
 // 0.25 m down, 0.6 m out) when we can't see them, and a case flies out to
 // their right.
-function remoteShot(id, o, ends) {
+function remoteShot(id, o, ends, weapon) {
   if (!world) return; // the map is still loading: nothing to hit, nothing drawn
   const dx = ends[0][0] - o[0];
   const dz = ends[0][2] - o[2];
@@ -263,12 +264,10 @@ function remoteShot(id, o, ends) {
   const gun = (ahead) => [o[0] + right[0] * 0.3 + dx * k * ahead, o[1] - 0.25, o[2] + right[2] * 0.3 + dz * k * ahead];
   // The drawn shooter's real muzzle when we can see them; else where it would be.
   const muzzle = fireKick(id, remoteMuzzle) ? remoteMuzzle.toArray() : gun(0.6);
-  const players = others(performance.now()).filter((p) => p.alive);
-  for (const end of ends) {
-    addTracer(muzzle, end);
-    hitEffects(o, end, players, 1 / Math.sqrt(ends.length));
-  }
-  casing(gun(0.2), right);
+  shot({ from: muzzle, eye: o, ends, weapon, targets: shotTargets() }); // effects: tracers or Bolt beams, impacts
+  if (weapon === 'bolt') return; // effects: a Bolt has no flash or case
+  muzzleFlash(muzzle, [dx * k, 0, dz * k]); // effects:
+  casing(gun(0.2), right, weapon); // effects: within 15 m, Default preset only
 }
 
 // Everything heavy happens behind the lobby: the map fetch, the AO bake, the
@@ -283,7 +282,7 @@ async function buildStage() {
   powerups.init(render.scene, mapId); // powerups: meshes and HUD
   render.scene.add(charactersGroup, effectsGroup);
   world = prepareMap(map);
-  setMap(map); // effects: debris lands on the map; shots find the face they hit
+  initEffects({ boxes: world.boxes, map, quality: ui.settings.quality }); // effects: debris lands on the map; shots find the face they hit
   render.renderer.compile(render.scene, render.camera); // build every shader now, not mid-fight
   requestAnimationFrame(frame);
 }
@@ -388,7 +387,7 @@ function frame(now) {
     ui.showScoreboard(over || tabHeld);
     if (over || tabHeld) ui.renderScoreboard(lobby.players, myId, over ? { winner, secondsLeft } : null);
   }
-  updateEffects(now);
+  updateEffects(now, render.camera); // effects: the camera, for the casing range and ?debug&fx
   render.draw();
   frames++;
   if (debug && now - statsAt > 500) {

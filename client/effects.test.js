@@ -8,23 +8,25 @@ import { SHOT_RANGE } from '../shared/constants.js';
 const three = new URL('./vendor/three.module.js', import.meta.url).href;
 register(`data:text/javascript,export const resolve = (s, c, next) => next(s === 'three' ? ${JSON.stringify(three)} : s, c);`);
 const fx = await import('./effects.js');
-const { cubes, decals, tracers } = fx.pools;
+const { cubes, decals, streaks, glows, sparks, dust } = fx.pools;
 
 // A floor (top at y 0), a wall (face at z -10) and a crate (top at y 1.2,
 // x 4.4..5.6, z -0.6..0.6).
-fx.setMap({
+const MAP = {
   boxes: [
     { pos: [0, -0.5, 0], size: [40, 1, 40], color: 0 },
     { pos: [0, 2, -10.5], size: [20, 4, 1], color: 1 },
     { pos: [5, 0.6, 0], size: [1.2, 1.2, 1.2], color: 3 },
   ],
-});
+};
+fx.setMap(MAP);
 
 let now = 0;
 const frame = () => fx.updateEffects((now += 1000 / 60));
 const run = (seconds) => { for (let t = 0; t < seconds; t += 1 / 60) frame(); };
 const matrix = (mesh, i) => mesh.instanceMatrix.array.subarray(i * 16, i * 16 + 16);
 const liveSlots = (mesh) => [...Array(mesh.count).keys()].filter((i) => matrix(mesh, i).some((v) => v !== 0));
+const idle = () => cubes.count + streaks.geometry.instanceCount + glows.geometry.instanceCount + sparks.geometry.drawRange.count + dust.geometry.drawRange.count;
 const column = (m, c) => Math.hypot(m[c * 4], m[c * 4 + 1], m[c * 4 + 2]);
 
 test('a shot ending on a map face is a wall hit, with the face it entered', () => {
@@ -63,7 +65,8 @@ test('chips fly off a wall and fall, never sinking into the wall or the floor, t
   frame();
   assert.ok(cubes.visible);
   const live = liveSlots(cubes);
-  assert.equal(live.length, 4);
+  assert.equal(live.length, 5); // a rifle round on concrete
+  assert.equal(dust.geometry.drawRange.count, 1); // and one puff
   for (let t = 0; t < 2; t += 1 / 60) {
     frame();
     for (const i of live) {
@@ -74,31 +77,32 @@ test('chips fly off a wall and fall, never sinking into the wall or the floor, t
       assert.ok(m[14] >= -10 + half - 1e-3, `chip ${i} sank into the wall: z ${m[14]}`);
     }
   }
-  assert.equal(liveSlots(cubes).length, 0);
+  assert.equal(cubes.count, 0); // swap-remove: count is the live cubes
   assert.ok(!cubes.visible);
 });
 
 test('a voxel thrown up off the crate lands back on it and rests there', () => {
-  fx.shatter([{ min: [4.925, 2, -0.075], max: [5.075, 2.15, 0.075] }], '#ff0000');
+  fx.shatter([{ min: [4.95, 2, -0.05], max: [5.05, 2.1, 0.05] }], '#ff0000'); // one voxel, thrown straight up
   run(2);
   const [i] = liveSlots(cubes);
   const m = matrix(cubes, i);
   assert.ok(Math.abs(m[12] - 5) < 1e-3 && Math.abs(m[14]) < 1e-3, 'it stays over the crate');
   assert.ok(Math.abs(m[13] - (1.2 + column(m, 1) / 2)) < 1e-3, `it rests on the top: y ${m[13]}`);
   run(2);
-  assert.equal(liveSlots(cubes).length, 0);
+  assert.equal(cubes.count, 0);
 });
 
 test('a casing settles lying down, and sleeps', () => {
-  fx.casing([0, 1, 0], [1, 0, 0], [0, 0, 2]);
-  run(2.5);
+  fx.casing([0, 1, 0], [1, 0, 0], 'rifle', [0, 0, 2]);
+  run(1.2);
   const [i] = liveSlots(cubes);
   const m = matrix(cubes, i).slice();
   assert.ok(Math.abs(m[9]) / column(m, 2) < 1e-3, 'its long axis is level');
   assert.ok(Math.abs(m[13] - 0.006) < 1e-4, `it lies on the floor: y ${m[13]}`);
   frame();
   assert.deepEqual(matrix(cubes, i), m);
-  run(2);
+  run(1);
+  assert.equal(cubes.count, 0); // gone after 2 s
 });
 
 test('bullet holes fill a ring of 256 slots, and fit on their face', () => {
@@ -119,33 +123,119 @@ test('bullet holes fill a ring of 256 slots, and fit on their face', () => {
 });
 
 test('every tracer is drawn at least once, and never past where its shot ended', () => {
-  const live = () => [...Array(128).keys()].filter((i) => tracers.geometry.attributes.aTail.array[i * 4 + 3] > 0);
-  const head = (i) => tracers.geometry.attributes.aHead.array.subarray(i * 4, i * 4 + 3);
+  const at = streaks.geometry.attributes;
+  const head = (i) => at.aB.array.subarray(i * 4, i * 4 + 3);
   run(1);
   fx.addTracer([0, 1.5, 0], [0, 1.5, -2]); // over within one frame at 400 m/s
   frame();
-  assert.ok(tracers.visible);
-  const [i] = live();
-  assert.deepEqual([...head(i)], [0, 1.5, -2]);
+  assert.ok(streaks.visible);
+  assert.equal(streaks.geometry.instanceCount, 1);
+  assert.deepEqual([...head(0)], [0, 1.5, -2]);
   frame();
-  assert.ok(!tracers.visible);
+  assert.ok(!streaks.visible);
   fx.addTracer([0, 1.5, 0], [0, 1.5, -60]);
   let frames = 0;
-  for (frame(); tracers.visible; frame()) {
+  for (frame(); streaks.visible; frame()) {
     frames++;
-    for (const j of live()) assert.ok(head(j)[2] >= -60);
+    assert.ok(head(0)[2] >= -60);
   }
   assert.ok(frames >= 9 && frames <= 11, `${frames} frames`);
+});
+
+test('a point-blank shotgun blast spends at most 12 chips and 3 puffs', () => {
+  run(3);
+  const ends = Array.from({ length: 12 }, (_, k) => [-0.3 + k * 0.05, 1, -10]);
+  fx.shot({ from: [0, 1.4, -9], eye: [0, 1.6, -9], ends, weapon: 'shotgun' });
+  frame();
+  assert.ok(cubes.count <= 12 && cubes.count > 0, `${cubes.count} chips`);
+  assert.ok(dust.geometry.drawRange.count <= 3, `${dust.geometry.drawRange.count} puffs`);
+  assert.equal(streaks.geometry.instanceCount, 12); // a tracer per pellet
+  run(3);
+  assert.equal(idle(), 0);
+});
+
+test('materials: crates splinter, steel sparks, and a map with materials is followed', () => {
+  run(3);
+  fx.impact([5, 0.6, -0.6], [0, 0, -1], 2); // the crate (colour 3: plywood)
+  frame();
+  assert.equal(cubes.count, 4);
+  const m = matrix(cubes, 0);
+  const sides = [column(m, 0), column(m, 1), column(m, 2)].sort();
+  assert.ok(Math.abs(sides[2] / sides[0] - 4) < 0.01, 'a splinter is 4 times as long as it is wide');
+  run(2);
+  fx.initEffects({ map: { boxes: [{ pos: [0, -0.5, 0], size: [40, 1, 40], color: 0 }], materials: [{ name: 'rust', base: '#8a5a44' }] } });
+  fx.impact([0, 0, 0], [0, 1, 0], 0);
+  frame();
+  assert.equal(cubes.count, 0);
+  assert.equal(sparks.geometry.drawRange.count, 6);
+  run(1);
+  fx.setMap(MAP);
+});
+
+test('player hits: cubes in the slot colour plus one white; a Shield gives hexagons instead', () => {
+  run(3);
+  const target = { id: 3, x: 0, y: 0, z: -5, crouch: false, color: '#e6194b' };
+  fx.shot({ from: [0, 1.6, 0], ends: [[0, 1, -4.7]], weapon: 'rifle', targets: [target] });
+  frame();
+  assert.equal(cubes.count, 5);
+  const col = cubes.instanceColor.array;
+  const whites = [...Array(5).keys()].filter((i) => col[i * 3 + 1] > 0.85).length;
+  assert.equal(whites, 1);
+  run(1);
+  fx.shot({ from: [0, 1.6, 0], ends: [[0, 1, -4.7]], weapon: 'rifle', targets: [{ ...target, flags: 8 }] });
+  frame();
+  assert.equal(cubes.count, 0);
+  assert.equal(sparks.geometry.drawRange.count, 5);
+  run(1);
+});
+
+test('a death is at most 120 voxels over the whole body; a headshot sends the helmet off whole', () => {
+  run(4);
+  const box = (part, c, s) => ({ part, min: c.map((v, a) => v - s[a] / 2), max: c.map((v, a) => v + s[a] / 2) });
+  const body = [
+    box('thigh', [-0.1, 0.6, 0], [0.17, 0.42, 0.19]), box('thigh', [0.1, 0.6, 0], [0.17, 0.42, 0.19]),
+    box('shin', [-0.1, 0.25, 0], [0.14, 0.36, 0.16]), box('shin', [0.1, 0.25, 0], [0.14, 0.36, 0.16]),
+    box('torso', [0, 1.1, 0], [0.4, 0.55, 0.26]), box('head', [0, 1.54, 0], [0.26, 0.24, 0.26]),
+    box('helmet', [0, 1.735, 0], [0.3, 0.13, 0.3]),
+  ];
+  fx.deathBurst(body, '#4363d8', [0, 0, -1], false);
+  frame();
+  const ys = [...Array(cubes.count).keys()].map((i) => matrix(cubes, i)[13]);
+  assert.ok(cubes.count <= 120 && cubes.count >= 100, `${cubes.count} voxels`);
+  assert.ok(ys.filter((y) => y < 0.8).length >= 20, 'the legs break up too');
+  assert.equal(glows.geometry.instanceCount, 1); // the white flash
+  run(4);
+  fx.deathBurst(body, '#4363d8', [0, 0, -1], true);
+  frame();
+  const big = [...Array(cubes.count).keys()].filter((i) => column(matrix(cubes, i), 0) > 0.25);
+  assert.equal(big.length, 1, 'one helmet-sized cube');
+  run(4);
+  assert.equal(idle(), 0);
+});
+
+test('every power-up blast, the fizzle and a pickup spawn, then clear to nothing', () => {
+  run(4);
+  for (const kind of ['shunt', 'mine', 'barge', 'shock', 'bolt']) fx.blast(kind, [0, 0.3, -3]);
+  fx.blast('shunt', [0, 1, -3], 0);
+  fx.pickupBurst([0, 1, 0], '#3dff8f');
+  fx.pickupBurst([0, 1, 0]); // a kind with no colour
+  fx.muzzle([0, 1.4, -2], [0, 0, -1]);
+  frame();
+  assert.ok(streaks.geometry.instanceCount >= 16 + 4, 'rings, the Barge band, beams and puffs');
+  assert.ok(glows.geometry.instanceCount >= 4);
+  run(1.5);
+  assert.equal(streaks.geometry.instanceCount + glows.geometry.instanceCount + sparks.geometry.drawRange.count, 0);
+  run(2);
 });
 
 test('a thousand shots reuse the pools: no new objects', () => {
   const children = [...fx.effectsGroup.children];
   const arrays = fx.effectsGroup.children.map((o) => Object.values(o.geometry.attributes).map((a) => a.array));
   for (let k = 0; k < 1000; k++) {
-    fx.addTracer([0, 1.5, 0], [0, 1, -9]);
-    fx.impact([0, 1, -10], [0, 0, 1], 1, 0.3);
-    fx.playerHit([0, 1, -5], [0, 0, -1], '#e6194b', k % 2 === 0, 0.3);
+    fx.shot({ from: [0, 1.5, 0], ends: [[0, 1, -10], [0.1, 1, -10]], weapon: 'shotgun' });
+    fx.playerHit([0, 1, -5], [0, 0, -1], '#e6194b', k % 2 === 0);
     fx.casing([0, 1.4, 0], [1, 0, 0]);
+    if (k % 50 === 0) fx.blast(['shunt', 'barge', 'shock', 'mine'][k % 4], [0, 0.3, -3]);
     frame();
   }
   assert.deepEqual(fx.effectsGroup.children, children);
@@ -155,12 +245,23 @@ test('a thousand shots reuse the pools: no new objects', () => {
 
 test('a full cube pool steps in well under a frame on the real arena', (t) => {
   fx.setMap(JSON.parse(fs.readFileSync(new URL('../shared/maps/arena_01.json', import.meta.url))));
-  for (let k = 0; k < 6; k++) fx.shatter([{ min: [-0.75 + k, 1, -0.75], max: [0.75 + k, 2.5, 0.75] }], 0x808080, [1, 0, 0]);
+  for (let k = 0; k < 10; k++) fx.shatter([{ min: [-0.75 + k, 1, -0.75], max: [0.75 + k, 2.5, 0.75] }], 0x808080, [1, 0, 0]);
   for (let k = 0; k < 30; k++) frame(); // let the JIT warm up
   const start = performance.now();
   for (let k = 0; k < 60; k++) frame();
   const ms = (performance.now() - start) / 60;
-  assert.equal(liveSlots(cubes).length, 1024);
+  assert.equal(cubes.count, 1024);
   t.diagnostic(`${ms.toFixed(3)} ms per update with 1024 live cubes and ${fx.effectsGroup.children.length} pools`);
   assert.ok(ms < 4);
+  // Every pool full: still one draw each, and the triangles stay in budget.
+  for (let k = 0; k < 300; k++) fx.addTracer([0, 1.5, 0], [0, 1.5, -150]);
+  for (let k = 0; k < 70; k++) fx.muzzle([0, 1.5, -3]);
+  for (let k = 0; k < 300; k++) fx.impact([k / 30 - 5, 0, 5], [0, 1, 0], 0);
+  frame();
+  const tris = cubes.count * 12 + decals.count * 2 + (streaks.geometry.instanceCount + glows.geometry.instanceCount) * 2;
+  t.diagnostic(`${fx.effectsGroup.children.length} draws, ${tris} triangles with every pool full`);
+  assert.equal(fx.effectsGroup.children.length, 6);
+  assert.ok(tris <= 16000, `${tris} triangles`);
+  run(25);
+  assert.equal(idle(), 0, 'count returns to 0 when idle');
 });
