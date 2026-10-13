@@ -126,11 +126,14 @@ const SMOOTH_AIR = 0.05;
 // end in sun, under main's sun and the bible's alike. fx: the sun row with
 // Shield (Red, Blue, Cyan, Pink), slowed (Green, Orange, Magenta) and Nitro
 // (Yellow, Purple, Lime, circling 2 m in front of the row).
+// &still holds hp (no flash) for clean stills; &turn=deg turns every rig (fit checks at 45°).
 // Cameras (?debug&lineup&cam=x,y,z,yaw,pitch; the far ones look over a wall):
 //   sun   10 m: 0,1.6,13,0,-0.03   25 m: 0,8,28,0,-0.27   35 m: 0,11,38,0,-0.29
 //   shade 10 m: 18.9,1.6,8.05,1.5708,-0.03   25 m: 33.9,11,8.05,1.5708,-0.4   35 m: 43.9,15,8.05,1.5708,-0.4
 const params = new URLSearchParams(globalThis.location?.search ?? '');
 const LINEUP = params.has('debug') && params.has('lineup') ? params.get('lineup') || 'sun' : null;
+const STILL = params.has('still');
+const TURN = (+params.get('turn') || 0) * D;
 
 // ─── Engine ─────────────────────────────────────────────────────────────────
 
@@ -241,7 +244,7 @@ const ribbons = new THREE.Mesh(ribbonGeometry, new THREE.ShaderMaterial({
     void main() {
       float edge = smoothstep(0.62, 0.78, abs(vUv.x));
       float fade = 1.0 - vUv.y;
-      gl_FragColor = vec4(mix(vColor, fringe, edge), mix(alpha.x, alpha.y, edge) * fade * fade);
+      gl_FragColor = vec4(mix(vColor, fringe, edge), mix(alpha.x, alpha.y, edge) * fade);
       #include <colorspace_fragment>
     }`,
   transparent: true, depthWrite: false, side: THREE.DoubleSide,
@@ -888,7 +891,7 @@ function lineup(now) {
   if (!fakes) {
     const shade = LINEUP === 'shade';
     const list = NAMES.map((name, i) => ({
-      id: 1001 + i, x: shade ? 8.9 : -4.05 + 0.9 * i, y: 0, z: shade ? 4 + 0.9 * i : 3, yaw: shade ? -Math.PI / 2 : Math.PI, pitch: 0,
+      id: 1001 + i, x: shade ? 8.9 : -4.05 + 0.9 * i, y: 0, z: shade ? 4 + 0.9 * i : 3, yaw: (shade ? -Math.PI / 2 : Math.PI) + TURN, pitch: 0,
       crouch: false, alive: true, shielded: false, hp: 100, weapon: ['rifle', 'pistol', 'shotgun'][i % 3],
       bubble: false, nitro: false, slowed: false,
     }));
@@ -897,7 +900,7 @@ function lineup(now) {
   const t = now / 1000;
   fakes.list.forEach((p, i) => {
     if (LINEUP !== 'fx') {
-      p.hp = 100 - 30 * (Math.floor(t) % 4);
+      if (!STILL) p.hp = 100 - 30 * (Math.floor(t) % 4);
       return;
     }
     p.bubble = i % 3 === 0;
