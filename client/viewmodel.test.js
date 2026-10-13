@@ -235,6 +235,9 @@ async function suite() {
     spawn('rifle');
     const y = gun.position.y;
     const roll = gun.rotation.z;
+    self.arsenal.switching = 0.005; // a correction nudging the timer is no lock
+    frames(4);
+    near(gun.position.y, y, 0.004, 'no cast for a nudge');
     self.arsenal.switching = 0.25; // the lock, with no new slot: the arsenal alone starts the cast
     let dip = 0;
     let turn = 0;

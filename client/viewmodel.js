@@ -718,7 +718,7 @@ export function updateViewmodel(now, camera, scene, renderer) {
   if (arsenal.slot !== lastSlot) {
     lastSlot = arsenal.slot;
     switchT = switchLow(switchT) * LOOK.switchPose.out; // a switch back starts from where the gun is
-  } else if (arsenal.switching > lastSwitching + 1e-6 && !raise) powerCast();
+  } else if (arsenal.switching > lastSwitching + 0.05 && !raise) powerCast(); // a lock is 0.25 s or more; a correction's nudge is not
   lastSwitching = arsenal.switching;
   switchT += dt;
   castT += dt;
