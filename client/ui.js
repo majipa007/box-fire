@@ -452,7 +452,7 @@ function buildSlots() {
 }
 
 export function updatePowers(pw) {
-  if (!live() || !pw) return;
+  if (!live() || !pw || !$('powers')) return; // no HUD row: a test or a page without the HUD
   if (!slots) buildSlots();
   const inv = pw.inv ?? NO_ITEMS;
   for (let i = 0; i < 3; i++) {

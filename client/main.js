@@ -177,6 +177,7 @@ function fixedStep() {
     ui.crosshairPulse(); // hud:
   }
   net.send(encodeInput(inp));
+  if (inp.power) powerups.cast(inp.power, inp); // powerups: ghosts, Bolt beams, sounds, the cast
 }
 
 // [distance, pan] of a sound at (x, z) as we hear it.
@@ -290,9 +291,10 @@ async function buildStage() {
   const map = await (await fetch(new URL(`../shared/maps/${mapId}.json`, import.meta.url))).json();
   audio.setWorld(map, mapId); // audio: surfaces for impacts and footsteps, the engine's pads
   buildWorld(render.scene, map);
-  powerups.init(render.scene, mapId); // powerups: meshes and HUD
   render.scene.add(charactersGroup, effectsGroup);
   world = prepareMap(map);
+  powerups.initPowerups({ boxes: world.boxes }); // powerups: pads, entities, ghosts
+  render.scene.add(powerups.powerupsGroup); // powerups:
   initEffects({ boxes: world.boxes, map, quality: ui.settings.quality, sunDir: sun.position.clone().normalize().toArray() }); // effects: debris lands on the map; shots find the face they hit
   render.renderer.compile(render.scene, render.camera); // build every shader now, not mid-fight
   requestAnimationFrame(frame);
@@ -369,11 +371,11 @@ function frame(now) {
     const gap = Math.round(spreadPixels(crosshair.spread, render.camera.fov, innerHeight));
     if (gap !== shownGap) document.getElementById('hud').style.setProperty('--spread', `${(shownGap = gap)}px`);
     hudExtra.reloadFrac = 1 - self.arsenal.reload / WEAPONS[weaponOf(self.arsenal)].reload; // hud:
-    hudExtra.shield = self.pw?.shield ?? self.shield; // hud:
-    hudExtra.nitro = me.boost; // hud: seconds on main; the bible's mover counts ticks (divide by TICK_RATE)
-    hudExtra.slowed = (me.slow ?? 0) / TICK_RATE; // hud: ticks, once the mover has slow
-    ui.updateHud(self.hp, weaponOf(self.arsenal), self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0, hudExtra); // hud: extra
-    ui.updatePowers(self.pw ?? self); // hud: the bible's pw, else main's self.inv queue
+    hudExtra.shield = self.pw?.shield ?? 0; // hud:
+    hudExtra.shieldSeconds = (self.pw?.shieldT ?? 0) / TICK_RATE; // hud: ticks
+    hudExtra.nitro = me.boost / TICK_RATE; // hud: ticks
+    hudExtra.slowed = me.slow / TICK_RATE; // hud: ticks
+    ui.updateHud(self.hp, weaponOf(self.arsenal), self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0, hudExtra); // hud: extra (powerups.js drives ui.updatePowers)
     ui.threat(powerups.threats?.(myId), me, input.look.yaw); // hud: once powerups has threats()
     setGun(weaponOf(self.arsenal), self.alive && lobby.phase === 'playing');
     setSunShade(ui.settings.shadows && sunBlocked(eyeOf(me), world.boxes) ? 1 : 0); // viewmodel: darker in the sun's shadow, when shadows are drawn
@@ -385,7 +387,7 @@ function frame(now) {
   const visible = others(now).filter((o) => o.alive && o.id !== myId);
   syncPlayers(visible, roster, frameMs / 1000, world.boxes); // characters: the ground under each player
   ui.renderNameTags(characters.nameTags?.(render.camera, innerWidth, innerHeight)); // hud: DOM tags, once characters has nameTags()
-  powerups.update(now, visible); // powerups: draw this frame
+  powerups.updatePowerups(now, renderTick(now), render.camera); // powerups: draw this frame, play due events
   // feel: our own steps sound on the camera bob's footfalls (one per 2.2 m,
   // from our exact velocity), so each dip lands with its step.
   if (me && view.step) audio.footstep(0, 0, me); // audio: me for the surface underfoot
