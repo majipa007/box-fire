@@ -159,6 +159,7 @@ function fixedStep() {
     recoil(weaponOf(self.arsenal));
     audio.gunshot(weaponOf(self.arsenal));
   }
+  if (inp.power) powerups.cast(inp.power, inp); // powerups: ghosts, Bolt beams, sounds, the cast
   net.send(encodeInput(inp));
 }
 
@@ -280,9 +281,10 @@ async function buildStage() {
   const map = await (await fetch(new URL(`../shared/maps/${mapId}.json`, import.meta.url))).json();
   audio.setWorld(map); // audio: surfaces for impacts and footsteps
   buildWorld(render.scene, map);
-  powerups.init(render.scene, mapId); // powerups: meshes and HUD
   render.scene.add(charactersGroup, effectsGroup);
   world = prepareMap(map);
+  powerups.initPowerups({ boxes: world.boxes }); // powerups: pads, entities, ghosts
+  render.scene.add(powerups.powerupsGroup); // powerups:
   setMap(map); // effects: debris lands on the map; shots find the face they hit
   render.renderer.compile(render.scene, render.camera); // build every shader now, not mid-fight
   requestAnimationFrame(frame);
@@ -367,7 +369,7 @@ function frame(now) {
   if (photo) render.setView(...photo);
   const visible = others(now).filter((o) => o.alive && o.id !== myId);
   syncPlayers(visible, roster, frameMs / 1000, world.boxes); // characters: the ground under each player
-  powerups.update(now, visible); // powerups: draw this frame
+  powerups.updatePowerups(now, renderTick(now), render.camera); // powerups: draw this frame, play due events
   // Our own steps from our velocity, which is exact; frame-to-frame position
   // changes jump around because the mover only moves at 60 Hz.
   if (me && self.alive && me.grounded && Math.hypot(me.vx, me.vz) > WALK_SPEED + 0.3) {
