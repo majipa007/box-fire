@@ -16,6 +16,13 @@ const { KEY } = await import('../shared/movement.js');
 const { eyeOf } = await import('../shared/weapons.js');
 const net = await import('./net.js');
 const pu = await import('./powerups.js');
+const { POWER_PADS } = await import('../shared/constants.js');
+const { ENT } = await import('../shared/protocol.js');
+
+// First, while the module has seen no snapshot: the lobby's view.
+test('before any snapshot, every pad is up at its pool\'s first item', () => {
+  assert.deepEqual(pu.padStates().map((p) => [p.kind, p.up]), POWER_PADS.map((p) => [p.pool[0], true]));
+});
 
 const STEP = 1000 / 60;
 const PRESS = 200;
@@ -103,4 +110,16 @@ test('a point-blank Shunt\'s ghost goes with its blast, though its entity never 
   const drawn = launch(0, -0.8); // bursts on its launch tick
   assert.ok(drawn.some(([, d]) => d !== null)); // the ghost flew
   assert.ok(drawn.filter(([t]) => t > 60).every(([, d]) => d === null));
+});
+
+test('a Shock ring lies on the floor under a dome cast at a jumping target', () => {
+  const tick = 1e5;
+  pu.onSnapshot({ tick, pu: { pd: [], en: [[77, ENT.DOME, 0, 4, 1, 4, tick + 60, 0]] } }); // 1 m up, over the flat floor
+  pu.updatePowerups(clock, tick, { position: { x: 0, y: 1.6, z: 3 } });
+  const flats = pu.powerupsGroup.children[1];
+  const data = flats.geometry.attributes.aData.array;
+  const rings = [];
+  for (let i = 0; i < flats.count; i++) if (data[i * 4 + 1] === 2) rings.push(flats.instanceMatrix.array[i * 16 + 13]);
+  assert.equal(rings.length, 1);
+  assert.ok(Math.abs(rings[0] - 0.01) < 1e-6, `ring at y ${rings[0]}`);
 });

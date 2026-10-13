@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Game } from './game.js';
 import { KEY } from '../shared/movement.js';
-import { MAX_HP, POWERS, POWER_PADS, TICK_RATE } from '../shared/constants.js';
+import { MAX_HP, POWERS, POWER_PADS, TICK_RATE, HISTORY_TICKS } from '../shared/constants.js';
 import { POWER_IDS, ENT, PLAYER_FLAGS } from '../shared/protocol.js';
 import { eyeOf } from '../shared/weapons.js';
 
@@ -172,6 +172,20 @@ test('a Shunt launched by a real input rewinds to where clients draw it between 
   game.powers.shot(shooter, from, [-1, 0, 0], 200, a[0] + 1.5); // a tick later it is 0.3 m on: a miss
   assert.equal(e.gone, undefined);
   game.powers.shot(shooter, from, [-1, 0, 0], 200, a[0] + 0.5);
+  assert.equal(e.gone, true);
+});
+
+test('a Shunt shoot-down rewinds at most HISTORY_TICKS, like the guns', () => {
+  const { game, players: [user, shooter] } = match([[0, 0], [5, -3]]);
+  game.powers.use(user, 'shunt', at);
+  const launched = game.tick;
+  run(game, 1.5);
+  const [e] = game.powers.ents;
+  const where = (t) => e.hist.find((h) => h[0] === t);
+  const ray = (h, rt) => game.powers.shot(shooter, [5, h[2], h[3]], [-1, 0, 0], 200, rt);
+  ray(where(launched + 5), launched + 5); // an rt from before the window
+  assert.equal(e.gone, undefined);
+  ray(where(game.tick - HISTORY_TICKS), launched + 5); // read as the oldest tick it keeps
   assert.equal(e.gone, true);
 });
 

@@ -227,7 +227,9 @@ const quadMaterial = (vertexShader, fragmentShader, extra = {}) => new THREE.Sha
 });
 
 // ---- State ----
-const pads = POWER_PADS.map(({ pos: [x, y, z] }, i) => ({ x, y, z, kind: 'shunt', ready: 0, span: 0, phase: i * 1.7 }));
+// Until the first snapshot (the lobby, a join mid-scoreboard), every pad is
+// up at its pool's first item, as a fresh match starts on the server.
+const pads = POWER_PADS.map(({ pos: [x, y, z], pool }, i) => ({ x, y, z, kind: pool[0], ready: 0, span: 0, phase: i * 1.7 }));
 const padView = pads.map((p) => ({ pos: [p.x, p.y, p.z], kind: p.kind, up: true })); // padStates()
 const snaps = []; // { tick, en } from the last few snapshots, oldest first
 const shownDir = new Map(); // eid → [x, y, z] heading, kept when a Shunt stops moving between snapshots
@@ -264,7 +266,7 @@ export function initPowerups({ boxes: mapBoxes = [] } = {}) {
   flats.renderOrder = 2;
   const cube = shadedCube();
   cubes = instanced(cube, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, toneMapped: false }), MAX_CUBES);
-  hulls = instanced(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: LOOK.glyph.hull, side: THREE.BackSide, fog: false }), MAX_HULLS, false, false);
+  hulls = instanced(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: LOOK.glyph.hull, side: THREE.BackSide, fog: false, toneMapped: false }), MAX_HULLS, false, false);
   beams = instanced(new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0), quadMaterial(BEAM_VERTEX, BEAM_FRAGMENT, { side: THREE.DoubleSide }), MAX_BEAMS, true);
   beams.renderOrder = 3;
   trails = instanced(new THREE.PlaneGeometry(1, 1).translate(0.5, 0, 0), quadMaterial(BEAM_VERTEX, TRAIL_FRAGMENT, { side: THREE.DoubleSide }), MAX_TRAILS, true);
@@ -524,7 +526,7 @@ function drawEntities(s, rt, now) {
       const near = !me || Math.hypot(me.x - x, me.z - z) < LOOK.mine.ringRange;
       mine(x, y, z, sa, s, near);
     } else if (type === ENT.DOME) {
-      telegraph(x, y, z, (sa - rt) / TICK_RATE);
+      telegraph(x, groundUnder(eid, x, y, z), z, (sa - rt) / TICK_RATE);
     }
   }
   // Our own Shunts: the newest snapshot, carried on along its last step.
@@ -596,6 +598,34 @@ function telegraph(x, y, z, left) {
   flat(x, y + 0.01, z, radius, HUE.shock, 0.6, 2, 0.08, pulse);
   const [mw, mh] = LOOK.shock.marker;
   for (let i = 0; i < 2; i++) beamQuad(x, y, z, i * (Math.PI / 2), mw, mh, HUE.shock, 0.8, 0.3, 0.3, 1.5);
+}
+
+// The surface under a Shock dome. The server places domes at the target's
+// height, which is in the air when it was jumping, so the ring drops to the
+// floor. Cached per dome; eids restart each match, so the spot is checked too.
+const grounds = new Map(); // eid → { x, z, y }
+function groundUnder(eid, x, y, z) {
+  let g = grounds.get(eid);
+  if (g && g.x === x && g.z === z) return g.y;
+  if (!g) {
+    if (grounds.size > 32) grounds.clear();
+    grounds.set(eid, (g = { x, z, y }));
+  }
+  g.x = x;
+  g.z = z;
+  g.y = dropTo(x, y, z);
+  return g.y;
+}
+
+// The top of whatever is under (x, y, z), or y over nothing.
+const rayFrom = [0, 0, 0];
+function dropTo(x, y, z) {
+  rayFrom[0] = x;
+  rayFrom[1] = y + 0.05;
+  rayFrom[2] = z;
+  let t = Infinity;
+  for (const b of boxes) t = Math.min(t, rayBox(rayFrom, DOWN, b.min, b.max));
+  return Number.isFinite(t) ? rayFrom[1] - t : y;
 }
 
 // Ghosts fly or sit until the server's entity shows, then hand over.
@@ -681,9 +711,8 @@ function demo(now, rt) {
 function burst(at, color, r, count, speed) {
   const ring = rings[nextRing];
   nextRing = (nextRing + 1) % rings.length;
-  let drop = Infinity; // the ring lies on whatever is under the blast
-  for (const b of boxes) drop = Math.min(drop, rayBox(at, DOWN, b.min, b.max));
-  Object.assign(ring, { t0: performance.now(), life: LOOK.burst.lifeMs, x: at[0], y: at[1] - (Number.isFinite(drop) ? drop : 0), z: at[2], r, color });
+  // The ring lies on whatever is under the blast.
+  Object.assign(ring, { t0: performance.now(), life: LOOK.burst.lifeMs, x: at[0], y: dropTo(at[0], at[1], at[2]), z: at[2], r, color });
   for (let i = 0; i < count; i++) {
     const b = bits[nextBit];
     nextBit = (nextBit + 1) % MAX_BITS;
@@ -843,7 +872,12 @@ function sound(kind, phase, x, z) {
 let hudEl = null;
 let slotEls = [];
 let statusEl = null;
-const shown = { key: '' };
+const seen = []; // what the strip shows, field by field, so a frame allocates nothing
+let dirty = false;
+const see = (i, v) => {
+  if (seen[i] !== v) dirty = true;
+  seen[i] = v;
+};
 const LABEL = { shunt: 'SHUNT', bolt: 'BOLT', barge: 'BARGE', shock: 'SHOCK', mine: 'MINE', nitro: 'NITRO', shield: 'SHIELD' };
 const keyName = (code) => (code ?? '').replace(/^Key|^Digit/, '');
 
@@ -872,9 +906,17 @@ function hud() {
   if (!hudEl) return;
   const boost = Math.ceil((self.mover?.boost ?? 0) / 6) / 10;
   const slow = Math.ceil((self.mover?.slow ?? 0) / 6) / 10;
-  const key = `${pw?.inv.join()}|${pw?.sel}|${Math.ceil(pw?.shield ?? 0)}|${boost}|${slow}|${pw?.cd > 0}|${bindings.use}${bindings.cycle}`;
-  if (key === shown.key) return;
-  shown.key = key;
+  dirty = false;
+  const n = POWER_CAPACITY;
+  for (let i = 0; i < n; i++) see(i, pw?.inv[i]);
+  see(n, pw?.sel);
+  see(n + 1, Math.ceil(pw?.shield ?? 0));
+  see(n + 2, boost);
+  see(n + 3, slow);
+  see(n + 4, pw?.cd > 0);
+  see(n + 5, bindings.use);
+  see(n + 6, bindings.cycle);
+  if (!dirty) return;
   slotEls.forEach((el, i) => {
     const kind = pw?.inv[i];
     const sel = kind && i === pw.sel;

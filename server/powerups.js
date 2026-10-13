@@ -4,7 +4,7 @@
 // (shared/powerups.js) decides what is used and when; Game calls use() for
 // it, shot() per bullet, step() once per tick and snapshot() for the wire.
 import {
-  TICK_RATE, POWERS, POWER_PADS, POWER_PAD_BOX, POWER_CAPACITY, PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT,
+  TICK_RATE, POWERS, POWER_PADS, POWER_PAD_BOX, POWER_CAPACITY, PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, HISTORY_TICKS,
 } from '../shared/constants.js';
 import { knock } from '../shared/movement.js';
 import { createPowers, falloff, pushScale, domeCentres, chestOf, clearLine, lockTarget, padRespawnTicks } from '../shared/powerups.js';
@@ -276,9 +276,13 @@ export class PowerServer {
   }
 
   // Where a Shunt was at fractional tick rt (null if not yet launched).
+  // rt comes from the client: like the guns' history, it reaches back at
+  // most HISTORY_TICKS.
   rewind(e, rt) {
     const { hist } = e;
     const first = hist[0][0];
+    const { tick } = this.game;
+    if (Number.isFinite(rt)) rt = Math.min(tick, Math.max(tick - HISTORY_TICKS, rt));
     if (!(rt >= first)) return Number.isFinite(rt) ? null : hist.at(-1).slice(1);
     const i = Math.min(hist.length - 1, Math.floor(rt - first));
     const a = hist[i];
