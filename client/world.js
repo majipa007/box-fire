@@ -80,7 +80,9 @@ export function setQuality(q) {
   quality = q === 'low' ? 'low' : 'default';
 }
 
+let msaa = true; // the canvas's real antialias attribute: the fence picks its alpha path by it
 export function configureRenderer(renderer) {
+  msaa = renderer.getContextAttributes()?.antialias ?? false;
   if (!graded) console.warn('world.js: three.js changed its CustomToneMapping stub; using plain Neutral');
   renderer.toneMapping = graded ? THREE.CustomToneMapping : THREE.NeutralToneMapping;
   renderer.toneMappingExposure = LIGHTS.exposure;
@@ -255,7 +257,10 @@ function buildDecals(map) {
   return mesh;
 }
 
-// Chain-link on the wall tops (1 draw): alpha to coverage with MSAA, an alpha test on Low.
+// Chain-link on the wall tops (1 draw): alpha to coverage with MSAA. Without MSAA (Low, or
+// the MSAA setting off), a screen-door discard against interleaved gradient noise: crisp
+// wires up close, and past ~10 m, where mipmapping averages the 1 px wires to α ≈ 0.25, that
+// share of pixels still draws, so the fence fades instead of vanishing under a 0.5 test.
 const FENCE = { y: 4, height: 1.4, at: 20.5, length: 42 };
 function buildFence() {
   const F = FENCE;
@@ -271,8 +276,13 @@ function buildFence() {
   const tiles = F.length / F.height;
   g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(quads.flatMap(() => [0, 0, tiles, 0, tiles, 1, 0, 1])), 2));
   g.deleteAttribute('color');
-  const low = quality === 'low';
-  const material = new THREE.MeshLambertMaterial({ map: makeFenceTexture(), side: THREE.DoubleSide, alphaToCoverage: !low, alphaTest: low ? 0.5 : 0 });
+  const material = new THREE.MeshLambertMaterial({ map: makeFenceTexture(), side: THREE.DoubleSide, alphaToCoverage: msaa });
+  if (!msaa) {
+    material.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace('#include <alphatest_fragment>',
+        'if ( diffuseColor.a < fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) ) ) discard;');
+    };
+  }
   const mesh = new THREE.Mesh(g, material);
   mesh.receiveShadow = true;
   return mesh;
