@@ -95,6 +95,7 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 // A pull against the owed kick pays that much of it off; a pull with it pays nothing.
 const payOff = (owed, moved) => (owed > 0 ? Math.max(0, owed + Math.min(0, moved)) : Math.min(0, owed + Math.max(0, moved)));
 // Two sines at unrelated rates: smooth noise in −1..1 that never repeats.
+// Keep hz × 2.37 under 30, or a 60 Hz display aliases it into jitter.
 const wave = (s, hz, p) => 0.6 * Math.sin(2 * Math.PI * hz * s + p) + 0.4 * Math.sin(2 * Math.PI * hz * 2.37 * s + 2 * p);
 
 // A shot: queue its kick (a step, plus a climb through a spray) and bloom the crosshair.
@@ -229,9 +230,9 @@ export function updateFeel(frameMs, now, look, me, weapon, trigger) {
   trauma = Math.max(0, trauma - (LOOK.traumaDecay * dt) / 1000);
   const t2 = trauma * trauma;
   const s = now / 1000;
-  const shakeX = LOOK.shakeMove * t2 * wave(s, 11.3, 0.4); // along our right
-  const shakeY = LOOK.shakeMove * t2 * wave(s, 13.7, 2.1);
-  const shakeRoll = LOOK.shakeRollDeg * DEG * t2 * wave(s, 9.1, 4.3);
+  const shakeX = LOOK.shakeMove * t2 * wave(s, 8.3, 0.4); // along our right
+  const shakeY = LOOK.shakeMove * t2 * wave(s, 9.7, 2.1);
+  const shakeRoll = LOOK.shakeRollDeg * DEG * t2 * wave(s, 6.1, 4.3);
 
   // Nitro fov, eased in and out (smoothstep).
   nitro = me.boost > 0 ? Math.min(1, nitro + dt / LOOK.nitroIn) : Math.max(0, nitro - dt / LOOK.nitroOut);
