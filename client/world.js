@@ -48,11 +48,13 @@ const EDGE = { arris: 0.01, arrisGain: 1.08, band: 0.04, bandGain: 0.85 };
 // band is crisp whatever the AO grid. The coarse baked AO still gives the soft falloff.
 const CREASE = { width: 0.3, indirect: 0.5, direct: 0.35 };
 // Sand drifts (mixed toward #d8c39a), from the baked crease and `along` distances, all exact
-// on the coarse grid: a `fillet` m strip along every foot on the floor, a 45° heap `corner` m
-// along each wall in inside corners, and on the walls a `lip` m strip up the foot that climbs
-// `climb` m more into the corner. The edge wanders by ±`ragged` in 1/8 m steps.
+// on the coarse grid: a 45° heap `corner` m along each wall in inside corners, climbing `climb`
+// m up the walls into the corner, and along every straight foot a `fillet` m strip on the floor
+// and a `lip` m strip up the side. The straight strips fade out below `minPx` pixels wide, so at
+// range a foot reads as a clean dark crease, not a 1 px warm line. The edge wanders by
+// ±`ragged` in 1/8 m steps.
 const SAND = '#d8c39a';
-const DRIFT = { fillet: 0.15, corner: 1.5, lip: 0.06, climb: 0.45, ragged: 0.35, cell: 0.125, opacity: 0.85 };
+const DRIFT = { corner: 1.5, climb: 0.45, fillet: 0.15, lip: 0.06, minPx: [1.5, 3], ragged: 0.35, cell: 0.125, opacity: 0.85 };
 const HAZARD = { width: 0.3, stripe: 0.15, colors: ['#ad9862', '#3a3c40'] }; // the dock top's border
 
 // ---- Shader chunks, patched at import, before any material compiles.
@@ -405,10 +407,14 @@ function mapMaterial(map, hazard) {
           vec2 f = smoothstep( 0.0, 1.0, t - k );
           vec2 n = mix( fract( sin( k * 12.9898 ) * 43758.5453 ), fract( sin( ( k + 1.0 ) * 12.9898 ) * 43758.5453 ), f );
           float edge = 1.0 + ${DRIFT.ragged.toFixed(2)} * ( n.x + n.y - 1.0 );
-          float sandAt = vUp > 0.5
-            ? min( vCrease / ${DRIFT.fillet.toFixed(3)}, ( vAlong.x + vAlong.y ) / ${DRIFT.corner.toFixed(3)} )
-            : vAlong.y / ( ${DRIFT.lip.toFixed(3)} + ${DRIFT.climb.toFixed(3)} * max( 0.0, 1.0 - vAlong.x / ${DRIFT.corner.toFixed(3)} ) );
-          diffuseColor.rgb = mix( diffuseColor.rgb, ${glsl(SAND)}, ${DRIFT.opacity.toFixed(2)} * ( 1.0 - smoothstep( 0.75 * edge, edge, sandAt ) ) );
+          float strip = vUp > 0.5 ? vCrease : vAlong.y; // distance from the foot, across the floor or up the side
+          float width = vUp > 0.5 ? ${DRIFT.fillet.toFixed(3)} : ${DRIFT.lip.toFixed(3)};
+          float straight = ( 1.0 - smoothstep( 0.75 * edge, edge, strip / width ) ) * smoothstep( ${DRIFT.minPx[0].toFixed(1)}, ${DRIFT.minPx[1].toFixed(1)}, width / max( fwidth( strip ), 1e-4 ) );
+          float heap = vUp > 0.5
+            ? ( vAlong.x + vAlong.y ) / ${DRIFT.corner.toFixed(3)}
+            : vAlong.y / max( ${DRIFT.climb.toFixed(3)} * ( 1.0 - vAlong.x / ${DRIFT.corner.toFixed(3)} ), 1e-4 );
+          float corner = vUp > 0.5 || vAlong.x < ${DRIFT.corner.toFixed(3)} ? 1.0 - smoothstep( 0.75 * edge, edge, heap ) : 0.0;
+          diffuseColor.rgb = mix( diffuseColor.rgb, ${glsl(SAND)}, ${DRIFT.opacity.toFixed(2)} * max( straight, corner ) );
         }
         vec2 edgeNear = min( vFace.xy, vFace.zw - vFace.xy );
         float edgeDist = min( edgeNear.x, edgeNear.y );
