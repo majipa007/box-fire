@@ -97,7 +97,7 @@ const net = connect({
     } else if (m.e === 'hit') {
       hitFlash(m.v); // characters: the victim flashes white
       if (m.a === myId) {
-        ui.hitMarker(m.head, m.sh && !m.dmg ? 'shield' : undefined); // hud: shield kind
+        ui.hitMarker(m.head, m.dmg === 0 ? 'shield' : undefined); // hud: shield kind (dmg 0: the shield soaked it all)
         audio.hitTick(m.head);
       }
       if (m.v === myId) audio.hurt(); // audio:

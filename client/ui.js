@@ -102,7 +102,7 @@ let keys = {}; // the live bindings, for the power-up key labels
 
 export function initKeys(bindings) {
   keys = bindings;
-  Object.assign(bindings, settings.keys);
+  for (const a in settings.keys) if (a in bindings) bindings[a] = settings.keys[a]; // a renamed action's old key stays out
   let listening = null; // action waiting for a key
   const render = () => {
     $('keys').replaceChildren(...Object.keys(ACTION_NAMES).filter((a) => a in bindings).flatMap((action) => {
@@ -588,8 +588,20 @@ export function bearing(p, eye, yaw) {
 }
 
 // players: the lobby list. over: { winner, secondsLeft } once a match ends.
+// main.js replaces lobby.players on every lobby message, so the same array
+// means the same rows: rebuild only when it (or who you are) changes.
+let sbPlayers = null;
+let sbMe = null;
 export function renderScoreboard(players, myId, over) {
   if (!live()) return;
+  if (players !== sbPlayers || myId !== sbMe) sbRows(players, myId);
+  setText('sb-title', over ? (over.winner ? `${over.winner} wins` : 'Match over') : 'Scoreboard');
+  setText('sb-sub', over ? `Next match in ${Math.max(0, Math.ceil(over.secondsLeft))} s` : '');
+}
+
+function sbRows(players, myId) {
+  sbPlayers = players;
+  sbMe = myId;
   const ranked = [...players].sort(byScore);
   $('sb-rows').replaceChildren(...ranked.map((p, i) => {
     const tr = document.createElement('tr');
@@ -611,8 +623,6 @@ export function renderScoreboard(players, myId, over) {
     for (const text of [p.kills, p.deaths, p.pk ?? 0, !p.connected ? 'left' : p.bot ? 'bot' : `${p.ping} ms`]) cell(text);
     return tr;
   }));
-  setText('sb-title', over ? (over.winner ? `${over.winner} wins` : 'Match over') : 'Scoreboard');
-  setText('sb-sub', over ? `Next match in ${Math.max(0, Math.ceil(over.secondsLeft))} s` : '');
 }
 
 export const showScoreboard = (show) => { $('scoreboard').hidden = !show; };

@@ -90,7 +90,7 @@
   #vignette, #lowhp { inset: 0; background: radial-gradient(ellipse at center, transparent 55%, #b3141f); opacity: 0; }
   #lowhp.on { animation: lowpulse 833ms ease-in-out infinite; }
   @keyframes lowpulse { 0%, 100% { opacity: 0.15; } 50% { opacity: 0.3; } }
-  #shieldtint { inset: 0; background: radial-gradient(ellipse at center, transparent 50%, rgba(102, 255, 240, 0.08) 85%, rgba(102, 255, 240, 0.16)); box-shadow: inset 0 0 0 2px rgba(102, 255, 240, 0.18); }
+  #shieldtint { inset: 0; background: radial-gradient(ellipse at center, transparent 50%, rgba(102, 255, 240, 0.04) 85%, rgba(102, 255, 240, 0.08)); }
 
   /* Crosshair: 4 lines of 2 x 7 px (times size/4), a 1 px dark outline, a
      2 px dot. The gap comes from --spread, which main.js writes on #hud. */
@@ -141,13 +141,17 @@
   #matchinfo { left: 50%; top: calc(14 * var(--u)); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: calc(4 * var(--u)); white-space: pre; }
   #clock { font: 700 calc(22 * var(--u))/1 var(--font); letter-spacing: 0.06em; padding: calc(6 * var(--u)) calc(16 * var(--u)); min-width: calc(92 * var(--u)); text-align: center;
     clip-path: polygon(0 0, 100% 0, calc(100% - var(--cut)) 100%, var(--cut) 100%); border: 0; }
+  /* Rank and leader sit on their own plate: the sky behind them is as bright as their text. */
+  #standing { display: flex; flex-direction: column; align-items: center; gap: calc(4 * var(--u)); padding: calc(5 * var(--u)) calc(12 * var(--u)) calc(8 * var(--u)); background: rgba(21, 23, 28, 0.74);
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px)); }
+  #standing:has(> #rank:empty):has(> #leader.none) { display: none; }
   #rank { font: 700 calc(13 * var(--u)) var(--font); letter-spacing: 0.1em; }
   #rank:empty, #leader.none { display: none; }
   #leader { display: flex; flex-direction: column; gap: calc(3 * var(--u)); width: calc(160 * var(--u)); font: 700 calc(12 * var(--u)) var(--font); letter-spacing: 0.06em; }
   #leader-row { display: flex; justify-content: space-between; gap: 8px; }
   #leader-name { overflow: hidden; text-overflow: ellipsis; --c: var(--lc); }
   #leader-kills { color: var(--dim); }
-  #leader-bar { height: calc(4 * var(--u)); background: rgba(21, 23, 28, 0.55); box-shadow: 0 0 0 1px rgba(21, 23, 28, 0.5); }
+  #leader-bar { height: calc(4 * var(--u)); background: rgba(242, 239, 232, 0.14); }
   #leader-bar i { display: block; height: 100%; background: var(--lc, var(--text)); transform-origin: left; transform: scaleX(0); }
 
   /* Kill feed, top right. */
@@ -218,6 +222,7 @@
   .pslot::after { content: ""; position: absolute; inset: 0; background: conic-gradient(rgba(0, 0, 0, 0.55) calc(var(--cd, 0) * 1turn), transparent 0); }
   .pslot .key { position: absolute; left: 50%; top: calc(100% + 4 * var(--u)); transform: translateX(-50%); display: none; }
   .pslot.sel .key { display: block; }
+  .pslot:first-child:not(.full) .key { display: block; opacity: 0.5; } /* teaches the use key while the slots are empty */
   .key { font: 700 calc(11 * var(--u))/1 var(--font); color: var(--text); padding: calc(2 * var(--u)) calc(5 * var(--u)); border: 1px solid rgba(242, 239, 232, 0.35); background: var(--panel); text-shadow: none; }
   #cycle-key { align-self: center; margin-bottom: calc(-18 * var(--u)); }
   #pips { position: absolute; left: 50%; bottom: calc(100% + 4 * var(--u)); transform: translateX(-50%); display: flex; gap: calc(4 * var(--u)); }
@@ -247,7 +252,7 @@
   #scoreboard th { font: 700 11px var(--font); letter-spacing: 0.16em; color: var(--dim); text-align: right; padding: 4px 10px 8px; border-bottom: 1px solid var(--line); }
   #scoreboard td { padding: 7px 10px; text-align: right; border-bottom: 1px solid rgba(242, 239, 232, 0.06); font-variant-numeric: tabular-nums; }
   #scoreboard th.l, #scoreboard td.l { text-align: left; }
-  #scoreboard td.r { width: 2.6em; color: var(--dim); }
+  #scoreboard td.r { width: 3.6em; white-space: nowrap; color: var(--dim); }
   #scoreboard td.s { width: 22px; padding-right: 0; }
   #scoreboard td.s .swatch { display: inline-block; vertical-align: middle; }
   #scoreboard .crown { display: inline-block; width: 18px; height: 13px; margin: -3px 6px 0 0; vertical-align: middle; }
@@ -278,8 +283,8 @@
   <div id="threat-shunts"><i></i><i></i><i></i><i></i></div>
   <div id="matchinfo">
     <div id="clock" class="panel"></div>
-    <div id="rank"></div>
-    <div id="leader" class="none"><div id="leader-row"><span id="leader-name"></span><span id="leader-kills"></span></div><div id="leader-bar"><i></i></div></div>
+    <div id="standing"><div id="rank"></div>
+    <div id="leader" class="none"><div id="leader-row"><span id="leader-name"></span><span id="leader-kills"></span></div><div id="leader-bar"><i></i></div></div></div>
   </div>
   <ul id="killfeed"></ul>
   <div id="vitals" class="panel">
