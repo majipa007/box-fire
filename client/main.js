@@ -69,10 +69,12 @@ const net = connect({
       correct(d);
     }
     powerups.onSnapshot(m); // powerups: pads and entities
+    audio.snapshot(m, self, myId, heard); // audio: Shunt hiss and locks, mines, Shock warnings, pad hums, our Shield breaking
   },
   event(m) {
     powerups.onEvent(m, myId); // powerups: pickups, uses, blasts
     if (m.e === 'blast') blastShake(m, myId, self.alive && self.mover); // feel: blasts near us shake the camera ('boom' shakes from powerups' queued play())
+    audio.event(m, myId, heard); // audio: the engine's pickups, uses and blasts (client/powerups.js plays the bible's)
     if (m.e === 'spawn' && m.id === myId) {
       Object.assign(self, freshLife(m.x, m.y, m.z, m.primary)); // exactly as the server builds it
       self.pending = [];
@@ -92,9 +94,9 @@ const net = connect({
       hitFlash(m.v); // characters: the victim flashes white
       if (m.a === myId) {
         ui.hitMarker(m.head);
-        audio.hitTick(m.head);
+        audio.hit(m.dmg === 0 ? 'shield' : m.head ? 'head' : 'body'); // audio: no damage means a Shield took it all
       }
-      if (m.v === myId) audio.hurt(); // audio:
+      if (m.v === myId) audio.hurt(m.dmg === 0); // audio:
       const attacker = m.v === myId && self.mover && others(performance.now()).find((o) => o.id === m.a);
       if (attacker) {
         // Direction to the attacker relative to where we look: 0 ahead, + to the right.
@@ -125,6 +127,7 @@ const net = connect({
 
 ui.onJoin((raw) => {
   audio.start(); // audio: the join is the first user gesture, so lobby sounds work and rendering starts early
+  audio.ambience(true); // audio: the quarry's wind
   const name = cleanName(raw);
   if (!name) return ui.showJoinError('bad-name');
   net.send({ t: 'join', name });
@@ -156,10 +159,12 @@ function fixedStep() {
   if (!me || !world || !self.alive || lobby.phase !== 'playing') return;
   prev = { x: me.x, y: me.y, z: me.z };
   const inp = { ...input.sample(), rt: renderTick(performance.now()) };
+  audio.ownUse(self.inv, inp.keys); // audio: our own use on the engine's wire, before predict() takes the slot
   if (predict(inp, world.boxes)) {
     ownShot(inp); // along this packet's angles, before the kick moves them
     recoil(weaponOf(self.arsenal));
     audio.gunshot(weaponOf(self.arsenal));
+    audio.casing(weaponOf(self.arsenal)); // audio: the case lands a moment later
   }
   net.send(encodeInput(inp));
 }
@@ -279,7 +284,7 @@ async function buildStage() {
   render.init();
   applySettings();
   const map = await (await fetch(new URL(`../shared/maps/${mapId}.json`, import.meta.url))).json();
-  audio.setWorld(map); // audio: surfaces for impacts and footsteps
+  audio.setWorld(map, mapId); // audio: surfaces for impacts and footsteps, the engine's pads
   buildWorld(render.scene, map);
   powerups.init(render.scene, mapId); // powerups: meshes and HUD
   render.scene.add(charactersGroup, effectsGroup);
