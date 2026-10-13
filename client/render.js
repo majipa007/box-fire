@@ -3,8 +3,9 @@
 import * as THREE from 'three';
 import { sun, configureRenderer, updateWorld } from './world.js'; // world:
 import { viewScene, viewCamera, updateViewmodel } from './viewmodel.js';
+import { settings } from './ui.js'; // world: Low has no MSAA (the chain-link falls back to an alpha test)
 
-export const renderer = new THREE.WebGLRenderer({ antialias: true });
+export const renderer = new THREE.WebGLRenderer({ antialias: settings.quality !== 'low' && settings.msaa !== false, powerPreference: 'high-performance' }); // world:
 renderer.info.autoReset = false; // count both passes of a frame (reset in draw)
 configureRenderer(renderer); // world: the grade, exposure and shadow type
 export const scene = new THREE.Scene();

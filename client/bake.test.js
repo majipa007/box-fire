@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { meshMap, skyline, farRidge, clouds, decals, CLOUDS } from './bake.js';
+import { meshMap, skyline, farRidge, clouds, decals, CLOUDS, SKYLINE } from './bake.js';
 
 const AO = { cell: 0.5, rays: 16, radius: 1.5, strength: 0.6 };
 const arena = JSON.parse(fs.readFileSync(new URL('../shared/maps/arena_01.json', import.meta.url)));
@@ -224,6 +224,13 @@ test('the skyline is deterministic, in budget, faces out of its solids and keeps
     if (Math.abs(c[0]) < 19.9 && Math.abs(c[2]) < 19.9) assert.ok(c[1] < -0.01, `skyline inside the arena at ${c}`);
     if (Math.abs(c[0]) < 20 && Math.abs(c[2]) < 20 && c[1] > 0) assert.ok(c[1] > 4 || c[1] < 3.6, `prop at ${c}`);
     assert.ok(Math.abs(c[0]) <= 75 && Math.abs(c[2]) <= 75, `beyond the apron at ${c}`);
+  }
+  // Scree piles sit at the feet of benches 2 and 3, on the bench in front, outside the walls.
+  const scree = quads.filter((q) => q.color === SKYLINE.scree.color);
+  assert.ok(scree.length >= 4 * 40, `${scree.length / 4} scree steps`);
+  for (const q of scree) {
+    const c = centreOf(q);
+    assert.ok(Math.hypot(c[0], c[2]) > 50 && c[1] > 6, `scree at ${c}`);
   }
   // The benches' cut faces look at the arena (or along it), never away.
   assert.ok(quads.filter((q) => Array.isArray(q.color)).length > 500);

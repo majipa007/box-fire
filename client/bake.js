@@ -267,7 +267,11 @@ export const SKYLINE = {
     { inner: 68, depth: 6, top: 21, vary: 1.5, from: 330, to: 480, plain: 12.5 },
   ],
   column: 4, step: 0.5, setBack: 1.5, foot: 0.78, // columns cut back 0–1.5 m; faces darken to 78% at the foot
-  apron: { half: 75, cell: 10, clear: 15, y: -0.05, colors: ['#c2b59c', '#bcae94', '#c6baa2'], track: '#a99c84' },
+  columnShade: [0.93, 1.03], // each column's face a little lighter or darker, so the cut reads as blocks
+  // Scree at the foot of benches 2 and 3 (bench 1's foot hides behind the walls): a stepped pile
+  // [width, depth] per step, total height in m, against every other column; half get a second step.
+  scree: { color: '#b9ab92', steps: [[3.2, 2.6], [1.8, 1.4]], height: [2, 3], firstStep: 0.55, every: 2, twoSteps: 0.5 },
+  apron: { half: 75, cell: 15, clear: 15, y: -0.05, colors: ['#c2b59c', '#bcae94', '#c6baa2'], track: '#a99c84' },
   rust: '#8a5a44', bloom: '#6f4535', graphite: '#45474c', windows: '#2a2c30', ochre: '#ad9862', teal: '#4f8f8a', tealWater: '#5f7f7c',
   board: '#c9c3b8', coping: '#d9d4ca', gabion: '#9d968a', cones: ['#d8c39a', '#cbb38a'],
   containers: ['#8a5a44', '#5f7f7c', '#ad9862', '#45474c'],
@@ -281,6 +285,7 @@ export function skyline(S = SKYLINE) {
   const at = (az, r) => [r * Math.sin(rad(az)), -r * Math.cos(rad(az))];
 
   // Benches: 4 m columns at the inner radius, tops stepped by 0.5 m, cut faces in strata.
+  let below = null; // the bench in front: its column tops are the next bench's foot
   for (const b of S.benches) {
     const n = Math.round((rad(b.to - b.from) * b.inner) / S.column);
     const tops = Array.from({ length: n }, () => b.top + Math.round(((rand() * 2 - 1) * b.vary) / S.step) * S.step);
@@ -296,7 +301,12 @@ export function skyline(S = SKYLINE) {
       const [X0, Z0] = at(a0, outer);
       const [X1, Z1] = at(a1, outer);
       const mid = (a0 + a1) / 2;
-      const tint = (y) => S.foot + (1 - S.foot) * Math.min(1, y / h); // darker toward the foot
+      const shade = S.columnShade[0] + (S.columnShade[1] - S.columnShade[0]) * rand();
+      const tint = (y) => shade * (S.foot + (1 - S.foot) * Math.min(1, y / h)); // darker toward the foot
+      if (below && i % S.scree.every === 0) {
+        const k = Math.floor(((mid - below.b.from) / (below.b.to - below.b.from)) * below.tops.length);
+        if (k >= 0 && k < below.tops.length) scree(out, at, mid, r, below.tops[k], rand, S.scree);
+      }
       strata(out, S, [x0, z0], [x1, z1], 0, h, b.plain, [-Math.sin(rad(mid)), 0, Math.cos(rad(mid))], tint); // the cut face
       quad(out, [[x0, h, z0], [x1, h, z1], [X1, h, Z1], [X0, h, Z0]], S.sand, UP);
       // Column sides, where a neighbour is cut further back or stands lower (or the horseshoe ends).
@@ -307,6 +317,7 @@ export function skyline(S = SKYLINE) {
         if (nh < h && nr < outer) strata(out, S, at(az, Math.max(r, nr)), at(az, outer), nh, h, b.plain, toward, tint);
       }
     }
+    below = { b, tops };
   }
 
   // Crusher tower (hero, backlit in the gap), its hopper and the conveyor between them.
@@ -480,28 +491,43 @@ export function farRidge(sunDir, F = FAR) {
   return { quads: out, hubs };
 }
 
-// Clouds: clusters of flat boxes, each vertex tagged with its cluster's centre so the
-// shader can drift and wrap whole clusters.
+// Clouds: clusters of voxel boxes, some side by side and some stacked on the first, each
+// vertex tagged with its cluster's centre so the shader can drift and wrap whole clusters.
+// Sides shade toward the underside colour at their lower edge, so a cluster reads as a volume.
 export const CLOUDS = {
-  seed: 5, count: 14, reach: [100, 140], altitude: [60, 85], boxes: [3, 5], size: [12, 30], thickness: [3, 6],
+  seed: 5, count: 14, reach: [100, 140], altitude: [60, 85], boxes: [3, 5], size: [12, 30], thickness: [5, 9],
+  stacked: 0.4, sideFoot: 0.45,
   top: '#ffffff', side: '#e8eef5', sunSide: '#fff1de', bottom: '#b3c0d4',
 };
 export function clouds(sunDir, C = CLOUDS) {
   const out = [];
   const rand = seeded(C.seed);
   const pick = ([a, b]) => a + (b - a) * rand();
+  const faceColor = (n) => (n[1] > 0.5 ? C.top : n[1] < -0.5 ? C.bottom : n[0] * sunDir[0] + n[2] * sunDir[2] > 0.1 ? C.sunSide : C.side);
   for (let i = 0; i < C.count; i++) {
     const r = pick(C.reach);
     const angle = rand() * 2 * Math.PI;
     const centre = [r * Math.cos(angle), pick(C.altitude), r * Math.sin(angle)];
     const n = Math.round(pick(C.boxes));
+    let base = null;
     for (let k = 0; k < n; k++) {
-      const w = pick(C.size);
-      const size = [w, pick(C.thickness), w * (0.4 + 0.5 * rand())];
-      const at = [centre[0] + (rand() - 0.5) * w * 0.8, centre[1] + (rand() - 0.5) * size[1], centre[2] + (rand() - 0.5) * w * 0.8];
+      const onTop = base && rand() < C.stacked;
+      const w = onTop ? base.w * (0.4 + 0.3 * rand()) : pick(C.size);
+      const size = [w, pick(C.thickness) * (onTop ? 0.7 : 1), w * (0.4 + 0.5 * rand())];
+      const spread = (onTop ? base.w * 0.3 : w * 0.8);
+      const y = onTop ? base.y + base.h / 2 + size[1] / 2 - 1 : centre[1] + (rand() - 0.5) * 2;
+      const at = [(onTop ? base.x : centre[0]) + (rand() - 0.5) * spread, y, (onTop ? base.z : centre[2]) + (rand() - 0.5) * spread];
+      if (!base) base = { x: at[0], y: at[1], z: at[2], w, h: size[1] };
       const first = out.length;
-      block(out, at, size, (n0) => (n0[1] > 0.5 ? C.top : n0[1] < -0.5 ? C.bottom : n0[0] * sunDir[0] + n0[2] * sunDir[2] > 0.1 ? C.sunSide : C.side), { bottom: true });
-      for (let q = first; q < out.length; q++) out[q].centre = centre;
+      block(out, at, size, faceColor, { bottom: !onTop });
+      for (let q = first; q < out.length; q++) {
+        const f = out[q];
+        f.centre = centre;
+        if (Math.abs(f.n[1]) < 0.5) {
+          const foot = mixHex(f.color, C.bottom, C.sideFoot);
+          f.color = [0, 1, 2, 3].map((c) => (f.p[c * 3 + 1] < at[1] ? foot : f.color));
+        }
+      }
     }
   }
   return out;
@@ -594,6 +620,28 @@ function strata(out, S, a, b, y0, y1, plain, toward, tint = () => 1) {
       const h = Math.min(hi, y1);
       if (h > l + 1e-6) face(l, h, color);
     }
+  }
+}
+
+// A scree pile against the cut face at azimuth az, radius r, on the bench top at height y:
+// stepped boxes (top, front and sides; the back is in the rock) spilling toward the arena.
+function scree(out, at, az, r, y, rand, P) {
+  const inward = [-Math.sin(rad(az)), 0, Math.cos(rad(az))];
+  const along = [Math.cos(rad(az)), 0, Math.sin(rad(az))];
+  const total = P.height[0] + (P.height[1] - P.height[0]) * rand();
+  const steps = rand() < P.twoSteps ? 2 : 1;
+  const shift = (rand() - 0.5) * 0.8; // off the column's centre along the face
+  for (let k = 0; k < steps; k++) {
+    const [w, d] = P.steps[k];
+    const y0 = k ? y + total * P.firstStep : y;
+    const y1 = k ? y + total : y0 + total * P.firstStep;
+    const [cx, cz] = at(az, r);
+    const pt = (t, depth, yy) => [cx + along[0] * (t + shift) + inward[0] * depth, yy, cz + along[2] * (t + shift) + inward[2] * depth];
+    const [l, m] = [-w / 2, w / 2];
+    quad(out, [pt(l, 0, y1), pt(m, 0, y1), pt(m, d, y1), pt(l, d, y1)], P.color, UP);
+    quad(out, [pt(l, d, y0), pt(m, d, y0), pt(m, d, y1), pt(l, d, y1)], P.color, inward);
+    quad(out, [pt(l, 0, y0), pt(l, d, y0), pt(l, d, y1), pt(l, 0, y1)], P.color, along.map((v) => -v));
+    quad(out, [pt(m, 0, y0), pt(m, d, y0), pt(m, d, y1), pt(m, 0, y1)], P.color, along);
   }
 }
 
