@@ -23,7 +23,7 @@ for (const [name, cam] of Object.entries(ANGLES)) {
   page.on('pageerror', (e) => problems.push(`${name}: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error') problems.push(`${name}: ${m.text()}`); });
   await page.goto(`http://localhost:${port}/?debug&cam=${cam}`);
-  await page.fill('#name', `cam-${name}`);
+  await page.fill('#name', 'cam'); // one name: each angle rejoins the last one's slot, so 9 bots still fit
   await page.click('#join-form button');
   await page.waitForTimeout(400);
   if (await page.isVisible('#start')) await page.click('#start');
