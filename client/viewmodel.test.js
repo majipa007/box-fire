@@ -32,7 +32,7 @@ async function suite() {
   scene.updateMatrixWorld();
   const gun = vm.viewScene.getObjectByName('viewmodel');
   const rig = (name) => vm.viewScene.getObjectByName(name);
-  const bone = (weapon, i) => rig(weapon).skeleton.bones[i]; // 0 body, 1 part, 2 left, 3 slide, 4 shell
+  const bone = (weapon, i) => rig(weapon).skeleton.bones[i]; // 0 body, 1 part, 2 left, 3 slide, 4 shell, 5 and 6 the forearms
   const viewLight = (type) => vm.viewScene.children.find((o) => o[type]);
   let now = 0;
   function frames(n, each) {
@@ -102,7 +102,7 @@ async function suite() {
       assert.ok(mesh.isSkinnedMesh && mesh.children.length === 1, name); // the root bone only: one draw
       assert.equal(mesh.geometry.attributes.position.count, m.boxes.length * 24);
       // The arms: 1.15 × third person, the armband in the slot colour.
-      for (const side of ['body', 'left']) {
+      for (const side of ['rfore', 'lfore']) {
         const arm = m.boxes.filter((b) => b.part === side && b.from);
         assert.deepEqual(arm.find((b) => b.color === 'slot')?.size, [0.12, 0.12], `${name} ${side} armband`);
         assert.deepEqual(arm.find((b) => b.color === 'kit')?.size, [0.115, 0.115], `${name} ${side} forearm`);
@@ -183,16 +183,123 @@ async function suite() {
     assert.equal(casings.count, 1, 'out at the pump');
   });
 
-  test('the reload timer drops the magazine and seats it again', () => {
-    spawn('rifle');
-    const mag = bone('rifle', 1);
-    const seated = mag.position.clone();
-    self.arsenal.reload = WEAPONS.rifle.reload * 0.6; // 40% through: the new magazine is on its way
-    frames(30);
-    assert.ok(mag.position.y < seated.y - 0.15, 'dropped');
+  // What the player sees of some boxes (picked by bone and colour): the share
+  // of their corners on screen, a hidden bone counting as off, and the lowest
+  // on-screen corner in NDC (-1 is the bottom edge). No occlusion.
+  const BONE = { body: 0, part: 1, left: 2, slide: 3, shell: 4, rfore: 5, lfore: 6 };
+  const corner = new THREE.Vector3();
+  function onScreen(weapon, pick, out = []) {
+    const mesh = rig(weapon);
+    vm.viewScene.updateMatrixWorld(true);
+    const pos = mesh.geometry.attributes.position;
+    let n = 0;
+    let inside = 0;
+    let low = Infinity;
+    out.length = 0;
+    vm.MODELS[weapon].boxes.forEach((b, k) => {
+      if (!pick(b)) return;
+      const shown = mesh.skeleton.bones[BONE[b.part]].scale.x > 0;
+      for (let i = k * 24; i < k * 24 + 24; i++) {
+        n++;
+        if (!shown) continue;
+        corner.fromBufferAttribute(pos, i);
+        mesh.applyBoneTransform(i, corner);
+        corner.applyMatrix4(mesh.matrixWorld).project(vm.viewCamera);
+        out.push(corner.x, corner.y);
+        if (Math.abs(corner.x) > 1 || Math.abs(corner.y) > 1) continue;
+        inside++;
+        low = Math.min(low, corner.y);
+      }
+    });
+    return { share: inside / n, low };
+  }
+  // The power-up slots at 1280 × 720: x 560–720, y 630–705, in NDC.
+  const underHud = (c) => c.some((v, i) => i % 2 === 0 && Math.abs(v) < 0.125 && c[i + 1] < 1 - (2 * 630) / 720 && c[i + 1] > 1 - (2 * 705) / 720);
+  const oldMag = (b) => b.part === 'part';
+  const newMag = (b) => b.part === 'shell';
+
+  for (const weapon of ['rifle', 'pistol']) {
+    test(`a ${weapon} reload drops the magazine in view, brings the new one up in the hand, and swaps them unseen`, () => {
+      spawn(weapon);
+      const w = WEAPONS[weapon];
+      const mag = bone(weapon, 1);
+      const hand = bone(weapon, 4);
+      const handCorners = [];
+      const magCorners = [];
+      const heldCorners = [];
+      let dropped = false;
+      let seats = 0;
+      self.arsenal.reload = w.reload;
+      while (self.arsenal.reload > 0) {
+        const wasOld = onScreen(weapon, oldMag);
+        const wasNew = onScreen(weapon, newMag, handCorners);
+        const wasHeld = hand.scale.x > 0;
+        self.arsenal.reload = Math.max(0, self.arsenal.reload - 1 / 60);
+        frames(1);
+        const t = (1 - self.arsenal.reload / w.reload).toFixed(2);
+        const old = onScreen(weapon, oldMag, magCorners);
+        const held = onScreen(weapon, newMag, heldCorners);
+        assert.ok(!(hand.scale.x > 0 && mag.scale.x > 0), `${t}: one magazine at a time`);
+        if (t > 0.18 && t < 0.25 && old.share > 0.9 && mag.position.y < vm.MODELS[weapon].pivots.part[1] - 0.08) dropped = true;
+        if (hand.scale.x > 0 && !wasHeld) { // the hand comes back with a new one
+          assert.equal(wasOld.share, 0, `${t}: the old magazine left the screen first`);
+          assert.equal(held.share, 0, `${t}: the new one comes in from off screen`);
+        }
+        if (mag.scale.x > 0 && wasHeld) { // the hand lets go at the seat
+          seats++;
+          assert.ok(t > 0.55 && t < 0.66, `seated at ${t}`);
+          assert.equal(wasNew.share, 1);
+          const jump = Math.max(...magCorners.map((v, i) => Math.abs(v - handCorners[i])));
+          assert.ok(jump < 0.02, `the magazine stays put as the hand lets go (${jump.toFixed(3)} NDC)`);
+        }
+        if (t >= 0.38 && t <= 0.56) {
+          assert.equal(held.share, 1, `${t}: the new magazine is on screen`);
+          assert.ok(!underHud(heldCorners), `${t}: and clear of the HUD`);
+        }
+      }
+      assert.ok(dropped, 'the old magazine drops in view first');
+      assert.equal(seats, 1, 'one seat');
+      frames(60);
+      assert.ok(mag.position.distanceTo(new THREE.Vector3(...vm.MODELS[weapon].pivots.part)) < 1e-3, 'seated');
+    });
+  }
+
+  test('each shell shows in the left hand, outside the glove and on screen, until it is pushed in', () => {
+    spawn('shotgun');
+    const m = vm.MODELS.shotgun;
+    const shell = m.boxes.find((b) => b.part === 'shell');
+    const palm = m.boxes.find((b) => b.part === 'left' && b.color === 'glove');
+    assert.ok(shell.at.some((v, i) => Math.abs(v - palm.at[i]) > palm.size[i] / 2), 'the shell sits outside the palm');
+    const corners = [];
+    for (const s of [0.05, 0.15, 0.25]) { // hand to the port, 0 to 0.25 s of each shell
+      self.arsenal.reload = WEAPONS.shotgun.reload - s;
+      frames(1);
+      self.arsenal.reload = WEAPONS.shotgun.reload - s; // pinned: let the hand get there
+      frames(30);
+      assert.equal(onScreen('shotgun', (b) => b === shell, corners).share, 1, `${s} s: the shell is on screen`);
+      assert.ok(!underHud(corners), `${s} s: and clear of the HUD`);
+    }
     self.arsenal.reload = 0;
+    frames(30);
+    assert.equal(bone('shotgun', 4).scale.x, 0, 'no shell in the hand after the reload');
+  });
+
+  test('your slot colour shows on the screen with the pistol out: both armbands come in at the bottom', () => {
+    spawn('pistol');
+    const corners = [];
+    for (const side of ['rfore', 'lfore']) {
+      const band = (b) => b.part === side && b.color === 'slot';
+      const { share } = onScreen('pistol', band, corners);
+      const top = Math.max(...corners.filter((_, i) => i % 2));
+      assert.ok(share > 0 && top > -1 + (2 * 40) / 720, `${side}: the armband reaches 40 px up the screen at 720p (${share}, ${top.toFixed(3)})`);
+    }
+    vm.gunKick();
+    frames(6); // the kick at its peak
+    for (const side of ['rfore', 'lfore']) {
+      const { share } = onScreen('pistol', (b) => b.part === side && b.color === 'slot');
+      assert.ok(share > 0, `${side}: still there at the top of the kick`);
+    }
     frames(60);
-    assert.ok(mag.position.distanceTo(seated) < 1e-3, 'seated');
   });
 
   test('the shotgun racks its pump 0.07 m between 300 and 560 ms after a shot', () => {
