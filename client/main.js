@@ -48,6 +48,7 @@ const net = connect({
     syncClock(m.tick, performance.now());
     if (m.phase === 'playing' && lobby.phase !== 'playing') audio.ui('start'); // audio: a match begins
     roster = new Map(m.players.map((p) => [p.id, p]));
+    setArmband(PLAYER_COLORS[roster.get(myId)?.slot] ?? '#f2efe8'); // viewmodel: our slot colour on the sleeves (a late join spawns before its roster entry)
     lobby = m;
     ui.renderLobby(m, myId);
     ui.showEndMatch(m.host === myId && m.phase === 'playing');
@@ -81,7 +82,6 @@ const net = connect({
       input.look.pitch = 0;
       input.setSlot(0); // every life starts on the primary
       resetFeel(); // feel: no kick owed, no offsets
-      setArmband(PLAYER_COLORS[roster.get(myId)?.slot] ?? '#f2efe8'); // viewmodel: our slot colour on the sleeves
       ui.hideDeath();
       ui.showPicker(false);
       audio.respawn(); // audio: un-muffles the world
