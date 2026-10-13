@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { meshMap, landscape } from './bake.js';
+import { meshMap } from './bake.js';
 
 const AO = { cell: 0.5, rays: 16, radius: 1.5, strength: 0.6 };
 const arena = JSON.parse(fs.readFileSync(new URL('../shared/maps/arena_01.json', import.meta.url)));
@@ -172,46 +172,4 @@ test('edges darken only where a face turns away, not where it runs into another 
 test('arena_01 stays within the triangle budget', () => {
   const { triangles: n } = meshMap(arena.boxes, AO);
   assert.ok(n < 40000, `${n} triangles`);
-});
-
-const SKYLINE = {
-  seed: 7, groundY: -0.05, clear: 21,
-  rings: [
-    { cell: 6, inner: 0, outer: 64, height: [0, 0], colors: ['#111111'] },
-    { cell: 4, inner: 46, outer: 58, height: [7, 15], bumps: 5, rough: 0.25, step: 2.5, strata: 2.5, colors: ['#222222', '#333333'] },
-    { cell: 12, inner: 128, outer: 144, height: [28, 46], bumps: 4, rough: 0.15, ridge: 1, colors: ['#444444'] },
-  ],
-  clouds: { count: 14, reach: [50, 125], altitude: [60, 78], puffs: [2, 5], size: [8, 20], thickness: [2, 4], colors: { top: '#fff', side: '#eee', bottom: '#ddd' } },
-};
-
-test('the skyline is deterministic, outward-facing and clear of the arena', () => {
-  const a = landscape(SKYLINE);
-  assert.deepEqual(a, landscape(SKYLINE));
-  assert.notDeepEqual(a, landscape({ ...SKYLINE, seed: 8 }));
-  for (const { p, n } of [...a.terrain, ...a.clouds]) {
-    const c = [0, 1, 2].map((k) => (p[k] + p[k + 3] + p[k + 6] + p[k + 9]) / 4);
-    assert.ok(dot(cross(sub(p.slice(3, 6), p.slice(0, 3)), sub(p.slice(6, 9), p.slice(0, 3))), n) > 0, 'inward quad');
-    if (Math.abs(c[0]) < 21 && Math.abs(c[2]) < 21) assert.ok(c[1] <= SKYLINE.groundY + 1e-9, `skyline inside the arena at ${c}`);
-  }
-  assert.ok(a.clouds.every(({ p }) => p.filter((_, k) => k % 3 === 1).every((y) => y > 50)));
-});
-
-test('every skyline vertex stays inside the camera far plane from anywhere in the arena', () => {
-  // world.js's real settings, read without three.js: its LANDSCAPE object literal.
-  const src = fs.readFileSync(new URL('./world.js', import.meta.url), 'utf8');
-  const start = src.indexOf('{', src.indexOf('export const LANDSCAPE = '));
-  let end = start;
-  for (let depth = 0; ; end++) {
-    depth += src[end] === '{' ? 1 : src[end] === '}' ? -1 : 0;
-    if (depth === 0) break;
-  }
-  const settings = Function(`return (${src.slice(start, end + 1)});`)();
-  const { terrain, clouds } = landscape(settings);
-  const corner = Math.hypot(20, 20);
-  for (const { p } of [...terrain, ...clouds]) {
-    for (let k = 0; k < 12; k += 3) {
-      const reach = Math.hypot(Math.hypot(p[k], p[k + 2]) + corner, p[k + 1]);
-      assert.ok(reach < settings.far, `vertex ${p.slice(k, k + 3)} is ${reach.toFixed(1)} m from an arena corner`);
-    }
-  }
 });

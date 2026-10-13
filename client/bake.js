@@ -1,7 +1,6 @@
 // Static-world baking with no three.js and no DOM, so Node can test it.
 // world.js turns the arrays and quads made here into meshes.
 import { rayBox } from '../shared/collision.js';
-import { shotRng } from '../shared/rng.js';
 
 const q = (v) => Math.round(v * 1e4) / 1e4; // 0.1 mm grid: equal box edges compare equal
 const TANGENTS = [[2, 1], [0, 2], [0, 1]]; // [u, v] axes per normal axis; v is up on side faces
@@ -175,84 +174,6 @@ function hemisphere(a, s, n) {
     d[a] = s * Math.sqrt(1 - r * r);
     return d;
   });
-}
-
-// The skyline beyond the walls → { terrain, clouds }: lists of quads
-// { p: 4 corners (12 numbers, counter-clockwise seen from the front), n, color }.
-// Each ring (ground, cliffs, mountain bands) is a grid of box columns whose
-// cell centres lie between `inner` and `outer` m from the arena centre; only
-// column tops and the parts of their sides that rise above a neighbour are
-// emitted, cut into `strata` bands. Heights follow a smooth periodic wave
-// around the ring (`bumps` harmonics), shaped across the ring by `ridge`
-// (0 flat top, 1 peaked middle), roughened per column and snapped to `step`.
-// Cells wholly inside the map footprint (|x|, |z| ≤ clear) are skipped.
-// Clouds are clusters of flat boxes. Deterministic from the seed.
-export function landscape({ seed, groundY, clear, rings, clouds }) {
-  const rand = shotRng(seed, 0, 0); // any seeded generator will do
-  const terrain = [];
-  for (const ring of rings) columns(ring, rand, groundY, clear, terrain);
-  const sky = [];
-  const pick = (range) => range[0] + (range[1] - range[0]) * rand();
-  for (let i = 0; i < clouds.count; i++) {
-    const r = pick(clouds.reach);
-    const angle = rand() * 2 * Math.PI;
-    const centre = [r * Math.cos(angle), pick(clouds.altitude), r * Math.sin(angle)];
-    const puffs = Math.round(pick(clouds.puffs));
-    for (let k = 0; k < puffs; k++) {
-      const w = pick(clouds.size);
-      const half = [w / 2, pick(clouds.thickness) / 2, (w * (0.4 + 0.4 * rand())) / 2];
-      const c = [centre[0] + (rand() - 0.5) * w, centre[1] + (rand() - 0.5) * half[1], centre[2] + (rand() - 0.5) * w];
-      const min = c.map((v, j) => v - half[j]);
-      const max = c.map((v, j) => v + half[j]);
-      for (let a = 0; a < 3; a++) {
-        for (const s of [-1, 1]) boxFace(min, max, a, s, a !== 1 ? clouds.colors.side : s > 0 ? clouds.colors.top : clouds.colors.bottom, sky);
-      }
-    }
-  }
-  return { terrain, clouds: sky };
-}
-
-function columns(ring, rand, groundY, clear, out) {
-  const { cell, inner, outer, height, colors } = ring;
-  const n = Math.ceil(outer / cell);
-  const wave = periodic(rand, ring.bumps ?? 0);
-  const tops = new Map();
-  for (let i = -n; i < n; i++) {
-    for (let j = -n; j < n; j++) {
-      const x = (i + 0.5) * cell;
-      const z = (j + 0.5) * cell;
-      const d = Math.hypot(x, z);
-      if (d < inner || d > outer || (Math.abs(x) + cell / 2 <= clear && Math.abs(z) + cell / 2 <= clear)) continue;
-      const t = outer > inner ? (d - inner) / (outer - inner) : 0;
-      let h = (height[0] + (height[1] - height[0]) * wave(Math.atan2(z, x))) * (1 - (ring.ridge ?? 0) * Math.abs(2 * t - 1));
-      h *= 1 + (ring.rough ?? 0) * (2 * rand() - 1);
-      if (ring.step) h = Math.max(ring.step, Math.round(h / ring.step) * ring.step);
-      tops.set(`${i},${j}`, { i, j, y: groundY + Math.max(0, h), color: colors[Math.floor(rand() * colors.length)] });
-    }
-  }
-  const band = ring.strata ?? Infinity;
-  for (const { i, j, y, color } of tops.values()) {
-    const min = [i * cell, groundY, j * cell];
-    const max = [(i + 1) * cell, y, (j + 1) * cell];
-    boxFace(min, max, 1, 1, color, out);
-    for (const [a, s, di, dj] of [[0, 1, 1, 0], [0, -1, -1, 0], [2, 1, 0, 1], [2, -1, 0, -1]]) {
-      const below = tops.get(`${i + di},${j + dj}`)?.y ?? groundY;
-      // The exposed strip, cut where the strata change colour.
-      for (let y0 = below; y0 < y - 1e-6;) {
-        const k = Math.floor((y0 - groundY) / band + 1e-6);
-        const y1 = Math.min(y, groundY + (k + 1) * band);
-        boxFace([min[0], y0, min[2]], [max[0], y1, max[2]], a, s, colors[k % colors.length], out);
-        y0 = y1;
-      }
-    }
-  }
-}
-
-// A smooth function of the angle around the ring, periodic, in [0, 1].
-function periodic(rand, bumps) {
-  const parts = Array.from({ length: bumps }, (_, k) => [1 / (k + 1), k + 1, rand() * 2 * Math.PI]);
-  const total = parts.reduce((sum, [w]) => sum + w, 0) || 1;
-  return (angle) => 0.5 + parts.reduce((sum, [w, f, phase]) => sum + w * Math.sin(f * angle + phase), 0) / (2 * total);
 }
 
 // One face of a box as a quad, counter-clockwise seen from outside.
