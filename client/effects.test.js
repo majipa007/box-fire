@@ -169,6 +169,10 @@ test('materials: crates splinter, steel sparks, and a map with materials is foll
   assert.equal(cubes.count, 0);
   assert.equal(streaks.geometry.instanceCount, 6); // sparks, streaked along their flight
   run(1);
+  fx.shot({ from: [0, 1.5, 0], ends: [[0.2, 0, -1], [-0.2, 0, -1]], weapon: 'shotgun' });
+  frame();
+  assert.equal(streaks.geometry.instanceCount, 2 + 12); // a tracer per pellet; 6 sparks per pellet, as for any bullet
+  run(1);
   fx.setMap(MAP);
 });
 

@@ -31,8 +31,8 @@ const LOOK = {
     puff: '#d9d2c4', puffAlpha: 0.5, puffSize: [0.25, 0.6], puffLife: 0.4,
     decal: ['#2a2724', '#e4ded2'],
   },
-  wood: { chips: { rifle: 4, pistol: 4, pellet: 2, bolt: 3 }, size: [0.015, 0.015, 0.06], speed: [2, 3], life: [0.8, 0.8], color: '#c6a77a', decal: ['#3a2a1a', '#c6a77a'] },
-  steel: { sparks: { rifle: 6, pistol: 6, pellet: 3, bolt: 6 }, px: 3, speed: [6, 10], life: 0.2, color: '#ff8a3d', decal: ['#2a2a2a', '#b0b0b0'] },
+  wood: { chips: 4, size: [0.015, 0.015, 0.06], speed: [2, 3], life: [0.8, 0.8], color: '#c6a77a', decal: ['#3a2a1a', '#c6a77a'] },
+  steel: { sparks: 6, px: 3, speed: [6, 10], life: 0.2, color: '#ff8a3d', decal: ['#2a2a2a', '#b0b0b0'] },
   spark: { core: '#fff1c9', edge: '#3a2a20', stretch: 0.035, pxPerM: 0.00104 }, // a hot core, the rim colour, a dark edge; streaked over `stretch` s of flight; px at 1080p, 90° hfov
   shade: [0.36, 0.4, 0.48], // unlit puffs in the sun's shadow take this (linear) tint of skylight
   decal: { size: { rifle: 0.07, pistol: 0.06, pellet: 0.045, bolt: 0.08 }, core: 0.42, halo: 0.85, lift: 0.004, minFit: 0.6 },
@@ -1068,14 +1068,14 @@ export function impact(point, normal, surface, weapon = 'rifle') {
   if (s.kind === 'steel' || w === 'bolt') {
     const L = LOOK.steel;
     const rim = w === 'bolt' ? toColor(LOOK.bolt.body) : toColor(L.color);
-    for (let k = w === 'bolt' ? LOOK.bolt.sparks : L.sparks[w] ?? L.sparks.rifle; k > 0; k--) {
+    for (let k = w === 'bolt' ? LOOK.bolt.sparks : L.sparks; k > 0; k--) {
       randomUnit(_v).multiplyScalar(0.7).add(n).normalize().multiplyScalar(rand(L.speed));
       spawnSpark(_p.fromArray(point).addScaledVector(n, 0.01), _v, rim, L.life * (0.6 + Math.random() * 0.8), L.px);
     }
   }
   if (s.kind === 'wood') {
     const L = LOOK.wood;
-    for (let k = Math.min(L.chips[w] ?? L.chips.rifle, budget.chips); k > 0; k--, budget.chips--) {
+    for (let k = Math.min(L.chips, budget.chips); k > 0; k--, budget.chips--) {
       _p.fromArray(point).addScaledVector(n, 0.03);
       randomUnit(_v).multiplyScalar(1.2).addScaledVector(n, rand(L.speed));
       spawnCube(_p, _v, _s.fromArray(L.size), toColor(L.color), rand(L.life), 18, true);
@@ -1347,7 +1347,7 @@ export function deathBurst(parts, color, dir, head = false) {
           if (_v.lengthSq() < 1e-8) _v.set(0, 1, 0);
           _v.normalize().multiplyScalar(rand(L.speed));
           _v.y += L.up;
-          if (dirLen > 0) _v.addScaledVector(_u.fromArray(dir), (L.push / dirLen) * (0.6 + Math.random() * 0.4));
+          if (dirLen > 0) _v.addScaledVector(_u.fromArray(dir), L.push / dirLen);
           spawnCube(_p, _v, _s.set(s0 * 0.9, s1 * 0.9, s2 * 0.9), c, rand(L.life), 8, false);
         }
       }
