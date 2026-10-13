@@ -49,7 +49,7 @@
 
   /* Lobby: a card on the left over the live, orbiting arena. */
   #lobby { justify-content: flex-start; padding-left: 64px; background: linear-gradient(90deg, rgba(21, 23, 28, 0.55), rgba(21, 23, 28, 0) 55%); }
-  #lobby .card { width: 420px; padding: 34px 36px 30px; }
+  #lobby .card { width: 420px; padding: 34px 36px 30px; max-height: 92vh; overflow-y: auto; } /* a full lobby on a short laptop window still reaches Start */
   #lobby h1 { font-size: 64px; letter-spacing: 0.06em; margin: 4px 0 2px; text-shadow: var(--shadow); }
   #lobby h1 em { font-style: normal; color: var(--accent); }
   #lobby .eyebrow { margin-bottom: 22px; }
