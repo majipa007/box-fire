@@ -172,7 +172,7 @@ export function makeDecalAtlas() {
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
-  const g = canvas.getContext('2d');
+  const g = canvas.getContext('2d', { willReadFrequently: true }); // the worn cells read back
   const cells = {};
   const rand = seeded(21);
   let x = 0;
@@ -201,12 +201,16 @@ export function makeDecalAtlas() {
     c.fillText(label, w / 2, h / 2 + h * 0.04);
   };
   const STENCIL = (px) => `bold ${px}px "DejaVu Sans Mono", "Courier New", monospace`;
+  const label = (name, px, worn) => {
+    g.font = STENCIL(px);
+    cell(name, Math.ceil(g.measureText(name).width + px * 0.3), Math.round(px * 1.1), text(name, STENCIL(px)), worn);
+  };
   cell('solid', 8, 8, (c, w, h) => c.fillRect(0, 0, w, h));
-  for (const n of ['01', '02', '03', '04']) cell(n, 72, 60, text(n, STENCIL(58)), 0.12);
-  cell('PIT 7', 200, 60, text('PIT 7', STENCIL(58)), 0.15);
-  for (const n of ['BX-01', 'BX-02', 'BX-03', 'BX-04']) cell(n, 120, 30, text(n, STENCIL(28)), 0.1);
-  cell('BOXFIRE', 252, 48, text('BOXFIRE', STENCIL(48)));
-  cell('QUARRY CO.', 330, 40, text('QUARRY CO.', STENCIL(38)));
+  for (const n of ['01', '02', '03', '04']) label(n, 56, 0.12);
+  label('PIT 7', 56, 0.15);
+  for (const n of ['BX-01', 'BX-02', 'BX-03', 'BX-04']) label(n, 26, 0.1);
+  label('BOXFIRE', 44);
+  label('QUARRY CO.', 36);
   cell('grate', 48, 48, (c, w, h) => {
     c.fillRect(0, 0, w, 3);
     c.fillRect(0, h - 3, w, 3);
