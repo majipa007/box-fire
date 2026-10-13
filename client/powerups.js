@@ -477,7 +477,8 @@ function drawPads(s, tick) {
     // Refilling: the next item as a pulsing hologram, a ring of countdown
     // cubes, and a dim beam that flickers to full over the last few seconds.
     const pulse = LOOK.hologram.low + (1 - LOOK.hologram.low) * (0.5 + 0.5 * Math.sin(TAU * LOOK.hologram.pulseHz * s));
-    glyph(p.kind, p.x, y, p.z, yaw, LOOK.hologram.scale, tint.copy(HOLO[p.kind]).multiplyScalar(pulse), HOLO_CORE, true);
+    // No hull: with the 24 countdown cubes, 9 hulled holograms pass the 9k triangles.
+    glyph(p.kind, p.x, y, p.z, yaw, LOOK.hologram.scale, tint.copy(HOLO[p.kind]).multiplyScalar(pulse), HOLO_CORE, false);
     const C = LOOK.countdown;
     const filled = Math.floor(C.cubes * Math.min(1, 1 - (left * TICK_RATE) / (p.span || 1)));
     for (let i = 0; i < C.cubes; i++) {
