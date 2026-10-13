@@ -2,7 +2,7 @@
 // skyline beyond the walls. Look numbers live in LOOK and LIGHTS (the art and
 // feel bible, §2); costs are for an Iris Xe at 1080p.
 import * as THREE from 'three';
-import { meshMap } from './bake.js';
+import { meshMap, skyline, farRidge, clouds, FAR } from './bake.js';
 import { makeTexture } from './textures.js';
 
 // Late-afternoon sun (40° up, azimuth 243° clockwise from north = −z) and a bounce-lit sky fill.
@@ -21,6 +21,10 @@ export const LOOK = {
   fog: { near: 30, far: 160 }, // radial, smoothstep falloff, in sky.horizon; players opt out (fog: false)
   // Baked AO (~20 ms at load): faces cut to `cell` m, `rays` rays per vertex reaching `radius` m.
   ao: { cell: 0.75, rays: 16, lowRays: 8, radius: 1.5, strength: 0.6 },
+  // Clouds drift toward azimuth 60° and wrap (shrinking away) at `wrap` m from the camera.
+  clouds: { speed: 1.5, azimuth: 60, wrap: 140, fade: 25 },
+  // Dust motes (1 draw, first to cut): points in a box around the camera, drifting with the wind.
+  motes: { count: 160, box: 24, color: '#fff2d6', opacity: 0.15, size: 2, speed: 0.15 },
 };
 
 // Map materials by box `color` (§2.6): the textures.js recipe, the footstep surface and bake
@@ -100,6 +104,9 @@ export function buildWorld(scene, map) {
     mesh.renderOrder = name === 'slab' ? 1 : 0; // the floor after the walls, so early-z rejects hidden floor
     world.add(mesh);
   }
+  const solid = new THREE.Mesh(quadGeometry(skyline()), new THREE.MeshLambertMaterial({ vertexColors: true }));
+  solid.castShadow = solid.receiveShadow = true;
+  world.add(solid, buildFar(), buildMotes());
   scene.add(world);
   boxes = map.boxes.map((b) => ({ min: b.pos.map((p, i) => p - b.size[i] / 2), max: b.pos.map((p, i) => p + b.size[i] / 2), surface: materialOf(b).surface }));
 }
@@ -110,8 +117,129 @@ const materialOf = (box) => {
   return { mat: m.name, top: m.top, vTop: m.vTop, tile: m.tile, surface: m.surface };
 };
 
-// Per frame: nothing yet beyond what follows the camera.
-export function updateWorld(now, camera) {}
+// Per frame: the far group and the motes follow the camera; clouds drift, blades turn.
+const bladeQ = new THREE.Quaternion();
+const bladeRoll = new THREE.Quaternion();
+const bladeM = new THREE.Matrix4();
+const bladeP = new THREE.Vector3();
+const ONE = new THREE.Vector3(1, 1, 1);
+const Z = new THREE.Vector3(0, 0, 1);
+const Y = new THREE.Vector3(0, 1, 0);
+export function updateWorld(now, camera) {
+  if (!far) return;
+  far.position.set(camera.position.x, 0, camera.position.z);
+  motes.uniforms.moteCam.value.copy(camera.position);
+  if (quality === 'low') return; // no motion on Low
+  const t = now / 1000;
+  far.uniforms.cloudTime.value = t;
+  motes.uniforms.moteTime.value = t;
+  poseBlades(t);
+}
+function poseBlades(t) {
+  const spin = (t * FAR.turbines.rpm * Math.PI) / 30;
+  far.hubs.forEach((h, i) => {
+    bladeQ.setFromAxisAngle(Y, h.yaw);
+    for (let k = 0; k < 3; k++) {
+      bladeRoll.setFromAxisAngle(Z, spin + (k * 2 * Math.PI) / 3 + i);
+      bladeM.compose(bladeP.set(h.x, h.y, h.z), bladeRoll.premultiply(bladeQ), ONE);
+      far.blades.setMatrixAt(i * 3 + k, bladeM);
+    }
+  });
+  far.blades.instanceMatrix.needsUpdate = true;
+}
+
+// The far group (3 draws), locked to the camera's x/z, unlit and unfogged with colours
+// pre-hazed toward the horizon: the ridge and turbine towers, the blades, the clouds.
+let far = null;
+function buildFar() {
+  const unlit = (o = {}) => new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, toneMapped: false, ...o });
+  const group = new THREE.Group();
+  const ridge = farRidge(LIGHTS.sunDir);
+  const T = FAR.turbines;
+  const blade = new THREE.BoxGeometry(...T.blade).translate(0, T.blade[1] / 2, 0);
+  const blades = new THREE.InstancedMesh(blade, unlit({ vertexColors: false, color: T.color }), ridge.hubs.length * 3);
+  const C = LOOK.clouds;
+  const uniforms = {
+    cloudTime: { value: 0 },
+    cloudDrift: { value: new THREE.Vector2(Math.sin(THREE.MathUtils.degToRad(C.azimuth)), -Math.cos(THREE.MathUtils.degToRad(C.azimuth))).multiplyScalar(C.speed) },
+    cloudWrap: { value: C.wrap },
+    cloudFade: { value: C.fade },
+  };
+  const cloudMaterial = unlit();
+  cloudMaterial.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec3 centre;\nuniform float cloudTime, cloudWrap, cloudFade;\nuniform vec2 cloudDrift;')
+      .replace('#include <begin_vertex>', `
+        // Drift the cluster, wrap it along the wind within the wrap circle, shrink it near the edge.
+        vec2 windDir = normalize( cloudDrift );
+        vec2 c = centre.xz + cloudDrift * cloudTime;
+        float along = dot( c, windDir );
+        vec2 across = c - along * windDir;
+        float chord = sqrt( max( cloudWrap * cloudWrap - dot( across, across ), 4.0 * cloudFade * cloudFade ) );
+        along = mod( along + chord, 2.0 * chord ) - chord;
+        vec2 xz = across + along * windDir;
+        vec3 transformed = vec3( xz.x, centre.y, xz.y ) + ( position - centre ) * smoothstep( chord, chord - cloudFade, abs( along ) );`);
+  };
+  const ridgeMesh = new THREE.Mesh(quadGeometry(ridge.quads), unlit());
+  const cloudMesh = new THREE.Mesh(quadGeometry(clouds(LIGHTS.sunDir)), cloudMaterial);
+  for (const m of [ridgeMesh, blades, cloudMesh]) m.frustumCulled = false; // a ring around the camera, or moved in the shader
+  group.add(ridgeMesh, blades, cloudMesh);
+  far = Object.assign(group, { blades, hubs: ridge.hubs, uniforms });
+  poseBlades(0);
+  return group;
+}
+
+// Dust motes: wrapped into a box around the camera in the shader, so 0 work per frame.
+let motes = null;
+function buildMotes() {
+  const M = LOOK.motes;
+  const position = new Float32Array(M.count * 3).map(() => Math.random() * M.box);
+  const geometry = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(position, 3));
+  const material = new THREE.PointsMaterial({ color: M.color, size: M.size, sizeAttenuation: false, transparent: true, opacity: M.opacity, depthWrite: false, fog: false, toneMapped: false });
+  const wind = THREE.MathUtils.degToRad(LOOK.clouds.azimuth);
+  const uniforms = { moteCam: { value: new THREE.Vector3() }, moteTime: { value: 0 }, moteDrift: { value: new THREE.Vector3(Math.sin(wind), 0.2, -Math.cos(wind)).multiplyScalar(M.speed) } };
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 moteCam, moteDrift;\nuniform float moteTime;')
+      .replace('#include <begin_vertex>', `vec3 transformed = mod( position + moteDrift * moteTime - moteCam + ${(M.box / 2).toFixed(1)}, ${M.box.toFixed(1)} ) - ${(M.box / 2).toFixed(1)} + moteCam;`);
+  };
+  const points = new THREE.Points(geometry, material);
+  points.frustumCulled = false;
+  points.visible = quality !== 'low';
+  motes = Object.assign(points, { uniforms });
+  return points;
+}
+
+// Quads ({ p, n, color (one hex or 4), centre? }) → an indexed geometry with flat normals and linear vertex colours.
+function quadGeometry(quads) {
+  const n = quads.length;
+  const position = new Float32Array(n * 12);
+  const normal = new Float32Array(n * 12);
+  const color = new Float32Array(n * 12);
+  const centre = quads[0]?.centre ? new Float32Array(n * 12) : null;
+  const index = new Uint32Array(n * 6);
+  const colors = new Map();
+  quads.forEach((q, i) => {
+    position.set(q.p, i * 12);
+    for (let k = 0; k < 4; k++) {
+      const hex = Array.isArray(q.color) ? q.color[k] : q.color;
+      if (!colors.has(hex)) colors.set(hex, new THREE.Color(hex).toArray());
+      normal.set(q.n, i * 12 + k * 3);
+      color.set(colors.get(hex), i * 12 + k * 3);
+      centre?.set(q.centre, i * 12 + k * 3);
+    }
+    index.set([0, 1, 2, 0, 2, 3].map((v) => v + i * 4), i * 6);
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(position, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(color, 3));
+  if (centre) g.setAttribute('centre', new THREE.BufferAttribute(centre, 3));
+  g.setIndex(new THREE.BufferAttribute(index, 1));
+  return g;
+}
 
 // The footstep surface under a point (feet at y): the top of the box it stands on.
 export function surfaceAt(x, y, z) {

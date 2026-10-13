@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { meshMap } from './bake.js';
+import { meshMap, skyline, farRidge, clouds, CLOUDS } from './bake.js';
 
 const AO = { cell: 0.5, rays: 16, radius: 1.5, strength: 0.6 };
 const arena = JSON.parse(fs.readFileSync(new URL('../shared/maps/arena_01.json', import.meta.url)));
@@ -207,4 +207,42 @@ test('crates take face-local UVs in whole tiles; vTop pins top faces into a band
   assert.ok(ply.uv.some((x, i) => i % 2 === 0 && Math.abs(x - 2) < 1e-6), 'a 2.4 m face spans two tiles');
   const wall = meshes.wall;
   for (let i = 0; i < wall.ao.length; i++) if (wall.normal[i * 3 + 1] > 0.5) assert.ok(Math.abs(wall.uv[i * 2 + 1] - 3.85) < 1e-6);
+});
+
+const SUN = [-0.683, 0.643, 0.348];
+const centreOf = (q) => [0, 1, 2].map((k) => (q.p[k] + q.p[k + 3] + q.p[k + 6] + q.p[k + 9]) / 4);
+
+test('the skyline is deterministic, in budget, faces out of its solids and keeps out of the arena', () => {
+  const quads = skyline();
+  assert.deepEqual(quads, skyline());
+  assert.ok(quads.length * 2 <= 6000, `${quads.length * 2} triangles`);
+  for (const q of quads) {
+    const [a, b, , d] = [0, 3, 6, 9].map((k) => q.p.slice(k, k + 3));
+    assert.ok(dot(cross(sub(b, a), sub(d, a)), q.n) > 0, 'winding disagrees with the normal');
+    const c = centreOf(q);
+    // Inside the walls only wall-hugging props (≤ 8 cm proud, below 3.6 m) and the fence posts above 4 m.
+    if (Math.abs(c[0]) < 19.9 && Math.abs(c[2]) < 19.9) assert.ok(c[1] < -0.01, `skyline inside the arena at ${c}`);
+    if (Math.abs(c[0]) < 20 && Math.abs(c[2]) < 20 && c[1] > 0) assert.ok(c[1] > 4 || c[1] < 3.6, `prop at ${c}`);
+    assert.ok(Math.abs(c[0]) <= 75 && Math.abs(c[2]) <= 75, `beyond the apron at ${c}`);
+  }
+  // The benches' cut faces look at the arena (or along it), never away.
+  assert.ok(quads.filter((q) => Array.isArray(q.color)).length > 500);
+  for (const q of quads) {
+    const c = centreOf(q);
+    const r = Math.hypot(c[0], c[2]);
+    if (Array.isArray(q.color)) { // cut faces are the quads shaded per corner
+      assert.ok((c[0] * q.n[0] + c[2] * q.n[2]) / r < 0.2, `bench face looking away at ${c}`);
+    }
+  }
+});
+
+test('the far group stays inside the far plane and its clouds carry their cluster centres', () => {
+  const { quads, hubs } = farRidge(SUN);
+  assert.equal(hubs.length, 3);
+  const blade = 14;
+  for (const q of quads) for (let k = 0; k < 12; k += 3) assert.ok(Math.hypot(q.p[k], q.p[k + 1], q.p[k + 2]) < 182);
+  for (const h of hubs) assert.ok(Math.hypot(h.x, h.y + blade, h.z) < 195, 'blade tips inside the 200 m far plane');
+  const sky = clouds(SUN);
+  assert.ok(sky.every((q) => q.centre && Math.hypot(q.centre[0], q.centre[2]) <= CLOUDS.reach[1] && q.centre[1] >= CLOUDS.altitude[0]));
+  assert.ok((quads.length + sky.length) * 2 + hubs.length * 3 * 12 < 3000, 'about 3k triangles');
 });
