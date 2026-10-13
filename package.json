@@ -10,7 +10,9 @@
   "scripts": {
     "start": "node server/index.js",
     "bot": "node tools/bot.js",
-    "test": "node --test"
+    "test": "node --test",
+    "build:exe": "npx --yes bun@1.4.3 build --compile --asset client --asset shared --no-compile-autoload-dotenv --no-compile-autoload-bunfig server/index.js --outfile dist/boxfire",
+    "build:exe:win": "npx --yes bun@1.4.3 build --target=bun-windows-x64 --compile-executable-path=.cache/bun-win/package/bin/bun.exe --compile --asset client --asset shared --no-compile-autoload-dotenv --no-compile-autoload-bunfig server/index.js --outfile dist/boxfire.exe"
   },
   "dependencies": {
     "ws": "^8.22.0"

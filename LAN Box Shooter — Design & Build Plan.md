@@ -32,7 +32,7 @@ The host's own browser connects to `localhost:3000` and is treated exactly like 
 
 The browser cannot broadcast on a network, so there is no auto-discovery: the host shares one URL and that is the whole join flow.
 
-1. Host runs `npm start` in the repo folder. The server starts on port 3000; if something else already holds it, `PORT=3001 npm start` picks another port (the firewall rule in gotcha 5 must match).
+1. Host runs `npm start` in the repo folder. The server starts on port 3000; if something else already holds it, `PORT=3001 npm start` picks another port (the firewall rule in gotcha 5 must match). A host without Node.js runs the single file `boxfire.exe` instead, built with `npm run build:exe:win`; the Windows steps, including the firewall review, are in `.scratch/boxfire/research-21-single-executable.md` §4.
 2. Terminal prints every LAN IPv4 address as a URL, e.g. `http://192.168.1.42:3000`, read from `os.networkInterfaces()`. Host pastes it into the group chat.
 3. First run on Windows triggers a firewall prompt: allow on Private networks (see gotcha 5). macOS prompts the same way.
 4. Friends open the URL, type a display name (trimmed, 1–16 characters), land in the lobby.

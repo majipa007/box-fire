@@ -10,7 +10,10 @@ import { PORT, HEARTBEAT_MS, DEAD_MS } from '../shared/constants.js';
 import { decodeClient } from '../shared/protocol.js';
 import { Game } from './game.js';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// In a `bun build --compile` binary this module reports the executable's own
+// path, with client/ and shared/ embedded beside it.
+const here = path.dirname(fileURLToPath(import.meta.url));
+const root = fs.existsSync(path.join(here, 'client', 'index.html')) ? here : path.resolve(here, '..');
 const MOUNTS = [['/shared/', path.join(root, 'shared')], ['/', path.join(root, 'client')]];
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -52,12 +55,13 @@ const port = Number(process.env.PORT) || PORT;
 const MAP_ID = 'arena_01';
 const game = new Game(MAP_ID, JSON.parse(fs.readFileSync(path.join(root, 'shared', 'maps', `${MAP_ID}.json`), 'utf8')));
 const conns = new Set();
-const wss = new WebSocketServer({ server, maxPayload: 4096 });
+const MAX_MSG = 4096;
+const wss = new WebSocketServer({ server, maxPayload: MAX_MSG });
 
 // ws re-emits the HTTP server's errors, so a failed listen surfaces here.
 wss.on('error', (err) => {
   console.error(err.code === 'EADDRINUSE'
-    ? `Port ${port} is already in use. Stop whatever is using it, or pick another port: PORT=3001 npm start`
+    ? `Port ${port} is already in use. Stop whatever is using it, or set the PORT environment variable to another port (for example 3001).`
     : err);
   process.exit(1);
 });
@@ -71,6 +75,8 @@ wss.on('connection', (ws, req) => {
     conn.rtt = conn.lastPong - conn.pingAt;
   });
   ws.on('message', (data, isBinary) => {
+    // Bun's built-in ws ignores maxPayload (it caps frames at 16 MiB), so check again.
+    if (data.length > MAX_MSG) return ws.close(1009);
     const msg = isBinary ? null : decodeClient(String(data));
     if (!msg) return;
     try { game.handle(conn, msg); } catch (err) { console.error('message handler failed:', err); }
