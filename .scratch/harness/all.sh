@@ -12,7 +12,7 @@ for v in "$S"/verify*.mjs; do sed "s#$MAIN/#$REPO/#g" "$v" > "$T/$(basename "$v"
 cd "$REPO" || exit 1
 FAIL=0
 for f in server/*.js shared/*.js client/*.js tools/*.js; do node --check "$f" || { echo "SYNTAX $f"; FAIL=1; }; done
-npm test 2>&1 | grep -E "^ℹ (pass|fail)" ; npm test >/dev/null 2>&1 || FAIL=1
+TESTS=$(npm test 2>&1) || FAIL=1; printf "%s\n" "$TESTS" | grep -E "^ℹ (pass|fail)"; [ $FAIL = 0 ] || printf "%s\n" "$TESTS" | grep -E "^not ok|✖" | head -20
 for v in verify08 verify10 verify11 verify14 verify15 verify16 verify_review; do
   node "$T/$v.mjs" >/dev/null 2>&1 && echo "ok   $v" || { echo "FAIL $v"; FAIL=1; }
 done

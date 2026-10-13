@@ -12,8 +12,9 @@ LOG=${LOG:-$W/serve-$PORT.log}
 # share 12 cores: past a few at once every run crawls and input timing goes
 # bursty. So browser scripts take one of BROWSER_SLOTS slots and the rest
 # queue. Scripts that don't drive a browser (the netcode checks) never wait.
+# Two, not three: eight builders reached 13 of 19 GB with swap before a reboot.
 if grep -qs playwright "$1"; then
-  SLOTS=${BROWSER_SLOTS:-3}; waited=0
+  SLOTS=${BROWSER_SLOTS:-2}; waited=0
   while :; do
     n=1
     while [ $n -le $SLOTS ]; do
