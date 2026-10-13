@@ -1302,7 +1302,9 @@ export function pickupBurst(pos, color) {
 // hitboxes()) break into about 120 voxels of ~0.1 m spread over every part,
 // thrown out from the middle and along `dir` (any length; e.g. killer to
 // victim). On a headshot the helmet part flies off whole and spinning.
+// A player state ({ x, y, z, crouch }, the bible's call) breaks its hitboxes.
 export function deathBurst(parts, color, dir, head = false) {
+  if (!Array.isArray(parts)) parts = parts ? Object.values(hitboxes(parts)) : [];
   const L = LOOK.death;
   const base = toColor(color ?? L.color);
   let cx = 0;

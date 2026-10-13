@@ -232,6 +232,10 @@ test('a death is at most 120 voxels over the whole body; a headshot sends the he
   assert.equal(big.length, 1, 'one helmet-sized cube');
   run(4);
   assert.equal(idle(), 0);
+  fx.deathBurst({ x: 0, y: 0, z: -5, crouch: false }, '#4363d8', [0, 0, -1], false); // a player state, as the bible calls it
+  frame();
+  assert.ok(cubes.count >= 20, `${cubes.count} voxels from its hitboxes`);
+  run(4);
 });
 
 test('every power-up blast, the fizzle and a pickup spawn, then clear to nothing', () => {
