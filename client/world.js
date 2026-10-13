@@ -339,7 +339,10 @@ function geometry({ index, ...attributes }) {
 // share one program; the dock top switches its hazard border on with a uniform.
 const glsl = (hex) => `vec3( ${new THREE.Color(hex).toArray().map((v) => v.toFixed(4)).join(', ')} )`; // linear
 function mapMaterial(map, hazard) {
-  const material = new THREE.MeshLambertMaterial({ map });
+  // Sun-facing faces go into the shadow map, not three's default back faces: a floor point at
+  // the foot of a shaded wall then compares against the wall's top and outer face, a wall's
+  // thickness nearer the sun, instead of the inner face it touches (a 1 px lit seam there).
+  const material = new THREE.MeshLambertMaterial({ map, shadowSide: THREE.FrontSide });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.hazard = { value: hazard ? 1 : 0 };
     shader.vertexShader = shader.vertexShader
