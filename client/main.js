@@ -19,7 +19,7 @@ import { Vector3 } from 'three';
 import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf, hitboxes } from '../shared/weapons.js'; // effects: hitboxes
 import { shotRng } from '../shared/rng.js';
 import { WEAPONS } from '../shared/constants.js'; // hud: reload progress
-import * as characters from './characters.js'; // hud: nameTags(), once characters has it
+import * as characters from './characters.js'; // hud: nameTags()
 
 const STEP_MS = 1000 / TICK_RATE;
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -172,7 +172,6 @@ function fixedStep() {
   if (!me || !world || !self.alive || lobby.phase !== 'playing') return;
   prev = { x: me.x, y: me.y, z: me.z };
   const inp = { ...input.sample(), rt: renderTick(performance.now()) };
-  audio.ownUse(self.inv, inp.keys); // audio: our own use on the engine's wire, before predict() takes the slot
   if (predict(inp, world.boxes)) {
     ownShot(inp); // along this packet's angles, before the kick moves them
     recoil(weaponOf(self.arsenal));
@@ -181,7 +180,7 @@ function fixedStep() {
     ui.crosshairPulse(); // hud:
   }
   net.send(encodeInput(inp));
-  if (inp.power) powerups.cast(inp.power, inp); // powerups: ghosts, Bolt beams, sounds, the cast
+  if (inp.power) powerups.cast(inp.power, inp, shotTargets()); // powerups: ghosts, Bolt beams, sounds, the cast
 }
 
 // [distance, pan] of a sound at (x, z) as we hear it.
@@ -301,8 +300,8 @@ async function buildStage() {
   powerups.initPowerups({ boxes: world.boxes }); // powerups: pads, entities, ghosts
   render.scene.add(powerups.powerupsGroup); // powerups:
   initEffects({ boxes: world.boxes, map, quality: ui.settings.quality, sunDir: sun.position.clone().normalize().toArray() }); // effects: debris lands on the map; shots find the face they hit
+  initCharacters({ boxes: world.boxes, sunDir: SUN_DIR, quality: ui.settings.quality, camera: render.camera }); // characters: before the compile, so its shaders build behind the lobby
   render.renderer.compile(render.scene, render.camera); // build every shader now, not mid-fight
-  initCharacters({ boxes: world.boxes, sunDir: SUN_DIR, quality: ui.settings.quality, camera: render.camera }); // characters: after compile, clear of other branches' lines
   requestAnimationFrame(frame);
 }
 
@@ -382,7 +381,7 @@ function frame(now) {
     hudExtra.nitro = me.boost / TICK_RATE; // hud: ticks
     hudExtra.slowed = me.slow / TICK_RATE; // hud: ticks
     ui.updateHud(self.hp, weaponOf(self.arsenal), self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0, hudExtra); // hud: extra (powerups.js drives ui.updatePowers)
-    ui.threat(powerups.threats?.(myId), me, input.look.yaw); // hud: once powerups has threats()
+    ui.threat(powerups.threats(myId), me, input.look.yaw); // hud:
     setGun(weaponOf(self.arsenal), self.alive && lobby.phase === 'playing');
     setSunShade(ui.settings.shadows && sunBlocked(eyeOf(me), world.boxes) ? 1 : 0); // viewmodel: darker in the sun's shadow, when shadows are drawn
   } else {
@@ -392,7 +391,7 @@ function frame(now) {
   if (photo) render.setView(...photo);
   const visible = others(now).filter((o) => o.alive && o.id !== myId);
   syncPlayers(visible, roster, frameMs / 1000, world.boxes); // characters: the ground under each player
-  ui.renderNameTags(characters.nameTags?.(render.camera, innerWidth, innerHeight)); // hud: DOM tags, once characters has nameTags()
+  ui.renderNameTags(characters.nameTags(render.camera, innerWidth, innerHeight)); // hud: DOM tags
   powerups.updatePowerups(now, renderTick(now), render.camera); // powerups: draw this frame, play due events
   // feel: our own steps sound on the camera bob's footfalls (one per 2.2 m,
   // from our exact velocity), so each dip lands with its step.

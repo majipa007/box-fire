@@ -354,13 +354,13 @@ function play(m) {
 
 // Our own use, the step prediction made it: ghosts, the local Barge ring,
 // our own Bolt beam, the sound and the viewmodel's cast.
-export function cast(kind, input) {
+// targets: who a Bolt can hit, with { color } for their debris (main.js passes its slot colours).
+export function cast(kind, input, targets = others(performance.now()).filter((o) => o.alive && o.id !== myId)) {
   const me = self.mover;
   if (!me) return;
   const eye = eyeOf(me);
   const dir = aimDir(input.yaw, input.pitch);
   if (kind === 'bolt') {
-    const targets = others(performance.now()).filter((o) => o.alive && o.id !== myId);
     const { t } = traceShot(eye, dir, boxes, targets);
     const end = eye.map((o, i) => o + dir[i] * t);
     const from = muzzle(eye, dir, input.yaw);
