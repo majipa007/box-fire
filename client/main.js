@@ -4,7 +4,7 @@ import * as ui from './ui.js';
 import * as render from './render.js';
 import { buildWorld } from './world.js';
 import { charactersGroup, syncPlayers, hitFlash, fireKick, shatter as breakRig } from './characters.js'; // characters: rig events
-import { setGun, gunKick, setSunShade, sunBlocked, muzzleWorld } from './viewmodel.js'; // viewmodel: sun shade, drawn muzzle
+import { setGun, gunKick, setSunShade, sunBlocked, muzzleWorld, setArmband, powerCast } from './viewmodel.js'; // viewmodel: sun shade, drawn muzzle, armband, power cast
 import { effectsGroup, addTracer, updateEffects, setMap, classifyHit, impact, playerHit, shatter as explode, casing } from './effects.js'; // effects: impacts, hits, shatter, casings
 import { addRecoil, correct, resetFeel, updateFeel, crosshair, spreadPixels, feelStats } from './feel.js'; // feel:
 import * as input from './input.js';
@@ -72,6 +72,7 @@ const net = connect({
   },
   event(m) {
     powerups.onEvent(m, myId); // powerups: pickups, uses, blasts
+    if (m.e === 'powerup' && m.id === myId) powerCast(m.k); // viewmodel: the gun dips as we use one
     if (m.e === 'spawn' && m.id === myId) {
       Object.assign(self, freshLife(m.x, m.y, m.z, m.primary)); // exactly as the server builds it
       self.pending = [];
@@ -80,6 +81,7 @@ const net = connect({
       input.look.pitch = 0;
       input.setSlot(0); // every life starts on the primary
       resetFeel(); // feel: no kick owed, no offsets
+      setArmband(PLAYER_COLORS[roster.get(myId)?.slot] ?? '#f2efe8'); // viewmodel: our slot colour on the sleeves
       ui.hideDeath();
       ui.showPicker(false);
       audio.respawn(); // audio: un-muffles the world
@@ -202,8 +204,6 @@ function recoil(weapon) {
 function ownShot(inp) {
   const origin = eyeOf(self.mover);
   const targets = others(performance.now()).filter((o) => o.alive && o.id !== myId);
-  const right = [Math.cos(inp.yaw), 0, -Math.sin(inp.yaw)];
-  const fwd = aimDir(inp.yaw, inp.pitch);
   const muzzle = muzzleWorld(render.camera, ownMuzzle).toArray(); // where the drawn gun's muzzle shows
   const dirs = shotDirs(inp.yaw, inp.pitch, weaponOf(self.arsenal), self.mover, shotRng(seed, myId, self.shots)); // effects: named, for the count
   const ends = []; // audio: world hits only; the host confirms player hits
@@ -215,8 +215,7 @@ function ownShot(inp) {
     if (id === null) ends.push(end);
   }
   audio.impacts(origin, ends, heard); // audio:
-  // effects: the case flies out right of the gun, carried along with us.
-  casing(origin.map((o, i) => o + right[i] * 0.3 + fwd[i] * 0.35 - (i === 1 ? 0.2 : 0)), right, [self.mover.vx, self.mover.vy, self.mover.vz]);
+  // viewmodel: our own case flies out of the drawn gun, in the view pass.
 }
 
 // effects: what a shot's end hit: chips and a hole in the map, cubes off a

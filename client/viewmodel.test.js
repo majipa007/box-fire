@@ -1,5 +1,6 @@
 // The viewmodel in Node: its springs and model data, and frames stepped
-// against a stand-in camera, scene and our own player's state.
+// against a stand-in camera, scene and our own player's state, checked
+// against the bible's numbers (§3.2).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as nodeModule from 'node:module';
@@ -19,16 +20,20 @@ async function suite() {
   const { self } = await import('./net.js');
   const { freshLife } = await import('../shared/weapons.js');
   const { WEAPONS, SWITCH_SECONDS } = await import('../shared/constants.js');
+  const DEG = Math.PI / 180;
 
   const camera = new THREE.PerspectiveCamera(75, 16 / 9, 0.05, 200);
   camera.rotation.order = 'YXZ';
   const scene = new THREE.Scene();
-  const sun = new THREE.DirectionalLight('#fff4e0', 2.6);
-  sun.position.set(0, 30, 0);
-  scene.add(new THREE.HemisphereLight('#dfe8f2', '#5a5f6a', 2.4), sun);
+  const sun = new THREE.DirectionalLight('#ffd3a1', 3.3);
+  sun.position.set(-41, 38.6, 20.9);
+  const sky = new THREE.HemisphereLight('#a6c1ee', '#d2b78e', 1.8);
+  scene.add(sky, sun);
   scene.updateMatrixWorld();
   const gun = vm.viewScene.getObjectByName('viewmodel');
   const rig = (name) => vm.viewScene.getObjectByName(name);
+  const bone = (weapon, i) => rig(weapon).skeleton.bones[i]; // 0 body, 1 part, 2 left, 3 slide, 4 shell
+  const viewLight = (type) => vm.viewScene.children.find((o) => o[type]);
   let now = 0;
   function frames(n, each) {
     for (let i = 0; i < n; i++) {
@@ -41,11 +46,13 @@ async function suite() {
   function spawn(primary) {
     Object.assign(self, freshLife(0, 0, 0, primary));
     camera.rotation.set(0, 0, 0);
+    vm.setSunShade(0);
     vm.setGun(primary, false);
     frames(1);
     vm.setGun(primary, true);
     frames(90);
   }
+  const near = (a, b, tol, what) => assert.ok(Math.abs(a - b) <= tol, `${what}: ${a} vs ${b}`);
 
   test('the spring gives the same answer at any frame rate and never overshoots', () => {
     const a = vm.spring(1);
@@ -84,75 +91,127 @@ async function suite() {
     assert.deepEqual([...vm.sampleTrack(undefined, 0.5, out)], [0, 0, 0, 0, 0, 0]);
   });
 
-  test('every weapon is 15 to 25 boxes: a gun, a moving part and two arms', () => {
+  test('each weapon is one skinned mesh in the bible palette, resting where §3.2 puts it', () => {
     assert.deepEqual(Object.keys(vm.MODELS).sort(), Object.keys(WEAPONS).sort());
     assert.deepEqual(Object.keys(vm.GUN_SHAPES).sort(), Object.keys(WEAPONS).sort()); // other players' guns
+    const rests = { rifle: [0.2, -0.19, -0.6], pistol: [0.17, -0.17, -0.5], shotgun: [0.2, -0.2, -0.58] };
     for (const [name, m] of Object.entries(vm.MODELS)) {
-      assert.ok(m.boxes.length >= 15 && m.boxes.length <= 25, `${name}: ${m.boxes.length} boxes`);
-      for (const part of ['body', 'part', 'left']) assert.ok(m.boxes.some((b) => b.part === part), `${name} has no ${part}`);
-      assert.ok(m.boxes.every((b) => b.color in vm.VM_COLORS), `${name} names an unknown colour`);
-      assert.equal(m.rest.length, 6);
-      // Three merged meshes, every box's 24 vertices in them.
-      const meshes = rig(name).children;
-      assert.equal(meshes.length, 3);
-      assert.equal(meshes.reduce((n, mesh) => n + mesh.geometry.attributes.position.count, 0), m.boxes.length * 24);
-    }
-  });
-
-  test('magazine reloads start and end at rest, so they never pop', () => {
-    const out = new Float64Array(6);
-    for (const name of ['rifle', 'pistol']) {
-      for (const track of Object.values(vm.MODELS[name].reload)) {
-        assert.ok(vm.sampleTrack(track, 0, out).every((v) => v === 0), name);
-        assert.ok(vm.sampleTrack(track, 1, out).every((v) => v === 0), name);
+      assert.deepEqual(m.rest.slice(0, 3), rests[name]);
+      assert.ok(m.boxes.every((b) => b.color in vm.LOOK.colors), `${name} names an unknown colour`);
+      const mesh = rig(name);
+      assert.ok(mesh.isSkinnedMesh && mesh.children.length === 1, name); // the root bone only: one draw
+      assert.equal(mesh.geometry.attributes.position.count, m.boxes.length * 24);
+      // The arms: 1.15 × third person, the armband in the slot colour.
+      for (const side of ['body', 'left']) {
+        const arm = m.boxes.filter((b) => b.part === side && b.from);
+        assert.deepEqual(arm.find((b) => b.color === 'slot')?.size, [0.12, 0.12], `${name} ${side} armband`);
+        assert.deepEqual(arm.find((b) => b.color === 'kit')?.size, [0.115, 0.115], `${name} ${side} forearm`);
       }
     }
+    assert.deepEqual(vm.LOOK.colors.metal + vm.LOOK.colors.tan + vm.LOOK.colors.dark, '#2e3136#b9a27a#1b1d22');
   });
 
-  test('a shot kicks the gun back and up, flashes, pulses one frame and settles', () => {
+  test('at peak, with the flash up and casings flying, the view pass is ≤ 4 draws and ≤ 1.5k triangles', () => {
+    for (const w of ['rifle', 'pistol', 'shotgun']) {
+      spawn(w);
+      vm.gunKick();
+      frames(28); // the shotgun's shell is out at the pump
+      vm.gunKick();
+      frames(1);
+      let draws = 0;
+      let tris = 0;
+      vm.viewScene.traverseVisible((o) => {
+        if (!o.isMesh) return;
+        draws++;
+        tris += (o.geometry.index.count / 3) * (o.isInstancedMesh ? o.instanceMatrix.count : 1); // every casing live
+      });
+      assert.ok(rig('flash').visible && rig('casings').visible, w);
+      assert.ok(draws <= 4 && tris <= 1500, `${w}: ${draws} draws, ${tris} triangles`);
+      frames(60);
+    }
+  });
+
+  test('a rifle shot kicks 35 mm back and 2.5° up, flashes two frames, glows and settles', () => {
     spawn('rifle');
     const z = gun.position.z;
     const pitch = gun.rotation.x;
     const flash = rig('flash');
-    const { emissive } = rig('rifle').getObjectByName('body').material;
+    const hemi = viewLight('isHemisphereLight');
+    const base = hemi.intensity;
     vm.gunKick();
+    let back = 0;
+    let up = 0;
+    const shown = [];
     frames(1);
-    assert.ok(flash.visible, 'flash shows');
-    assert.ok(emissive.r > 0, 'emissive pulses');
-    frames(1);
-    assert.equal(emissive.r, 0, 'for one frame only');
-    assert.ok(gun.position.z > z + 0.01 && gun.rotation.x > pitch + 0.02, 'kicked back and up');
-    frames(2);
-    assert.ok(!flash.visible, 'flash gone');
+    assert.ok(hemi.intensity > base * 1.29, 'the sky light rises 30%');
+    for (let i = 0; i < 20; i++) {
+      shown.push(flash.visible && flash.material.uniforms.star.value === 1);
+      back = Math.max(back, gun.position.z - z);
+      up = Math.max(up, gun.rotation.x - pitch);
+      frames(1);
+    }
+    near(back, 0.035, 0.005, 'back');
+    near(up, 2.5 * DEG, 0.4 * DEG, 'pitch');
+    assert.deepEqual(shown.slice(0, 3), [true, true, false], 'the star shows two frames');
+    assert.ok(!flash.visible && Math.abs(hemi.intensity - base) < 1e-9, 'glow and light gone by 50 ms');
     frames(60);
     assert.ok(Math.abs(gun.position.z - z) < 1e-3, 'settled');
   });
 
+  test('own casings fly out right and up, live 0.45 s; the shotgun throws its shell at the pump', () => {
+    spawn('rifle');
+    const casings = rig('casings');
+    vm.gunKick();
+    frames(2);
+    assert.equal(casings.count, 1);
+    const p = new THREE.Vector3();
+    const m = new THREE.Matrix4();
+    casings.getMatrixAt(0, m);
+    const start = p.setFromMatrixPosition(m).clone();
+    frames(8);
+    casings.getMatrixAt(0, m);
+    p.setFromMatrixPosition(m);
+    assert.ok(p.x > start.x + 0.1 && p.y > start.y, 'right and up');
+    frames(20);
+    assert.equal(casings.count, 0, 'gone after 0.45 s');
+    assert.ok(!casings.visible);
+    spawn('shotgun');
+    vm.gunKick();
+    frames(20); // 0.33 s
+    assert.equal(casings.count, 0, 'not yet: the pump is still going back');
+    frames(10); // 0.5 s
+    assert.equal(casings.count, 1, 'out at the pump');
+  });
+
   test('the reload timer drops the magazine and seats it again', () => {
     spawn('rifle');
-    const mag = rig('rifle').getObjectByName('part');
+    const mag = bone('rifle', 1);
     const seated = mag.position.clone();
-    self.arsenal.reload = WEAPONS.rifle.reload * 0.6;
+    self.arsenal.reload = WEAPONS.rifle.reload * 0.6; // 40% through: the new magazine is on its way
     frames(30);
-    assert.ok(mag.position.y < seated.y - 0.2, 'dropped');
+    assert.ok(mag.position.y < seated.y - 0.15, 'dropped');
     self.arsenal.reload = 0;
     frames(60);
     assert.ok(mag.position.distanceTo(seated) < 1e-3, 'seated');
   });
 
-  test('the shotgun pumps after a shot', () => {
+  test('the shotgun racks its pump 0.07 m between 300 and 560 ms after a shot', () => {
     spawn('shotgun');
-    const pump = rig('shotgun').getObjectByName('part');
+    const pump = bone('shotgun', 1);
     const forward = pump.position.z;
-    self.arsenal.cooldown = 0.6 / WEAPONS.shotgun.rps; // 40% through the cycle
+    const cycle = 1 / WEAPONS.shotgun.rps;
+    self.arsenal.cooldown = cycle - 0.2;
+    frames(5);
+    near(pump.position.z, forward, 0.002, 'still forward at 0.2 s');
+    self.arsenal.cooldown = cycle - 0.43;
     frames(20);
-    assert.ok(pump.position.z > forward + 0.05, 'racked back');
+    near(pump.position.z, forward + 0.07, 0.003, 'back at 0.43 s');
     self.arsenal.cooldown = 0;
     frames(60);
-    assert.ok(Math.abs(pump.position.z - forward) < 1e-3, 'forward again');
+    near(pump.position.z, forward, 1e-3, 'forward again');
   });
 
-  test('a switch lowers the old gun, swaps at the bottom and raises the new one', () => {
+  test('a new slot lowers the old gun over 150 ms, swaps, and raises the new one with a 4% overshoot', () => {
     spawn('rifle');
     const up = gun.position.y;
     self.arsenal.slot = 1;
@@ -160,65 +219,92 @@ async function suite() {
     vm.setGun('pistol', true);
     frames(1);
     assert.ok(rig('rifle').visible && !rig('pistol').visible, 'still the rifle');
-    self.arsenal.switching = SWITCH_SECONDS * 0.55;
-    frames(15);
-    assert.ok(rig('rifle').visible && gun.position.y < up - 0.15, 'rifle lowered');
-    self.arsenal.switching = SWITCH_SECONDS * 0.45;
-    frames(1);
-    assert.ok(rig('pistol').visible && !rig('rifle').visible, 'swapped');
+    frames(7); // 133 ms
+    assert.ok(rig('rifle').visible && gun.position.y < up - 0.2, 'rifle lowered');
+    frames(2); // 167 ms
+    assert.ok(rig('pistol').visible && !rig('rifle').visible, 'swapped at the bottom');
+    const low = Math.min(...Array.from({ length: 25 }, (_, i) => vm.switchLow(0.15 + i * 0.01)));
+    near(low, -0.04, 0.002, 'overshoot');
     self.arsenal.switching = 0;
     frames(60);
-    assert.ok(Math.abs(gun.position.y - vm.MODELS.pistol.rest[1]) < 0.01, 'pistol raised');
+    const rest = vm.MODELS.pistol;
+    assert.ok(Math.abs(gun.position.y - rest.base[1]) < 0.004, 'pistol raised');
   });
 
-  test('turning makes the gun trail the view, then settle', () => {
+  test('a power-up gun lock casts instead of switching: a 0.04 m dip and 4° roll inside 120 ms', () => {
+    spawn('rifle');
+    const y = gun.position.y;
+    const roll = gun.rotation.z;
+    self.arsenal.switching = 0.25; // the lock, with no new slot
+    vm.powerCast('shunt');
+    let dip = 0;
+    let turn = 0;
+    frames(8, () => {
+      dip = Math.max(dip, y - gun.position.y);
+      turn = Math.max(turn, gun.rotation.z - roll);
+    });
+    near(dip, 0.04, 0.004, 'dip');
+    near(turn, 4 * DEG, 0.5 * DEG, 'roll');
+    assert.ok(rig('rifle').visible, 'never lowered for a switch');
+    frames(30);
+    near(gun.position.y, y, 0.004, 'back'); // within the breath
+  });
+
+  test('turning sways the gun, clamped at 3°; strafing rolls it 4° and bobs it', () => {
     spawn('rifle');
     const yaw = gun.rotation.y;
     for (let i = 0; i < 10; i++) {
-      camera.rotation.y -= 0.02; // turning right
+      camera.rotation.y -= 0.02; // turning right, 1.2 rad/s
       frames(1);
     }
-    assert.ok(gun.rotation.y > yaw + 0.01, 'barrel trails to the left');
+    assert.ok(gun.rotation.y > yaw + 0.003, 'barrel trails to the left');
+    for (let i = 0; i < 20; i++) {
+      camera.rotation.y -= 0.2; // a flick, 12 rad/s
+      frames(1);
+    }
+    assert.ok(gun.rotation.y - yaw <= 3 * DEG + 1e-9 && gun.rotation.y - yaw > 2.5 * DEG, `clamped (${(gun.rotation.y - yaw) / DEG}°)`);
     frames(60);
     assert.ok(Math.abs(gun.rotation.y - yaw) < 1e-3);
-  });
-
-  test('strafing banks and bobs the gun; a hard landing dips it', () => {
-    spawn('rifle');
+    camera.rotation.y = 0;
+    frames(1);
     self.mover.vx = 5.5; // strafing right at run speed
     const ys = [];
     frames(120, () => ys.push(gun.position.y));
-    assert.ok(Math.max(...ys.slice(60)) - Math.min(...ys.slice(60)) > 0.004, 'bobs');
-    assert.ok(gun.rotation.z < -0.03, 'banks right');
-    self.mover.vx = 0;
-    frames(90);
-    const y = gun.position.y;
-    Object.assign(self.mover, { grounded: false, vy: -6 });
-    frames(1);
-    Object.assign(self.mover, { grounded: true, vy: 0 });
-    let low = Infinity;
-    frames(20, () => { low = Math.min(low, gun.position.y); });
-    assert.ok(low < y - 0.015, `dips (${low} vs ${y})`);
-    frames(60);
-    assert.ok(Math.abs(gun.position.y - y) < 0.006, 'recovers');
+    near(gun.rotation.z - vm.MODELS.rifle.base[5], -4 * DEG, 0.6 * DEG, 'roll'); // plus the bob's share
+    assert.ok(Math.max(...ys.slice(60)) - Math.min(...ys.slice(60)) > 0.005, 'bobs');
   });
 
-  test('the world lights are mirrored, and the sun dims in its shadow', () => {
+  test('a landing dips min(0.03, 0.006 × fall speed), down in 70 ms and back in 140 ms', () => {
+    for (const [fall, depth] of [[4, 0.024], [8, 0.03]]) {
+      spawn('rifle');
+      const y = gun.position.y;
+      Object.assign(self.mover, { grounded: false, vy: -fall });
+      frames(1);
+      Object.assign(self.mover, { grounded: true, vy: 0 });
+      let low = Infinity;
+      frames(5, () => { low = Math.min(low, gun.position.y); });
+      near(y - low, depth, 0.003, `dip at ${fall} m/s`);
+      frames(9);
+      near(gun.position.y, y, 0.002, 'back by 210 ms');
+    }
+  });
+
+  test('the world lights are mirrored, and the sun drops to 0.45 in its shadow', () => {
     spawn('rifle');
-    const copy = vm.viewScene.children.find((o) => o.isDirectionalLight);
-    assert.ok(copy && vm.viewScene.children.some((o) => o.isHemisphereLight));
+    const copy = viewLight('isDirectionalLight');
+    assert.ok(viewLight('isHemisphereLight').color.equals(sky.color));
     assert.equal(copy.intensity, sun.intensity);
     assert.ok(copy.color.equals(sun.color));
     assert.ok(copy.position.clone().normalize().distanceTo(sun.position.clone().normalize()) < 1e-9);
     vm.setSunShade(1);
     frames(60);
-    assert.ok(copy.intensity < 0.05 * sun.intensity);
+    near(copy.intensity, 0.45 * sun.intensity, 1e-3, 'shaded');
     vm.setSunShade(0);
     frames(60);
-    assert.ok(copy.intensity > 0.95 * sun.intensity);
+    assert.ok(copy.intensity > 0.99 * sun.intensity);
     const roof = { min: [-1, 3, -1], max: [1, 4, 1] };
-    assert.equal(vm.sunBlocked([0, 1.6, 0], [roof]), true);
-    assert.equal(vm.sunBlocked([3, 1.6, 0], [roof]), false);
+    assert.equal(vm.sunBlocked([1.5, 1.6, -0.5], [roof]), true);
+    assert.equal(vm.sunBlocked([5, 1.6, 0], [roof]), false);
   });
 
   test('muzzleWorld lands on the pixel where the muzzle is drawn', () => {
@@ -231,5 +317,16 @@ async function suite() {
     const drawn = rig('flash').getWorldPosition(new THREE.Vector3()).project(vm.viewCamera);
     const world = vm.muzzleWorld(camera).project(camera);
     assert.ok(Math.abs(drawn.x - world.x) < 1e-6 && Math.abs(drawn.y - world.y) < 1e-6);
+    camera.position.set(0, 0, 0);
+  });
+
+  test('setLighting takes the bible LIGHTS in place of the world scene', () => {
+    vm.setLighting({ sunColor: '#ffd3a1', sunIntensity: 3.3, sunDir: [-0.683, 0.643, 0.348], skyColor: '#a6c1ee', groundColor: '#d2b78e', hemiIntensity: 1.8 });
+    frames(1, () => {});
+    spawn('rifle');
+    const copy = viewLight('isDirectionalLight');
+    near(copy.intensity, 3.3, 1e-9, 'sun');
+    assert.ok(copy.position.clone().normalize().distanceTo(new THREE.Vector3(-0.683, 0.643, 0.348).normalize()) < 1e-9);
+    near(viewLight('isHemisphereLight').intensity, 1.8, 1e-9, 'sky');
   });
 }
