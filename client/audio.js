@@ -797,8 +797,10 @@ async function renderBanks(c, verb) {
   try {
     await new Promise((resolve) => setTimeout(resolve)); // start() runs inside a click
     const t0 = performance.now();
-    verb.buffer = toBuffer(c, renderIR(c.sampleRate, REVERB, shotRng(SEED, hash('reverb'), 0))); // silent until then
+    const ir = toBuffer(c, renderIR(c.sampleRate, REVERB, shotRng(SEED, hash('reverb'), 0)));
     renderMs += performance.now() - t0;
+    await new Promise((resolve) => setTimeout(resolve));
+    verb.buffer = ir; // a task of its own: the convolver's setup is native, about 40 ms. Silent until then.
     let slice = Infinity;
     for (const [name, r] of Object.entries(SOUNDS)) {
       const bufs = [];
