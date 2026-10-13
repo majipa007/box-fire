@@ -241,6 +241,7 @@ for (let r = 0; r < RIBBONS; r++) {
   }
 }
 ribbonGeometry.setIndex(ribbonIndex);
+const RIBBON_ATTRIBUTES = ['position', 'color', 'uv'];
 const ribbons = new THREE.Mesh(ribbonGeometry, new THREE.ShaderMaterial({
   uniforms: { fringe: { value: new THREE.Color(LOOK.ribbon.fringe) }, alpha: { value: new THREE.Vector2(LOOK.ribbon.alpha, LOOK.ribbon.fringeAlpha) } },
   vertexShader: `attribute vec3 color; varying vec3 vColor; varying vec2 vUv;
@@ -386,7 +387,7 @@ export function syncPlayers(list, roster, dt, camera = null, more = null) {
   finish(bubbles, nbubble);
   ribbonGeometry.setDrawRange(0, nribbon * (POINTS - 1) * 6);
   ribbons.visible = nribbon > 0;
-  if (nribbon) for (const name of ['position', 'color', 'uv']) ribbonGeometry.attributes[name].needsUpdate = true;
+  if (nribbon) for (const name of RIBBON_ATTRIBUTES) ribbonGeometry.attributes[name].needsUpdate = true;
 }
 
 function finish(mesh, n) {
