@@ -293,7 +293,7 @@ export const POWER_SOUNDS = {
 };
 // Kinds with no sound of their own (the engine's Repair) borrow these.
 const POWER_FALLBACK = { pick: 'power.pick.other', use: 'power.use', boom: 'power.shunt.boom' };
-export const LOCK = { range: 40, slow: 3, fast: 9, lookahead: 0.05 }; // beeps/s from range m in to 0 m
+export const LOCK = { range: 40, slow: 3, fast: 9, lookahead: 0.05, cone: 30, chest: 1 }; // beeps/s from range m in to 0 m; cone °, chest m
 export const SHOCK_TARGET = 2; // the whine at your feet plays this much louder
 export const HUM_RANGE = 8; // m: the two nearest pads hum, fading out by here
 export const HOLD = { fade: 0.06, timeout: 0.35 }; // a held loop not refreshed this long fades out
@@ -524,6 +524,26 @@ export const wetSend = (d) => SPACE.wet * Math.sqrt(distGain(d)); // falls slowe
 
 // A locked Shunt's beeps per second at distance d: slow at LOCK.range, fast at 0.
 export const beepRate = (d) => LOCK.slow + (LOCK.fast - LOCK.slow) * (1 - Math.min(1, Math.max(0, d / LOCK.range)));
+
+// The lock beeps warn('lock') wants for you at feet me ({ x, y, z }), from
+// the entities ([{ kind, owner, x, y, z, vx, vy, vz }]): the nearest enemy
+// Shunt within LOCK.range heading within LOCK.cone of your chest, else 0.
+// ponytail: the wire carries no Shunt target, so this infers it from the
+// heading; read the target instead once the snapshot carries one.
+const LOCK_COS = Math.cos((LOCK.cone * Math.PI) / 180);
+export function lockRate(list, me, myId) {
+  let near = Infinity;
+  for (const e of list) {
+    if (e.kind !== 'shunt' || e.owner === myId) continue;
+    const dx = me.x - e.x;
+    const dy = me.y + LOCK.chest - e.y;
+    const dz = me.z - e.z;
+    const d = Math.hypot(dx, dy, dz);
+    const v = Math.hypot(e.vx, e.vy, e.vz);
+    if (d < near && d <= LOCK.range && v > 0 && dx * e.vx + dy * e.vy + dz * e.vz >= LOCK_COS * d * v) near = d;
+  }
+  return near < Infinity ? beepRate(near) : 0;
+}
 
 const surfaceOf = (s) => SURFACE_ALIAS[s] ?? s;
 

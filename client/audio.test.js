@@ -4,7 +4,7 @@ import { shotRng } from '../shared/rng.js';
 import {
   SOUNDS, REVERB, MIX, COMPRESSOR, SLAP, CLIP, WIND, LOCK, PICK_ROOTS, VOICE_LIMIT, CASING_DELAY, TRANSIENT_RANGE, HUM_RANGE, LAND,
   renderSound, renderIR, shortTerm, dbToGain, distGain, distCutoff, wetSend, surfacesOf, classify, surfaceUnder, pickVariant, clipCurve,
-  voiceToSteal, diffEntities, beepRate,
+  voiceToSteal, diffEntities, beepRate, lockRate,
 } from './audio.js';
 
 const FS = 48000;
@@ -247,6 +247,20 @@ test('power-up entities: Shunts fly, mines click as they arm and fuse, others so
   assert.deepEqual([...seen.keys()].sort(), [2, 4], 'gone ones are forgotten');
   step([{ id: 3, kind: 'bolt' }]);
   assert.deepEqual(heard.splice(0), ['new 3'], 'an id seen again after it left is new');
+});
+
+test('lock beeps: only an enemy Shunt heading at you, within range, the nearest one setting the rate', () => {
+  const me = { x: 0, y: 0, z: 0 };
+  const shunt = (z, vz, owner = 2, x = 0) => ({ kind: 'shunt', owner, x, y: 1, z, vx: 0, vy: 0, vz });
+  const r = lockRate([shunt(20, -18)], me, 1);
+  assert.ok(r > 3 && r < 9, `heading at you at 20 m: ${r}`);
+  near(r, beepRate(20), 1e-9, 'rate by distance');
+  assert.equal(lockRate([shunt(20, 18)], me, 1), 0, 'heading away');
+  assert.equal(lockRate([shunt(20, -18, 1)], me, 1), 0, 'your own');
+  assert.equal(lockRate([shunt(45, -18)], me, 1), 0, 'beyond 40 m');
+  assert.equal(lockRate([shunt(20, -18, 2, 15)], me, 1), 0, 'aimed 37° off');
+  assert.equal(lockRate([{ ...shunt(5, -18), kind: 'bolt' }], me, 1), 0, 'a Bolt is no lock');
+  near(lockRate([shunt(30, -18), shunt(10, -18)], me, 1), beepRate(10), 1e-9, 'the nearest wins');
 });
 
 test('the output clipper leaves normal levels alone and never reaches -1 dBFS', () => {

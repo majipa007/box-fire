@@ -198,7 +198,9 @@ const hums = [];
 let humTick = 0;
 let shieldWas = 0;
 function powerSounds(m) {
-  audio.entities(m.pu.ents.map(readEntity), heard);
+  const ents = m.pu.ents.map(readEntity);
+  audio.entities(ents, heard);
+  audio.warn('lock', self.alive && self.mover ? audio.lockRate(ents, self.mover, myId) : 0); // audio: a Shunt homing on us beeps
   if (++humTick % 6 === 0) {
     hums.length = 0;
     if (self.mover && self.alive) padsFor(mapId).forEach(([x, , z], i) => { const [distance, pan] = heard(x, z); hums.push({ distance, pan, up: !m.pu.pads[i] }); });
