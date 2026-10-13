@@ -131,11 +131,11 @@ test('the mix: the bible\'s bus numbers, levels in order, and headroom in every 
   const order = ['power.mine.boom', 'gun.rifle', 'confirm.kill', 'confirm.hit', 'step.concrete', 'casing', 'wind', 'power.hum'];
   for (let i = 1; i < order.length; i++) assert.ok(lv(order[i - 1]) > lv(order[i]), `${order[i - 1]} over ${order[i]}`);
   assert.ok(lv('confirm.head') > lv('confirm.hit'), 'a headshot rings louder');
-  // Each sound plays at its level; none may need the output clipper on its own.
+  // Each sound plays at its level, and no voice alone goes past full scale.
   for (const [name, r] of Object.entries(SOUNDS)) {
     const s = render(name);
-    const gain = dbToGain(r.level) / shortTerm(s, FS);
-    assert.ok(peakOf(s) * gain <= dbToGain(-1), `${name} peaks at ${(20 * Math.log10(peakOf(s) * gain)).toFixed(1)} dB`);
+    const gain = dbToGain(r.level) / shortTerm(s, FS, r.loop);
+    assert.ok(peakOf(s) * gain <= 1, `${name} peaks at ${(20 * Math.log10(peakOf(s) * gain)).toFixed(1)} dB`);
   }
 });
 

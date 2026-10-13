@@ -125,17 +125,17 @@ const SURFACE_ALIAS = { metal: 'steel' };
 // Footsteps (§5): a noise burst band-passed by surface (concrete 1.8 kHz,
 // wood 600 Hz, steel 1.2 kHz) over a soft heel strike.
 export const FOOTSTEPS = {
-  concrete: { level: -22, n: 5, vary: 0.12, layers: {
+  concrete: { level: -20, n: 5, vary: 0.12, layers: {
     heel: { src: 'sine', f: 120, f1: 70, glide: 0.015, a: 0.001, d: 0.015, g: 0.5 },
     scuff: { src: 'noise', mode: 'bp', f: 1800, q: 1, a: 0.002, d: 0.018 },
     grit: { src: 'noise', mode: 'hp', f: 4000, density: 0.08, at: 0.008, a: 0.002, d: 0.025, g: 0.3 },
   } },
-  wood: { level: -22, n: 5, vary: 0.12, layers: {
+  wood: { level: -20, n: 5, vary: 0.12, layers: {
     heel: { src: 'sine', f: 160, f1: 110, glide: 0.015, a: 0.001, d: 0.02, g: 0.5 },
     hollow: { src: 'sine', f: 240, d: 0.03, g: 0.4, partials: [[1, 1, 1], [2.3, 0.4, 0.6]] },
     scuff: { src: 'noise', mode: 'bp', f: 600, q: 1.2, a: 0.002, d: 0.02 },
   } },
-  steel: { level: -22, n: 5, vary: 0.12, layers: {
+  steel: { level: -20, n: 5, vary: 0.12, layers: {
     heel: { src: 'sine', f: 130, f1: 80, glide: 0.015, a: 0.001, d: 0.015, g: 0.5 },
     clank: { src: 'sine', f: 450, d: 0.04, g: 0.35, partials: [[1, 1, 1], [2.756, 0.5, 0.6], [5.404, 0.3, 0.4]] },
     scuff: { src: 'noise', mode: 'bp', f: 1200, q: 1.2, a: 0.001, d: 0.016 },
@@ -149,19 +149,19 @@ export const CASING_DELAY = 0.38;
 
 // Your own confirmations (§5): instant, dry, never jittered, so they read at once.
 export const CONFIRMS = {
-  hit: { level: -15, dry: true, layers: { // body: a 1.3 kHz tick, 50 ms
+  hit: { level: -13, dry: true, layers: { // body: a 1.3 kHz tick, 50 ms
     tick: { src: 'sine', f: 1300, a: 0.0005, dur: 0.05, partials: [[1, 1, 1], [2, 0.3, 0.5]] },
-    click: { src: 'noise', mode: 'hp', f: 6000, dur: 0.008, g: 0.5 },
+    click: { src: 'noise', mode: 'hp', f: 6000, dur: 0.008, g: 0.2 },
   } },
-  head: { level: -14, dry: true, layers: { // 1.9 kHz plus a 4.5 kHz tink, 70 ms
+  head: { level: -12, dry: true, layers: { // 1.9 kHz plus a 4.5 kHz tink, 70 ms
     ding: { src: 'sine', f: 1900, a: 0.0005, dur: 0.07, partials: [[1, 1, 1], [2, 0.2, 0.5]] },
     tink: { src: 'sine', f: 4500, a: 0.0003, dur: 0.07, g: 0.7, partials: BELL },
-    click: { src: 'noise', mode: 'hp', f: 7000, dur: 0.008, g: 0.5 },
+    click: { src: 'noise', mode: 'hp', f: 7000, dur: 0.008, g: 0.2 },
   } },
-  shield: { level: -14, dry: true, layers: { // a 2.4 kHz triangle ping, 60 ms
+  shield: { level: -12, dry: true, layers: { // a 2.4 kHz triangle ping, 60 ms
     ping: { src: 'sine', f: 2400, a: 0.0005, dur: 0.06, partials: TRI },
   } },
-  kill: { level: -9, dry: true, layers: { // a square ka-chunk 600 → 300 Hz, 40 ms apart, over a 90 Hz thump
+  kill: { level: -8, dry: true, layers: { // a square ka-chunk 600 → 300 Hz, 40 ms apart, over a 90 Hz thump
     ka: { src: 'sine', f: 600, a: 0.0008, dur: 0.035, partials: SQUARE },
     chunk: { src: 'sine', f: 300, at: 0.04, a: 0.0008, dur: 0.06, partials: SQUARE },
     thump: { src: 'sine', f: 90, a: 0.002, dur: 0.16, g: 1.2 },
@@ -229,7 +229,7 @@ export const POWER_SOUNDS = {
     hiss: { src: 'noise', mode: 'bp', f: 2000, q: 1.5, am: [9, 0.3] },
     roar: { src: 'noise', mode: 'lp', f: 400, g: 0.5 },
   } },
-  'shunt.lock': { level: -14, dry: true, vary: 0, layers: { // a 1.6 kHz beep, 30 ms
+  'shunt.lock': { level: -12, dry: true, vary: 0, layers: { // a 1.6 kHz beep, 30 ms
     beep: { src: 'sine', f: 1600, a: 0.001, dur: 0.03, partials: [[1, 1, 1], [3, 0.15, 1]] },
   } },
   'shunt.boom': { level: -4, drive: 2.5, send: 1.6, slap: true, layers: {
@@ -257,7 +257,7 @@ export const POWER_SOUNDS = {
   'mine.arm': { level: -20, vary: 0, layers: { // a 2 kHz click, 15 ms
     click: { src: 'sine', f: 2000, a: 0.0005, dur: 0.015, partials: [[1, 1, 1], [2, 0.3, 1]] },
   } },
-  'mine.fuse': { level: -14, vary: 0, layers: { // beeps at 8 Hz through the 0.25 s fuse
+  'mine.fuse': { level: -12, vary: 0, layers: { // beeps at 8 Hz through the 0.25 s fuse
     b0: { src: 'sine', f: 2600, a: 0.001, dur: 0.05, partials: SQUARE },
     b1: { src: 'sine', f: 2600, at: 0.125, a: 0.001, dur: 0.05, partials: SQUARE },
     b2: { src: 'sine', f: 2600, at: 0.25, a: 0.001, dur: 0.05, partials: SQUARE },
@@ -276,7 +276,7 @@ export const POWER_SOUNDS = {
     b: { src: 'sine', f: 1800, a: 0.02, dur: 0.4, am: [23, 0.6], g: 0.8 },
     c: { src: 'sine', f: 2400, a: 0.03, dur: 0.4, am: [29, 0.6], g: 0.6 },
   } },
-  'shield.break': { level: -12, layers: { // noise high-passed at 4 kHz, 200 ms
+  'shield.break': { level: -11, layers: { // noise high-passed at 4 kHz, 200 ms
     shatter: { src: 'noise', mode: 'hp', f: 4000, a: 0.0005, dur: 0.2 },
     tinkle: { src: 'noise', mode: 'bp', f: 7000, q: 3, density: 0.1, a: 0.001, dur: 0.2, g: 0.6 },
   } },
@@ -298,8 +298,8 @@ export const SHOCK_TARGET = 2; // the whine at your feet plays this much louder
 export const HUM_RANGE = 8; // m: the two nearest pads hum, fading out by here
 export const HOLD = { fade: 0.06, timeout: 0.35 }; // a held loop not refreshed this long fades out
 
-// The quarry's wind bed (§5): noise band-passed 300–600 Hz, its band and
-// level swaying on a 0.1 Hz LFO.
+// The quarry's wind bed (§5): noise band-passed 300–600 Hz, its level
+// swaying ±sway on a 0.1 Hz LFO.
 export const WIND = { level: -30, lfo: 0.1, sway: 0.4, band: [300, 600], fade: 1.5 };
 const WIND_SOUND = { level: WIND.level, loop: 4, layers: {
   wind: { src: 'noise', mode: 'bp', f: Math.sqrt(WIND.band[0] * WIND.band[1]), q: 1.4 },
@@ -466,10 +466,11 @@ export function renderSound(recipe, fs, rand) {
   return out;
 }
 
-// Short-term level: the loudest 50 ms RMS, +3 dB so a full-scale sine reads
-// 1 (0 dB). A recipe's `level` sets this, so its gain is level / shortTerm.
-export function shortTerm(buf, fs) {
-  const w = Math.max(1, Math.round(0.05 * fs));
+// Short-term level: the loudest 50 ms RMS (a loop's whole length), +3 dB so
+// a full-scale sine reads 1 (0 dB). A recipe's `level` sets this, so its gain
+// is level / shortTerm.
+export function shortTerm(buf, fs, seconds = 0.05) {
+  const w = Math.min(buf.length, Math.max(1, Math.round(seconds * fs)));
   let acc = 0;
   let best = 0;
   for (let i = 0; i < buf.length; i++) {
@@ -700,7 +701,7 @@ async function renderBanks(c) {
         const t0 = performance.now();
         const s = renderSound(r, c.sampleRate, shotRng(SEED, hash(name), v));
         bufs.push(toBuffer(c, [s]));
-        gains.push(dbToGain(r.level ?? -12) / (shortTerm(s, c.sampleRate) || 1));
+        gains.push(dbToGain(r.level ?? -12) / (shortTerm(s, c.sampleRate, r.loop) || 1));
         renderMs += performance.now() - t0;
       }
       banks[name] = { bufs, gains, last: -1, send: r.send ?? 1, slap: !!r.slap, dry: !!r.dry, exact: !!r.dry || r.vary === 0 };
@@ -1002,23 +1003,15 @@ export const ambience = safe((on) => {
       const src = ctx.createBufferSource();
       src.buffer = banks.wind.bufs[0];
       src.loop = true;
-      const band = ctx.createBiquadFilter();
-      band.type = 'bandpass';
-      band.Q.value = 1;
-      const [lo, hi] = WIND.band;
-      band.frequency.value = (lo + hi) / 2;
       const g = ctx.createGain();
       g.gain.value = 0;
       g.gain.setTargetAtTime(banks.wind.gains[0], t, WIND.fade);
-      const sway = ctx.createGain(); // the LFO's depth on the level
+      const sway = ctx.createGain(); // the LFO's depth
       sway.gain.value = banks.wind.gains[0] * WIND.sway;
-      const lfoBand = ctx.createGain(); // and on the band's centre
-      lfoBand.gain.value = (hi - lo) / 2;
       const lfo = ctx.createOscillator();
       lfo.frequency.value = WIND.lfo;
       lfo.connect(sway).connect(g.gain);
-      lfo.connect(lfoBand).connect(band.frequency);
-      src.connect(band).connect(g).connect(sfx);
+      src.connect(g).connect(sfx);
       src.start(t);
       lfo.start(t);
       wind = { src, lfo, g, sway };
