@@ -167,12 +167,24 @@ test('materials: crates splinter, steel sparks, and a map with materials is foll
   fx.impact([0, 0, 0], [0, 1, 0], 0);
   frame();
   assert.equal(cubes.count, 0);
-  assert.equal(streaks.geometry.instanceCount, 6); // sparks, streaked along their flight
+  assert.equal(sparks.geometry.drawRange.count, 6); // sparks, in the sparks pool
+  assert.equal(streaks.geometry.instanceCount, 0);
   run(1);
   fx.shot({ from: [0, 1.5, 0], ends: [[0.2, 0, -1], [-0.2, 0, -1]], weapon: 'shotgun' });
   frame();
-  assert.equal(streaks.geometry.instanceCount, 2 + 12); // a tracer per pellet; 6 sparks per pellet, as for any bullet
+  assert.equal(streaks.geometry.instanceCount, 2); // a tracer per pellet
+  assert.equal(sparks.geometry.drawRange.count, 12); // 6 sparks per pellet, as for any bullet
   run(1);
+  // Shotgun fire on rust never eats a blast's ring or smoke.
+  fx.blast('shunt', [0, 0.3, -3]);
+  frame();
+  const blastStreaks = streaks.geometry.instanceCount;
+  assert.equal(blastStreaks, 1 + 8); // the ring and 8 puffs
+  const pellets = Array.from({ length: 12 }, (_, k) => [-0.3 + k * 0.05, 0, -1]);
+  for (let k = 0; k < 4; k++) fx.shot({ from: [0, 1.5, 0], ends: pellets, weapon: 'shotgun' });
+  frame();
+  assert.equal(streaks.geometry.instanceCount, blastStreaks + 4 * 12, 'the ring and every puff are still live');
+  run(2);
   fx.setMap(MAP);
 });
 

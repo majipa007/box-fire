@@ -33,7 +33,7 @@ const LOOK = {
   },
   wood: { chips: 4, size: [0.015, 0.015, 0.06], speed: [2, 3], life: [0.8, 0.8], color: '#c6a77a', decal: ['#3a2a1a', '#c6a77a'] },
   steel: { sparks: 6, px: 3, speed: [6, 10], life: 0.2, color: '#ff8a3d', decal: ['#2a2a2a', '#b0b0b0'] },
-  spark: { core: '#fff1c9', edge: '#3a2a20', stretch: 0.035, pxPerM: 0.00104 }, // a hot core, the rim colour, a dark edge; streaked over `stretch` s of flight; px at 1080p, 90° hfov
+  spark: { core: '#fff1c9', edge: '#3a2a20' }, // a hot core, the rim colour, a dark edge
   shade: [0.36, 0.4, 0.48], // unlit puffs in the sun's shadow take this (linear) tint of skylight
   decal: { size: { rifle: 0.07, pistol: 0.06, pellet: 0.045, bolt: 0.08 }, core: 0.42, halo: 0.85, lift: 0.004, minFit: 0.6 },
   player: { cubes: 4, headCubes: 7, size: [0.04, 0.07], speed: [1.5, 3], life: 0.5, white: '#ffffff', unknown: '#9a9fa8' },
@@ -88,7 +88,6 @@ const BEAM = 1;
 const RING = 2;
 const BAND = 3;
 const PUFF = 4;
-const SPARK = 5; // drawn as a short TRACER stretched along its velocity
 
 export const effectsGroup = new THREE.Group();
 
@@ -734,9 +733,9 @@ function spawnStreak(kind, p, d, len, a, b, color, alpha, life, seed = 0) {
   streak.seed[i] = seed;
 }
 
-// A spark: a short streak flying at `v` (m/s, a Vector3), `px` wide at 1080p.
+// A spark: a point flying at `v` (m/s, a Vector3), `px` across at 1080p.
 function spawnSpark(p, v, color, life, px) {
-  spawnStreak(SPARK, p, v, 0, 0, px * LOOK.spark.pxPerM, color, 1, life);
+  spawnPoint(sparks, p, v, color, 1, -px, -px, life, 1);
 }
 
 // `color` as an unlit puff at `p` shows it: dimmed to skylight when a map box
@@ -816,17 +815,6 @@ function updateStreaks(dt) {
       B[i4 + 1] = 0;
       B[i4 + 2] = cx * half;
       alpha *= 1 - Math.max(0, (age[i] - b[i]) / (life[i] - b[i]));
-    } else if (k === SPARK) {
-      d[i3 + 1] -= LOOK.gravity * 0.5 * dt;
-      for (let j = 0; j < 3; j++) {
-        p[i3 + j] += d[i3 + j] * dt;
-        A[i4 + j] = p[i3 + j] - d[i3 + j] * LOOK.spark.stretch;
-        B[i4 + j] = p[i3 + j];
-      }
-      A[i4 + 3] = 0;
-      B[i4 + 3] = b[i];
-      D[i4] = TRACER;
-      alpha *= 1 - t * t;
     } else {
       for (let j = 0; j < 3; j++) p[i3 + j] += d[i3 + j] * dt;
       A[i4] = p[i3];
