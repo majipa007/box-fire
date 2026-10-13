@@ -123,17 +123,20 @@ const SMOOTH_AIR = 0.05;
 // ?debug&lineup[=shade|fx] replaces the players with the 10 slot rigs in a
 // row 0.9 m apart, all dropping 30 HP at each whole second (3 seconds in 4)
 // to show the hit flash (not in fx). sun: z 3, x −4.05…4.05, facing +z. shade: x 8.9,
-// z 4…12.1, facing +x: the bible's x 9.6, z 5…13.1 leaves heads and the far
-// end in sun, under main's sun and the bible's alike. fx: the sun row with
-// Shield (Red, Blue, Cyan, Pink), slowed (Green, Orange, Magenta) and Nitro
-// (Yellow, Purple, Lime, circling 2 m in front of the row).
-// &still holds hp (no flash) for clean stills; &turn=deg turns every rig (fit checks at 45°).
-// Cameras (?debug&lineup&cam=x,y,z,yaw,pitch; the far ones look over a wall):
-//   sun   10 m: 0,1.6,13,0,-0.03   25 m: 0,8,28,0,-0.27   35 m: 0,11,38,0,-0.29
+// z 4…12.1, facing +x. The bible's x 9.6, z 5…13.1 is in shade under the bible's
+// sun, but its heads are lit under main's 50° sun; x 8.9 is shaded under both.
+// fx: the sun row with Shield (Red, Blue, Cyan, Pink), slowed (Green, Orange,
+// Magenta) and Nitro (Yellow, Purple, Lime, circling 2 m in front of the row).
+// &still holds hp (no flash) for clean stills; &turn=deg turns every rig (fit
+// checks at 45°); &crouch crouches them.
+// Cameras (?debug&lineup&cam=x,y,z,yaw,pitch), each with a clear line to the
+// helmet and torso of all 10 rigs on arena_01 (the far ones look over a wall):
+//   sun   10 m: -2,1.6,12.8,-0.201,-0.06   25 m: -9.5,5.1,26.12,-0.39,-0.163   35 m: -15,7.6,34.62,-0.443,-0.186
 //   shade 10 m: 18.9,1.6,8.05,1.5708,-0.03   25 m: 33.9,11,8.05,1.5708,-0.4   35 m: 43.9,15,8.05,1.5708,-0.4
 const params = new URLSearchParams(globalThis.location?.search ?? '');
 const LINEUP = params.has('debug') && params.has('lineup') ? params.get('lineup') || 'sun' : null;
 const STILL = params.has('still');
+const CROUCH = params.has('crouch');
 const TURN = (+params.get('turn') || 0) * D;
 
 // ─── Engine ─────────────────────────────────────────────────────────────────
@@ -897,7 +900,7 @@ function lineup(now) {
     const shade = LINEUP === 'shade';
     const list = NAMES.map((name, i) => ({
       id: 1001 + i, x: shade ? 8.9 : -4.05 + 0.9 * i, y: 0, z: shade ? 4 + 0.9 * i : 3, yaw: (shade ? -Math.PI / 2 : Math.PI) + TURN, pitch: 0,
-      crouch: false, alive: true, shielded: false, hp: 100, weapon: ['rifle', 'pistol', 'shotgun'][i % 3],
+      crouch: CROUCH, alive: true, shielded: false, hp: 100, weapon: ['rifle', 'pistol', 'shotgun'][i % 3],
       bubble: false, nitro: false, slowed: false,
     }));
     fakes = { list, roster: new Map(list.map((p, i) => [p.id, { name: NAMES[i], slot: i }])), x: list.map((p) => p.x) };
