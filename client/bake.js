@@ -493,7 +493,8 @@ export function decals(mapBoxes, seed = 3) {
 }
 
 // The far group, locked to the camera's x/z and drawn unlit with colours pre-hazed toward
-// the horizon: a notched ridge ring with three turbine towers in the opening. Returns
+// the horizon: a notched ridge ring with three turbine towers in the opening, and a nearer,
+// darker spur in the opening so the view past the crusher has two layers. Returns
 // { quads, hubs: blade hubs, color: the turbines' hazed colour, for the blades }.
 export const FAR = {
   seed: 9, inner: 150, outer: 175, columns: 96, height: [30, 45], notch: 0.18,
@@ -503,6 +504,9 @@ export const FAR = {
   // Colour: the bible's #f3e7d4, pre-hazed 60% toward the horizon like the ridge, then
   // backlit by the ridge's backlit/sunlit ratio: all three stand in the sun's direction.
   turbines: { radius: 165, azimuths: [215, 245, 275], tower: 40, footCap: 31.5, width: 0.8, nacelle: [2, 2, 3], base: '#f3e7d4', haze: 0.6, blade: [1.2, 14, 0.4], rpm: 12 },
+  // Not in the bible: the spur. 112 m out its tops clear the wall line (1.6 + 0.12·D m) by 2–12 m.
+  // Its colours are the ridge's with 40% haze instead of 60%.
+  near: { seed: 13, inner: 112, outer: 124, from: 192, to: 298, columns: 24, height: [17, 27], haze: 0.4 },
 };
 export function farRidge(sunDir, F = FAR) {
   const out = [];
@@ -520,24 +524,31 @@ export function farRidge(sunDir, F = FAR) {
     if (rand() < F.notch) h -= 4 + rand() * 6; // notches
     heights.push(Math.round(h));
   }
-  for (let i = 0; i < F.columns; i++) {
-    const a0 = (360 * i) / F.columns;
-    const a1 = (360 * (i + 1)) / F.columns;
-    const [x0, z0] = at(a0, F.inner);
-    const [x1, z1] = at(a1, F.inner);
-    const [X0, Z0] = at(a0, F.outer);
-    const [X1, Z1] = at(a1, F.outer);
-    const h = heights[i];
+  // One column from azimuth a0 to a1: its face, its top, and its sides above lower neighbours.
+  const column = (a0, a1, inner, outer, h, prev, next, shade, top) => {
+    const [x0, z0] = at(a0, inner);
+    const [x1, z1] = at(a1, inner);
+    const [X0, Z0] = at(a0, outer);
+    const [X1, Z1] = at(a1, outer);
     const mid = (a0 + a1) / 2;
     const inward = [-Math.sin(rad(mid)), 0, Math.cos(rad(mid))];
     const ccw = [-Math.cos(rad(a0)), 0, -Math.sin(rad(a0))];
     const cw = [Math.cos(rad(a1)), 0, Math.sin(rad(a1))];
-    quad(out, [[x1, 0, z1], [x0, 0, z0], [x0, h, z0], [x1, h, z1]], lit(inward[0], inward[2]), inward);
-    quad(out, [[x0, h, z0], [x1, h, z1], [X1, h, Z1], [X0, h, Z0]], F.top, UP);
-    const prev = heights[(i + F.columns - 1) % F.columns];
-    const next = heights[(i + 1) % F.columns];
-    if (prev < h) quad(out, [[x0, prev, z0], [X0, prev, Z0], [X0, h, Z0], [x0, h, z0]], lit(ccw[0], ccw[2]), ccw);
-    if (next < h) quad(out, [[X1, next, Z1], [x1, next, z1], [x1, h, z1], [X1, h, Z1]], lit(cw[0], cw[2]), cw);
+    quad(out, [[x1, 0, z1], [x0, 0, z0], [x0, h, z0], [x1, h, z1]], shade(inward[0], inward[2]), inward);
+    quad(out, [[x0, h, z0], [x1, h, z1], [X1, h, Z1], [X0, h, Z0]], top, UP);
+    if (prev < h) quad(out, [[x0, prev, z0], [X0, prev, Z0], [X0, h, Z0], [x0, h, z0]], shade(ccw[0], ccw[2]), ccw);
+    if (next < h) quad(out, [[X1, next, Z1], [x1, next, z1], [x1, h, z1], [X1, h, Z1]], shade(cw[0], cw[2]), cw);
+  };
+  for (let i = 0; i < F.columns; i++) {
+    column((360 * i) / F.columns, (360 * (i + 1)) / F.columns, F.inner, F.outer, heights[i], heights[(i + F.columns - 1) % F.columns], heights[(i + 1) % F.columns], lit, F.top);
+  }
+  const N = F.near;
+  const nearer = (hex) => mixHex('#d6dbdf', hex, (1 - N.haze) / 0.4); // from 60% haze to N.haze
+  const nearLit = (nx, nz) => nearer(lit(nx, nz));
+  const nrand = seeded(N.seed);
+  const spur = Array.from({ length: N.columns }, () => Math.round(N.height[0] + (N.height[1] - N.height[0]) * nrand()));
+  for (let i = 0; i < N.columns; i++) {
+    column(N.from + ((N.to - N.from) * i) / N.columns, N.from + ((N.to - N.from) * (i + 1)) / N.columns, N.inner, N.outer, spur[i], spur[i - 1] ?? 0, spur[i + 1] ?? 0, nearLit, nearer(F.top));
   }
   // Turbine towers on the ridge, nacelles facing the arena; hubs for the blades.
   const T = F.turbines;
