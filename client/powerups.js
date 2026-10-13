@@ -11,7 +11,7 @@
 //   uses one; updatePowerups(now, renderTick, camera) per frame.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { POWER_COLORS, POWER_PADS, POWERS, POWER_CAPACITY, TICK_RATE } from '../shared/constants.js';
+import { POWER_COLORS, POWER_PADS, POWERS, POWER_CAPACITY, TICK_RATE, INPUT_BUFFER } from '../shared/constants.js';
 import { createPowers } from '../shared/powerups.js';
 import { POWER_IDS, ENT, PU_STATE } from '../shared/protocol.js';
 import { eyeOf, aimDir, traceShot } from '../shared/weapons.js';
@@ -47,6 +47,12 @@ const MAX_FLAT = 64;
 const MAX_BEAMS = 32;
 const MAX_TRAILS = 16;
 const MAX_BITS = 128; // fallback burst voxels
+// Our own Shunts are drawn in the present, like the ghost that launched
+// them: the newest snapshot carried on by the ticks since it plus the
+// input's trip (the server's input buffer and a tick of waiting), at most
+// AHEAD_MAX ticks if snapshots stall. Others' entities are interpolated.
+const LEAD_TICKS = INPUT_BUFFER + 1;
+const AHEAD_MAX = 6;
 
 // 7 × 7 glyphs, top row first: # item hue, o white core (the Mine's LED red), . empty.
 const GLYPHS = {
@@ -291,8 +297,29 @@ export function onEvent(m, id) {
   const own = m.id === id;
   if (m.e === 'use' && own) return; // played at prediction time
   if (m.e === 'boom' && own && m.k === 'barge') return; // drawn locally on use
-  if (own && m.e === 'pick') play(m);
+  // Ours play on arrival: our pickups, and booms of our own Shunts (drawn
+  // in the present) and Mines. The newest snapshot still holds them, unless
+  // a Shunt burst on its launch tick: only its owner is credited for that.
+  const ours = m.e === 'boom' && (ownerOf(m.eid) === id || (m.k === 'shunt' && m.r > 0 && own));
+  if (ours && m.k === 'shunt') endGhost(m.eid);
+  if ((own && m.e === 'pick') || ours) play(m);
   else pending.push(m);
+}
+
+// Our Shunt burst: its ghost goes now, even if its entity never showed.
+function endGhost(eid) {
+  for (const g of ghosts) {
+    if (g.kind !== 'shunt' || (g.eid ? g.eid !== eid : g.known.has(eid))) continue;
+    g.eid = eid;
+    g.blendT0 = -Infinity; // spent: dropped on the next frame, drawn by nothing
+    return;
+  }
+}
+
+function ownerOf(eid) {
+  const en = snaps.at(-1)?.en ?? [];
+  for (let i = 0; i < en.length; i++) if (en[i][0] === eid) return en[i][2];
+  return null;
 }
 
 function play(m) {
@@ -397,7 +424,8 @@ export function updatePowerups(now, renderTick, cam) {
   const s = now / 1000;
   const tick = serverTick(now);
   drawPads(s, tick);
-  drawEntities(s, renderTick);
+  flyGhosts(now);
+  drawEntities(s, renderTick, tick);
   drawGhosts(now);
   drawBursts(now);
   upload(flats, nFlat);
@@ -466,7 +494,7 @@ function glyph(kind, x, y, z, yaw, scale, hue, core, hull) {
   }
 }
 
-function drawEntities(s, rt) {
+function drawEntities(s, rt, now) {
   if (!snaps.length) return;
   let i = snaps.length - 1;
   while (i > 0 && snaps[i - 1].tick > rt) i--;
@@ -482,6 +510,7 @@ function drawEntities(s, rt) {
     const y1 = e[4];
     const z1 = e[5];
     const sa = e[6];
+    if (type === ENT.SHUNT && e[2] === myId) continue; // drawn below, in the present
     let from = e;
     for (let k = 0; k < a.en.length; k++) if (a.en[k][0] === eid) from = a.en[k];
     const x = from[3] + (x1 - from[3]) * t;
@@ -490,18 +519,7 @@ function drawEntities(s, rt) {
     const ghosted = ghostFor(e, x, y, z);
     if (ghosted) continue;
     if (type === ENT.SHUNT) {
-      let dir = shownDir.get(eid);
-      const dx = x1 - from[3];
-      const dy = y1 - from[4];
-      const dz = z1 - from[5];
-      const len = Math.hypot(dx, dy, dz);
-      if (len > 1e-4) {
-        if (!dir) shownDir.set(eid, (dir = [0, 0, 0]));
-        dir[0] = dx / len;
-        dir[1] = dy / len;
-        dir[2] = dz / len;
-      }
-      rocket(x, y, z, dir ?? AHEAD, 1);
+      rocket(x, y, z, heading(eid, x1 - from[3], y1 - from[4], z1 - from[5]), 1);
     } else if (type === ENT.MINE) {
       const near = !me || Math.hypot(me.x - x, me.z - z) < LOOK.mine.ringRange;
       mine(x, y, z, sa, s, near);
@@ -509,7 +527,38 @@ function drawEntities(s, rt) {
       telegraph(x, y, z, (sa - rt) / TICK_RATE);
     }
   }
+  // Our own Shunts: the newest snapshot, carried on along its last step.
+  const nb = snaps[snaps.length - 1];
+  const na = snaps[snaps.length - 2] ?? nb;
+  const ahead = Math.max(0, Math.min(AHEAD_MAX, now - nb.tick + LEAD_TICKS)) / Math.max(1, nb.tick - na.tick);
+  for (let j = 0; j < nb.en.length; j++) {
+    const e = nb.en[j];
+    if (e[1] !== ENT.SHUNT || e[2] !== myId) continue;
+    let from = e;
+    for (let k = 0; k < na.en.length; k++) if (na.en[k][0] === e[0]) from = na.en[k];
+    if (from === e) continue; // just launched: its ghost flies on until it has a heading
+    const dx = e[3] - from[3];
+    const dy = e[4] - from[4];
+    const dz = e[5] - from[5];
+    const x = e[3] + dx * ahead;
+    const y = e[4] + dy * ahead;
+    const z = e[5] + dz * ahead;
+    if (!ghostFor(e, x, y, z)) rocket(x, y, z, heading(e[0], dx, dy, dz), 1);
+  }
   if (shownDir.size > 32) shownDir.clear();
+}
+
+// A Shunt's heading from its last step, kept while it stands still.
+function heading(eid, dx, dy, dz) {
+  let dir = shownDir.get(eid);
+  const len = Math.hypot(dx, dy, dz);
+  if (len > 1e-4) {
+    if (!dir) shownDir.set(eid, (dir = [0, 0, 0]));
+    dir[0] = dx / len;
+    dir[1] = dy / len;
+    dir[2] = dz / len;
+  }
+  return dir ?? AHEAD;
 }
 
 function rocket(x, y, z, dir, fade) {
@@ -567,24 +616,31 @@ function ghostFor(e, x, y, z) {
   return false;
 }
 
-function drawGhosts(now) {
+// Before the entities: drop spent ghosts and fly the rest on, through
+// their blend too, so a handover never stalls.
+function flyGhosts(now) {
   const G = LOOK.ghost;
   for (let i = ghosts.length - 1; i >= 0; i--) {
     const g = ghosts[i];
-    const age = now - g.t0;
-    if ((g.eid && now - g.blendT0 > G.blendMs) || (!g.eid && age > G.timeoutMs * 2)) {
+    if ((g.eid && now - g.blendT0 > G.blendMs) || (!g.eid && now - g.t0 > G.timeoutMs * 2)) {
       ghosts.splice(i, 1);
       continue;
     }
-    if (g.eid) continue; // drawn by its entity
-    if (g.kind === 'shunt') {
-      const d = (POWERS.shunt.speed * (now - (g.last ?? g.t0))) / 1000;
-      g.last = now;
-      g.x += g.dir[0] * d;
-      g.y += g.dir[1] * d;
-      g.z += g.dir[2] * d;
-    }
-    draw(g, g.x, g.y, g.z, age < G.timeoutMs ? 1 : 1 - (age - G.timeoutMs) / G.timeoutMs);
+    if (g.kind !== 'shunt') continue;
+    const d = (POWERS.shunt.speed * (now - (g.last ?? g.t0))) / 1000;
+    g.last = now;
+    g.x += g.dir[0] * d;
+    g.y += g.dir[1] * d;
+    g.z += g.dir[2] * d;
+  }
+}
+
+// After them: the ghosts no entity has claimed, fading after the timeout.
+function drawGhosts(now) {
+  const G = LOOK.ghost;
+  for (const g of ghosts) {
+    const age = now - g.t0;
+    if (!g.eid) draw(g, g.x, g.y, g.z, age < G.timeoutMs ? 1 : 1 - (age - G.timeoutMs) / G.timeoutMs);
   }
 }
 
