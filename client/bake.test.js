@@ -175,25 +175,51 @@ test('arena_01 stays within the triangle budget', () => {
   assert.ok(n < 40000, `${n} triangles`);
 });
 
-test('sand drifts into floor creases only; the sun term is 0 in a shadow and on faces turned away', () => {
+// The value of attribute `key` (size n) at the vertex at p on the face with normal n.
+function attrAt(meshes, key, p, normal, n = 1) {
+  for (const m of Object.values(meshes)) {
+    for (let i = 0; i < m.ao.length; i++) {
+      if (sub(pos(m, i), p).every((d) => Math.abs(d) < 1e-6) && dot(nrm(m, i), normal) > 0.5) return n === 1 ? m[key][i] : [...m[key].slice(i * n, i * n + n)];
+    }
+  }
+  assert.fail(`no vertex at ${p} facing ${normal}`);
+}
+
+test('crease: the distance to the nearest other box, exact at feet, capped at the AO radius', () => {
+  const { meshes } = meshMap(SMALL, AO);
+  const up = [0, 1, 0];
+  const near = (v, want) => assert.ok(Math.abs(v - want) < 2e-3, `${v} vs ${want}`);
+  near(attrAt(meshes, 'crease', [5, 0, -3], up), 0); // floor at the wall's foot
+  near(attrAt(meshes, 'crease', [4, 0, -3], up), 1); // a metre out
+  near(attrAt(meshes, 'crease', [-3, 0, -3], up), AO.radius); // open floor
+  near(attrAt(meshes, 'crease', [5, 0.5, -3], [-1, 0, 0]), 0.5); // the wall, half a metre up
+  near(attrAt(meshes, 'crease', [0, 1, 0], up), AO.radius); // the lone crate's top
+  for (const m of Object.values(meshes)) for (const c of m.crease) assert.ok(c >= 0 && c <= AO.radius);
+});
+
+test('sand: distances along each axis on the ground and what stands on it, both 0 only in inside corners', () => {
+  const { meshes } = meshMap(SMALL, AO);
+  const up = [0, 1, 0];
+  const R = AO.radius;
+  const along = (p, n) => attrAt(meshes, 'along', p, n, 2).map((v) => Math.round(v * 1e3) / 1e3);
+  assert.deepEqual(along([5, 0, -3], up), [0, R]); // floor at the wall foot: the wall across x
+  assert.deepEqual(along([4, 0, -3], up), [1, R]);
+  assert.deepEqual(along([-3, 0, -3], up), [R, R]); // open floor
+  assert.deepEqual(along([5, 0, 0.5], up), [0, 0]); // floor in the corner of the wall and a crate
+  assert.deepEqual(along([-0.5, 0, -0.5], up), [R, R]); // a lone crate's outside corner is no corner
+  assert.deepEqual(along([5, 0, 0.5], [-1, 0, 0]), [0, 0]); // the wall at that corner: the crate across z, the floor below
+  assert.deepEqual(along([5, 1, -3], [-1, 0, 0]), [R, 1]); // the wall a metre up a straight run
+  assert.deepEqual(along([-3, 2, 3], up), [-1, -1], 'no sand on a stack top');
+  assert.deepEqual(along([-3.5, 1.5, 3], [-1, 0, 0]), [-1, -1], 'nor on a stacked crate side');
+});
+
+test('the sun term is 0 in a shadow and on faces turned away', () => {
   const sunDir = [Math.SQRT1_2, Math.SQRT1_2, 0]; // from +x, 45° up: the wall shades the floor west of it
   const { meshes } = meshMap(SMALL, { ...AO, sunDir });
-  const at = (key, p, n) => {
-    for (const m of Object.values(meshes)) {
-      for (let i = 0; i < m.ao.length; i++) {
-        if (sub(pos(m, i), p).every((d) => Math.abs(d) < 1e-6) && dot(nrm(m, i), n) > 0.5) return m[key][i];
-      }
-    }
-    assert.fail(`no vertex at ${p} facing ${n}`);
-  };
   const up = [0, 1, 0];
-  assert.equal(at('sand', [-3, 0, -3], up), 0, 'open floor');
-  assert.ok(at('sand', [5, 0, 0.5], up) > 0.2, 'the corner of floor, wall and crate');
-  assert.equal(at('sand', [-3, 2, 3], up), 0, 'no sand on crate tops');
-  for (const m of Object.values(meshes)) for (const v of m.sand) assert.ok(v >= 0 && v <= 0.55);
-  assert.equal(at('sun', [-3, 0, -3], up), 1, 'open floor in the sun');
-  assert.equal(at('sun', [4, 0, -3], up), 0, 'floor in the wall shadow');
-  assert.equal(at('sun', [-0.5, 0.5, 0], [-1, 0, 0]), 0, 'a face turned away from the sun');
+  assert.equal(attrAt(meshes, 'sun', [-3, 0, -3], up), 1, 'open floor in the sun');
+  assert.equal(attrAt(meshes, 'sun', [4, 0, -3], up), 0, 'floor in the wall shadow');
+  assert.equal(attrAt(meshes, 'sun', [-0.5, 0.5, 0], [-1, 0, 0]), 0, 'a face turned away from the sun');
 });
 
 test('crates take face-local UVs in whole tiles; vTop pins top faces into a band', () => {

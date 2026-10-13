@@ -43,7 +43,16 @@ const MAP_MATERIALS = [
 ];
 // Edge treatment (§2.5): a chipped arris brightens the outer `arris` m, then a darker band to `band` m.
 const EDGE = { arris: 0.01, arrisGain: 1.08, band: 0.04, bandGain: 0.85 };
-const SAND = '#d8c39a'; // drifts in floor corners, by the baked `sand` attribute
+// Contact creases (the overview's "dark AO bands at wall bases"): within `width` m of another
+// box the light falls by up to `indirect` and `direct`, from the baked `crease` distance, so the
+// band is crisp whatever the AO grid. The coarse baked AO still gives the soft falloff.
+const CREASE = { width: 0.3, indirect: 0.5, direct: 0.35 };
+// Sand drifts (mixed toward #d8c39a), from the baked crease and `along` distances, all exact
+// on the coarse grid: a `fillet` m strip along every foot on the floor, a 45° heap `corner` m
+// along each wall in inside corners, and on the walls a `lip` m strip up the foot that climbs
+// `climb` m more into the corner. The edge wanders by ±`ragged` in 1/8 m steps.
+const SAND = '#d8c39a';
+const DRIFT = { fillet: 0.15, corner: 1.5, lip: 0.06, climb: 0.45, ragged: 0.35, cell: 0.125, opacity: 0.85 };
 const HAZARD = { width: 0.3, stripe: 0.15, colors: ['#ad9862', '#3a3c40'] }; // the dock top's border
 
 // ---- Shader chunks, patched at import, before any material compiles.
@@ -326,7 +335,7 @@ export function surfaceAt(x, y, z) {
   return best?.surface ?? 'concrete';
 }
 
-const SIZES = { position: 3, normal: 3, uv: 2, ao: 1, sand: 1, sun: 1, face: 4 };
+const SIZES = { position: 3, normal: 3, uv: 2, ao: 1, along: 2, crease: 1, sun: 1, face: 4 };
 function geometry({ index, ...attributes }) {
   const g = new THREE.BufferGeometry();
   for (const [name, array] of Object.entries(attributes)) g.setAttribute(name, new THREE.BufferAttribute(array, SIZES[name]));
@@ -334,7 +343,7 @@ function geometry({ index, ...attributes }) {
   return g;
 }
 
-// Lambert with the baked AO, sand drifts and per-vertex sun (used only without a shadow
+// Lambert with the baked AO, contact creases, sand drifts and per-vertex sun (used only without a shadow
 // map), and the edge treatment from the face-local `face` attribute. All map materials
 // share one program; the dock top switches its hazard border on with a uniform.
 const glsl = (hex) => `vec3( ${new THREE.Color(hex).toArray().map((v) => v.toFixed(4)).join(', ')} )`; // linear
@@ -347,18 +356,36 @@ function mapMaterial(map, hazard) {
     shader.uniforms.hazard = { value: hazard ? 1 : 0 };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
-        attribute float ao, sand, sun;
+        attribute float ao, crease, sun;
+        attribute vec2 along;
         attribute vec4 face;
-        varying float vAo, vSand, vSun;
-        varying vec4 vFace;`)
-      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvAo = ao; vSand = sand; vSun = sun; vFace = face;');
+        varying float vAo, vCrease, vSun;
+        varying vec2 vAlong;
+        varying vec4 vFace;
+        varying vec3 vMapPos;
+        varying float vUp;`)
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvAo = ao; vAlong = along; vCrease = crease; vSun = sun; vFace = face; vMapPos = position; vUp = normal.y;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform float hazard;
-        varying float vAo, vSand, vSun;
-        varying vec4 vFace;`)
+        varying float vAo, vCrease, vSun;
+        varying vec2 vAlong;
+        varying vec4 vFace;
+        varying vec3 vMapPos;
+        varying float vUp;`)
       .replace('#include <map_fragment>', `#include <map_fragment>
-        diffuseColor.rgb = mix( diffuseColor.rgb, ${glsl(SAND)}, vSand );
+        if ( vAlong.x >= 0.0 ) {
+          // Value noise along x and z, stepped to 1/8 m pixels, 0.5 m between knots.
+          vec2 t = floor( vMapPos.xz / ${DRIFT.cell.toFixed(3)} ) * 0.25;
+          vec2 k = floor( t );
+          vec2 f = smoothstep( 0.0, 1.0, t - k );
+          vec2 n = mix( fract( sin( k * 12.9898 ) * 43758.5453 ), fract( sin( ( k + 1.0 ) * 12.9898 ) * 43758.5453 ), f );
+          float edge = 1.0 + ${DRIFT.ragged.toFixed(2)} * ( n.x + n.y - 1.0 );
+          float sandAt = vUp > 0.5
+            ? min( vCrease / ${DRIFT.fillet.toFixed(3)}, ( vAlong.x + vAlong.y ) / ${DRIFT.corner.toFixed(3)} )
+            : vAlong.y / ( ${DRIFT.lip.toFixed(3)} + ${DRIFT.climb.toFixed(3)} * max( 0.0, 1.0 - vAlong.x / ${DRIFT.corner.toFixed(3)} ) );
+          diffuseColor.rgb = mix( diffuseColor.rgb, ${glsl(SAND)}, ${DRIFT.opacity.toFixed(2)} * ( 1.0 - smoothstep( 0.75 * edge, edge, sandAt ) ) );
+        }
         vec2 edgeNear = min( vFace.xy, vFace.zw - vFace.xy );
         float edgeDist = min( edgeNear.x, edgeNear.y );
         if ( hazard > 0.5 && edgeDist < ${HAZARD.width.toFixed(3)} ) {
@@ -369,8 +396,9 @@ function mapMaterial(map, hazard) {
         diffuseColor.rgb *= mix( ${EDGE.bandGain.toFixed(3)}, 1.0, smoothstep( band - 0.5 * edgePx, band + 0.5 * edgePx, edgeDist ) );
         diffuseColor.rgb *= mix( ${(EDGE.arrisGain / EDGE.bandGain).toFixed(4)}, 1.0, smoothstep( ${EDGE.arris.toFixed(3)} - 0.5 * edgePx, ${EDGE.arris.toFixed(3)} + 0.5 * edgePx, edgeDist ) );`)
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
-        reflectedLight.indirectDiffuse *= vAo;
-        reflectedLight.directDiffuse *= 0.85 + 0.15 * vAo;
+        float creaseK = 1.0 - smoothstep( 0.0, ${CREASE.width.toFixed(3)}, vCrease );
+        reflectedLight.indirectDiffuse *= vAo * ( 1.0 - ${CREASE.indirect.toFixed(3)} * creaseK );
+        reflectedLight.directDiffuse *= ( 0.85 + 0.15 * vAo ) * ( 1.0 - ${CREASE.direct.toFixed(3)} * creaseK );
         #ifndef USE_SHADOWMAP
           reflectedLight.directDiffuse *= mix( 0.24, 1.0, vSun );
         #endif`);

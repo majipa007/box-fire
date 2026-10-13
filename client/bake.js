@@ -12,9 +12,14 @@ const NO_EDGE = 100; // m added to a face-local coordinate to switch that edge's
 // band) and `tile` switches to face-local UVs, one texture repeat per whole
 // `tile` metres of face (crates).
 // Arrays per material: position, normal, uv (world metres unless `tile`), ao
-// (0–1), sand (0–0.55, drifts in floor corners), sun (1 where the sun reaches,
-// for when there is no shadow map), face (face-local u, v, width, height in
-// metres, for edge treatment) and index.
+// (0–1), along (where sand drifts, on the ground and the sides of boxes standing
+// on it: the distances in m along the face's u and v axes to the boxes standing on
+// the face, each up to `radius`, so an inside corner reads as both small; −1, −1
+// elsewhere), crease (m, up to `radius`: distance to the nearest other box, so the shader can
+// draw a contact band of any width on the coarse grid: a distance to a straight
+// edge interpolates exactly), sun (1 where the sun reaches, for when there is no
+// shadow map), face (face-local u, v, width, height in metres, for edge
+// treatment) and index.
 // - Faces are cut on one global grid per axis: every box edge, filled to
 //   `cell` metres. Touching faces therefore share vertices (no T-junction
 //   cracks), and every contact line gets its own row of vertices, so the AO
@@ -53,6 +58,45 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1
   const fans = [0, 1, 2].map((a) => ({ [-1]: hemisphere(a, -1, rays), 1: hemisphere(a, 1, rays) }));
   const origin = [0, 0, 0];
   const local = [];
+  let nearest = radius; // set by occlusion(): distance from its probe to the nearest box
+  const probe = [0, 0, 0];
+  // Is the quadrant beside face point p, toward (su, sv) along (u, v), open air? Below the
+  // floor counts as solid: nothing is ever seen there.
+  const open = (p, a, s, u, v, su, sv, list) => {
+    probe[a] = p[a] + s * NUDGE;
+    probe[u] = p[u] + su * NUDGE;
+    probe[v] = p[v] + sv * NUDGE;
+    return probe[1] > floor && !solidAt(probe, list);
+  };
+  // Distances along u and along v from face point p to the boxes standing on the face (they
+  // cross its front plane), counting a box only straight across one axis. A box touched at
+  // its corner counts across the axis whose quadrant beyond it is open air, so the inside
+  // corner of two boxes gets both distances 0, and a lone box's outside corner neither.
+  const along = (p, a, s, u, v, list, covering) => {
+    let du = radius;
+    let dv = radius;
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      const gu = Math.max(c.min[u] - p[u], 0, p[u] - c.max[u]);
+      const gv = Math.max(c.min[v] - p[v], 0, p[v] - c.max[v]);
+      if (gv === 0 && gu > 0) du = Math.min(du, gu);
+      else if (gu === 0 && gv > 0) dv = Math.min(dv, gv);
+      else if (gu === 0 && gv === 0) {
+        const su = p[u] === c.min[u] ? 1 : p[u] === c.max[u] ? -1 : 0; // toward the box, 0 inside its span
+        const sv = p[v] === c.min[v] ? 1 : p[v] === c.max[v] ? -1 : 0;
+        if (su && !sv) du = 0;
+        else if (sv && !su) dv = 0;
+        else if (su && sv) {
+          const acrossU = open(p, a, s, u, v, -su, sv, covering);
+          if (acrossU !== open(p, a, s, u, v, su, -sv, covering)) {
+            if (acrossU) du = 0;
+            else dv = 0;
+          }
+        }
+      }
+    }
+    return [du, dv];
+  };
 
   function occlusion(p, a, s, near) {
     origin[0] = p[0];
@@ -60,7 +104,12 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1
     origin[2] = p[2];
     origin[a] += s * NUDGE;
     local.length = 0;
-    for (let i = 0; i < near.length; i++) if (distance(origin, near[i]) < radius) local.push(near[i]);
+    nearest = radius;
+    for (let i = 0; i < near.length; i++) {
+      const d = distance(origin, near[i]);
+      if (d < radius) local.push(near[i]);
+      if (d < nearest) nearest = d;
+    }
     if (!local.length) return 1;
     const fan = fans[a][s];
     let occluded = 0;
@@ -91,8 +140,8 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1
         const plane = s > 0 ? b.max[a] : b.min[a];
         if (a === 1 ? s < 0 && plane <= floor : b.max[1] <= floor) continue;
         const outer = a !== 1 && plane === (s > 0 ? hi[a] : lo[a]);
-        const ground = a === 1 && s > 0 && plane === floor;
-        const out = (meshes[a === 1 && s > 0 ? b.top : b.mat] ??= { position: [], normal: [], uv: [], ao: [], sand: [], sun: [], face: [], index: [] });
+        const drifts = (a === 1 && s > 0 && plane === floor) || (a !== 1 && b.min[1] === floor); // sand: the ground and what stands on it
+        const out = (meshes[a === 1 && s > 0 ? b.top : b.mat] ??= { position: [], normal: [], uv: [], ao: [], along: [], crease: [], sun: [], face: [], index: [] });
         const us = slice(lines[u], b.min[u], b.max[u]);
         const vs = outer ? [b.min[v], b.max[v]] : slice(lines[v], b.min[v], b.max[v]);
         const front = plane + s * NUDGE;
@@ -114,6 +163,7 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1
           flat.max[t] += 2 * NUDGE;
         }
         const covering = boxes.filter((c) => c.min.every((m, k) => m <= flat.max[k] && c.max[k] >= flat.min[k]));
+        const standing = drifts ? boxes.filter((c, i) => i !== self && c.min[a] < front && front < c.max[a] && c.min.every((m, k) => m < reach.max[k] && c.max[k] > reach.min[k])) : [];
         const lift = Math.max(0, (hi[1] - b.min[1]) / sunDir[1]);
         const swept = { min: flat.min.map((m, k) => Math.min(m, m + sunDir[k] * lift)), max: flat.max.map((m, k) => Math.max(m, m + sunDir[k] * lift)) };
         const blockers = sunDir[1] > 0 ? overlapping(solid, swept) : solid;
@@ -159,7 +209,8 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1
             out.face.push(p[u] - b.min[u] + ku, p[v] - b.min[v] + kv, width, height);
             const ao = outer ? 1 : occlusion(p, a, s, nearRow[i]);
             out.ao.push(ao);
-            out.sand.push(ground && ao < 0.8 ? 0.55 * Math.min(1, (0.8 - ao) / 0.4) : 0);
+            out.crease.push(outer ? radius : nearest);
+            out.along.push(...(drifts && !outer ? along(p, a, s, u, v, standing, covering) : [-1, -1]));
             out.sun.push(outer ? 1 : sunlit(p, a, s, blockRow[i]));
           }
           return id;
@@ -189,7 +240,7 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1
     }
   });
   for (const m of Object.values(meshes)) {
-    for (const k of ['position', 'normal', 'uv', 'ao', 'sand', 'sun', 'face']) m[k] = new Float32Array(m[k]);
+    for (const k of ['position', 'normal', 'uv', 'ao', 'along', 'crease', 'sun', 'face']) m[k] = new Float32Array(m[k]);
     m.index = new Uint32Array(m.index);
   }
   return { meshes, triangles };
