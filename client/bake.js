@@ -8,25 +8,34 @@ const CROSS = [-1, -1, 1]; // sign of u × v along the normal axis, for the wind
 const NUDGE = 1e-3; // m: probes start this far in front of a face
 const NO_EDGE = 100; // m added to a face-local coordinate to switch that edge's darkening off
 
-// Map boxes ({ pos, size, mat, top? }) → { meshes: { [material]: arrays }, triangles }.
-// Arrays per material: position, normal, uv (world metres), ao (0–1), face
-// (face-local u, v, width, height in metres, for edge darkening) and index.
+// Map boxes → { meshes: { [material]: arrays }, triangles }. A box is
+// { pos, size, mat, top?, vTop?, tile? }: `top` names the material of its top
+// face, `vTop` pins the top face's v (metres, e.g. into a wall texture's coping
+// band) and `tile` switches to face-local UVs, one texture repeat per whole
+// `tile` metres of face (crates).
+// Arrays per material: position, normal, uv (world metres unless `tile`), ao
+// (0–1), sand (0–0.55, drifts in floor corners), sun (1 where the sun reaches,
+// for when there is no shadow map), face (face-local u, v, width, height in
+// metres, for edge treatment) and index.
 // - Faces are cut on one global grid per axis: every box edge, filled to
 //   `cell` metres. Touching faces therefore share vertices (no T-junction
 //   cracks), and every contact line gets its own row of vertices, so the AO
 //   crease is crisp.
-// - Hidden faces: cells inside another box, faces under the floor and faces
-//   looking out of the map footprint are dropped.
+// - Hidden faces: cells inside another box and faces under the floor are
+//   dropped. Faces looking out of the map footprint (seen only from the lobby
+//   camera) are kept as one row of cells with no AO.
 // - AO: each vertex casts `rays` cosine-weighted rays up to `radius` m;
 //   AO = 1 − strength × mean(1 − hit / radius). Each quad is split along its
 //   brighter diagonal (0fps), so occlusion never streaks.
-// - Edges that run into another box are creases, and get no darkening.
-export function meshMap(mapBoxes, { cell, rays, radius, strength }) {
-  const boxes = mapBoxes.map(({ pos, size, mat, top }) => ({
+// - Edges that run into another box are creases, and get no edge treatment.
+export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1, 0] }) {
+  const boxes = mapBoxes.map(({ pos, size, mat, top, vTop, tile }) => ({
     min: pos.map((p, i) => q(p - size[i] / 2)),
     max: pos.map((p, i) => q(p + size[i] / 2)),
     mat,
     top: top ?? mat,
+    vTop,
+    tile,
   }));
   const lines = [0, 1, 2].map((a) => gridLines(boxes, a, cell));
   const lo = [0, 1, 2].map((a) => Math.min(...boxes.map((b) => b.min[a])));
@@ -55,6 +64,16 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength }) {
     }
     return 1 - (strength * occluded) / rays;
   }
+  // 1 if nothing stands between this face point and the sun.
+  function sunlit(p, a, s) {
+    if (s * sunDir[a] <= 0) return 0; // faces away: Lambert gives it no sun anyway
+    origin[0] = p[0];
+    origin[1] = p[1];
+    origin[2] = p[2];
+    origin[a] += s * NUDGE;
+    for (const c of solid) if (rayBox(origin, sunDir, c.min, c.max) < Infinity) return 0;
+    return 1;
+  }
 
   const meshes = {};
   let triangles = 0;
@@ -63,11 +82,12 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength }) {
       const [u, v] = TANGENTS[a];
       for (const s of [-1, 1]) {
         const plane = s > 0 ? b.max[a] : b.min[a];
-        const hidden = a === 1 ? s < 0 && plane <= floor : b.max[1] <= floor || plane === (s > 0 ? hi[a] : lo[a]);
-        if (hidden) continue;
-        const out = (meshes[a === 1 && s > 0 ? b.top : b.mat] ??= { position: [], normal: [], uv: [], ao: [], face: [], index: [] });
+        if (a === 1 ? s < 0 && plane <= floor : b.max[1] <= floor) continue;
+        const outer = a !== 1 && plane === (s > 0 ? hi[a] : lo[a]);
+        const ground = a === 1 && s > 0 && plane === floor;
+        const out = (meshes[a === 1 && s > 0 ? b.top : b.mat] ??= { position: [], normal: [], uv: [], ao: [], sand: [], sun: [], face: [], index: [] });
         const us = slice(lines[u], b.min[u], b.max[u]);
-        const vs = slice(lines[v], b.min[v], b.max[v]);
+        const vs = outer ? [b.min[v], b.max[v]] : slice(lines[v], b.min[v], b.max[v]);
         const front = plane + s * NUDGE;
         const reach = { min: [...b.min], max: [...b.max] };
         reach.min[a] = s > 0 ? plane : plane - radius;
@@ -91,6 +111,11 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength }) {
         const height = b.max[v] - b.min[v] + kv + crease(v, 1);
         const su = a === 0 ? -s : a === 2 ? s : 1; // world UVs, unmirrored seen from the front
         const sv = a === 1 ? -s : 1;
+        // Face-local UVs: whole tiles across the face, measured from its left and bottom edges.
+        const sizeU = b.max[u] - b.min[u];
+        const sizeV = b.max[v] - b.min[v];
+        const tilesU = b.tile && Math.max(1, Math.round(sizeU / b.tile));
+        const tilesV = b.tile && Math.max(1, Math.round(sizeV / b.tile));
         const ids = new Map();
         const vertex = (i, j) => {
           const key = i * vs.length + j;
@@ -104,9 +129,13 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength }) {
             p[v] = vs[j];
             out.position.push(...p);
             out.normal.push(a === 0 ? s : 0, a === 1 ? s : 0, a === 2 ? s : 0);
-            out.uv.push(su * p[u], sv * p[v]);
+            if (b.tile) out.uv.push((((su > 0 ? p[u] - b.min[u] : b.max[u] - p[u]) / sizeU) * tilesU), (((sv > 0 ? p[v] - b.min[v] : b.max[v] - p[v]) / sizeV) * tilesV));
+            else out.uv.push(su * p[u], a === 1 && s > 0 && b.vTop !== undefined ? b.vTop : sv * p[v]);
             out.face.push(p[u] - b.min[u] + ku, p[v] - b.min[v] + kv, width, height);
-            out.ao.push(occlusion(p, a, s, near));
+            const ao = outer ? 1 : occlusion(p, a, s, near);
+            out.ao.push(ao);
+            out.sand.push(ground && ao < 0.8 ? 0.55 * Math.min(1, (0.8 - ao) / 0.4) : 0);
+            out.sun.push(outer ? 1 : sunlit(p, a, s));
           }
           return id;
         };
@@ -132,7 +161,7 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength }) {
     }
   });
   for (const m of Object.values(meshes)) {
-    for (const k of ['position', 'normal', 'uv', 'ao', 'face']) m[k] = new Float32Array(m[k]);
+    for (const k of ['position', 'normal', 'uv', 'ao', 'sand', 'sun', 'face']) m[k] = new Float32Array(m[k]);
     m.index = new Uint32Array(m.index);
   }
   return { meshes, triangles };

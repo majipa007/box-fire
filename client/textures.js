@@ -1,126 +1,191 @@
-// Procedural canvas textures for the world materials: seeded, tileable and
-// drawn at load, so nothing is downloaded. Texels stay crisp up close
-// (NearestFilter) and mipmapped with 4x anisotropy at a distance.
+// Procedural canvas textures for the map materials (bible §2.5): seeded,
+// tileable and drawn at load, so nothing is downloaded. Texels stay crisp up
+// close (NearestFilter) and mipmapped with 4x anisotropy at a distance.
+// Noise is zero-mean, so a patch of open surface averages to its base colour.
 import * as THREE from 'three';
 
-// Recipes. tile: metres one repeat covers (UVs are world metres); px: texels
-// per metre (tile × px should be a power of two). Amounts are ± brightness.
+// size: metres one repeat covers [u, v] (UVs are world metres); px: texels per
+// metre. faceLocal: the bake gives this material one UV unit per tile instead.
 export const TEXTURES = {
-  // Poured slabs: per-slab tone, mottling, speckles, 1 px joints.
-  concrete: { tile: 8, px: 32, seed: 11, base: '#a9a7a2', slab: 2, slabTone: 0.04, mottle: 0.07, speckle: 0.03, joint: 0.25 },
-  // Grain plus wind ripples (ripples per tile), warped so they meander.
-  sand: { tile: 4, px: 32, seed: 12, base: '#bcb3a2', grain: 0.07, mottle: 0.04, ripples: 12, ripple: 0.05, warp: 1.5 },
-  // Square plates with dark seams, a lit bevel, rivets and brushed streaks.
-  metal: { tile: 2, px: 64, seed: 13, base: '#8f9297', plate: 1, plateTone: 0.04, seam: 0.35, bevel: 0.1, rivet: 0.125, rivetLight: 0.22, streak: 0.06 },
-  // Horizontal boards with gaps, staggered end joints and stretched grain.
-  planks: { tile: 2, px: 64, seed: 14, base: '#9b896f', board: 0.25, boardTone: 0.07, gap: 0.45, grain: 0.12 },
-  // Soft blotches and fine noise.
-  plaster: { tile: 4, px: 32, seed: 15, base: '#b8b5af', blotch: 0.06, grain: 0.03 },
-  // Diagonal two-tone stripes (width in metres).
-  trim: { tile: 1, px: 64, seed: 16, base: '#b8b5af', stripe: '#4a4c51', width: 0.125, grain: 0.04 },
+  // Poured slabs: 4 m slabs with 2 px joints, mottling, speckles, hairline cracks.
+  slab: { size: [8, 8], px: 32, seed: 11, base: '#b7b0a3', joint: '#8f887d', specks: ['#9f988c', '#cbc5ba'], speck: 0.03, crack: '#9a9387', cracks: 3, noise: 0.05, slabTone: 0.03 },
+  // Board-formed walls, exactly 4 m tall: 0.25 m board lines, tie holes, rain streaks, coping.
+  board: { size: [4, 4], px: 32, seed: 12, base: '#c9c3b8', line: '#b9b3a8', boardTone: 0.04, tie: '#7d776d', ties: [3, 0.6], streak: '#8f887d', streaks: 7, coping: '#d9d4ca', copingHeight: 0.3, noise: 0.03 },
+  // Precast lane panels, exactly 3 m tall: 2 m panels, a teal height band, lifting recesses.
+  precast: { size: [2, 3], px: 32, seed: 13, base: '#b5afa4', seam: '#8f887d', chip: '#c9c3b8', chips: 0.08, band: '#5f7f7c', bandY: [1, 1.15], recess: '#8f887d', recessY: 2.6, noise: 0.04 },
+  // Crates: 0.3 m boards in a batten frame with a diagonal brace (one 1.2 m face per tile).
+  plywood: { size: [1.2, 1.2], px: 53.33, faceLocal: true, seed: 14, base: '#a38763', batten: '#8c7253', board: 0.3, frame: 0.08, boardTone: 0.05, grain: 0.06 },
+  // Corrugated steel: vertical ribs, rust blooms and drips.
+  rust: { size: [2, 2], px: 32, seed: 15, base: '#8a5a44', rib: 0.08, ribPx: 3, bloom: '#6f4535', blooms: 0.2, drip: '#6f4535', drips: 6, noise: 0.04 },
+  // Gabion baskets: stones with dark outlines behind a 0.5 m wire grid.
+  dock: { size: [4, 4], px: 32, seed: 16, stone: '#9d968a', outline: '#6f685e', stones: 90, stoneTone: 0.08, wire: '#45474c', wireAlpha: 0.7, wireEvery: 0.5 },
 };
 
-// Each painter calls put(x, y, brightness, colour?) once per texel.
 const PAINTERS = {
-  concrete(r, size, put) {
-    const slab = r.slab * r.px;
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        let k = 1 + r.slabTone * signed(hash(Math.floor(x / slab), Math.floor(y / slab), r.seed));
-        k += r.mottle * signed(fbm(x, y, size, r.tile, r.seed));
+  slab(r, w, h, set, rand) {
+    const slab = (r.px * r.size[0]) / 2; // 4 m slabs: 2 × 2 per tile
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const k = 1 + r.slabTone * signed(hash(Math.floor(x / slab), Math.floor(y / slab), r.seed)) + r.noise * signed(fbm(x, y, w, 8, r.seed));
         const s = hash(x, y, r.seed + 1);
-        if (s < r.speckle) k -= 0.12;
-        else if (s > 1 - r.speckle) k += 0.08;
-        if (x % slab === 0 || y % slab === 0) k -= r.joint;
-        put(x, y, k);
+        set(x, y, s < r.speck / 2 ? rgb(r.specks[0]) : s > 1 - r.speck / 2 ? rgb(r.specks[1]) : shade(rgb(r.base), k));
+        if (x % slab < 2 || y % slab < 2) set(x, y, rgb(r.joint));
+      }
+    }
+    for (let i = 0; i < r.cracks; i++) walk(rand, w, h, 20 + rand() * 40, (x, y) => set(x, y, rgb(r.crack)));
+  },
+  board(r, w, h, set, rand) {
+    const board = r.px / 4; // 0.25 m
+    const coping = Math.round(r.copingHeight * r.px);
+    for (let y = 0; y < h; y++) {
+      const tone = 1 + r.boardTone * signed(hash(0, Math.floor(y / board), r.seed));
+      for (let x = 0; x < w; x++) {
+        const k = 1 + r.noise * signed(fbm(x, y, w, 4, r.seed + 1));
+        if (y < coping) set(x, y, shade(rgb(r.coping), k));
+        else if (y === coping) set(x, y, shade(rgb(r.line), 0.9)); // the drip line under the coping
+        else set(x, y, (y - coping) % board === 0 ? rgb(r.line) : shade(rgb(r.base), tone * k));
+      }
+    }
+    for (let i = 0; i < r.streaks; i++) {
+      const x = Math.floor(rand() * w);
+      const len = 20 + rand() * 40;
+      for (let y = coping + 1; y < coping + 1 + len; y++) blend(set.get, set, x, y, rgb(r.streak), 0.1 * (1 - (y - coping) / len));
+    }
+    const [across, rowEvery] = r.ties;
+    for (let i = 0; i < across; i++) {
+      for (let m = rowEvery; m < 4 - r.copingHeight; m += rowEvery) {
+        const x = Math.round(((i + 0.5) * w) / across);
+        const y = Math.round(h - m * r.px);
+        for (let d = 0; d < 4; d++) set(x + (d & 1), y + (d >> 1), rgb(r.tie));
       }
     }
   },
-  sand(r, size, put) {
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const phase = (y / size) * r.ripples + r.warp * fbm(x, y, size, 3, r.seed);
-        let k = 1 + r.ripple * Math.sin(phase * 2 * Math.PI);
-        k += r.mottle * signed(fbm(x, y, size, r.tile * 2, r.seed + 1)) + r.grain * signed(hash(x, y, r.seed + 2));
-        put(x, y, k);
+  precast(r, w, h, set, rand) {
+    const row = (m) => Math.round(h - m * r.px); // canvas row of a height in metres
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const k = 1 + r.noise * signed(fbm(x, (y * w) / h, w, 2, r.seed)) + 0.03 * signed(hash(x, y, r.seed + 1));
+        set(x, y, y > row(r.bandY[1]) && y <= row(r.bandY[0]) ? shade(rgb(r.band), k) : shade(rgb(r.base), k));
+        if (x === 0 || x === w - 1) set(x, y, rgb(r.seam));
+        else if ((x === 1 || x === w - 2) && rand() < r.chips) set(x, y, rgb(r.chip));
+      }
+    }
+    for (const cx of [w / 4, (3 * w) / 4]) {
+      for (let d = 0; d < 16; d++) set(cx - 2 + (d & 3), row(r.recessY) - 2 + (d >> 2), rgb(r.recess));
+    }
+  },
+  plywood(r, w, h, set) {
+    const board = Math.round(r.board * r.px);
+    const frame = Math.round(r.frame * r.px);
+    for (let y = 0; y < h; y++) {
+      const tone = 1 + r.boardTone * signed(hash(0, Math.floor(y / board), r.seed));
+      for (let x = 0; x < w; x++) {
+        const k = tone + r.grain * signed(noise(x, y, w, 3, 24, r.seed + Math.floor(y / board)));
+        set(x, y, y % board === 0 ? rgb(r.batten) : shade(rgb(r.base), k));
+        // Battens: the frame and the brace, lit along their top and left edges.
+        const brace = Math.abs(x - (h - 1 - y)) < frame / 1.4;
+        const edge = Math.min(x, y, w - 1 - x, h - 1 - y);
+        if (edge < frame || brace) {
+          const lit = edge === 0 || (brace && Math.abs(x - (h - 1 - y)) >= frame / 1.4 - 1 && x < h - 1 - y);
+          const dark = edge === frame - 1 && !brace;
+          set(x, y, shade(rgb(r.batten), lit ? 1.12 : dark ? 0.82 : 1 + 0.04 * signed(hash(x, y, r.seed))));
+        }
       }
     }
   },
-  metal(r, size, put) {
-    const plate = r.plate * r.px;
-    const rivet = r.rivet * r.px;
-    const inset = 3;
-    const onRow = (p) => Math.abs(p - inset - 0.5) <= 0.5 || Math.abs(p - (plate - inset - 1.5)) <= 0.5; // 2 px wide
-    const onBeat = (p) => (p + rivet / 2) % rivet < 2;
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const px = x % plate;
-        const py = y % plate;
-        let k = 1 + r.plateTone * signed(hash(Math.floor(x / plate), Math.floor(y / plate), r.seed));
-        k += r.streak * signed(noise(x, y, size, 2, size / 2, r.seed + 1));
-        if (px === 0 || py === 0) k -= r.seam;
-        else if (px === 1 || py === 1) k += r.bevel;
-        else if ((onRow(px) && onBeat(py)) || (onRow(py) && onBeat(px))) k += r.rivetLight;
-        put(x, y, k);
+  rust(r, w, h, set, rand) {
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const k = 1 + r.rib * Math.sin((2 * Math.PI * x) / r.ribPx) + r.noise * signed(hash(x, y, r.seed));
+        set(x, y, fbm(x, y, w, 8, r.seed + 1) > 1 - r.blooms * 1.6 ? shade(rgb(r.bloom), k) : shade(rgb(r.base), k));
       }
     }
+    for (let i = 0; i < r.drips; i++) {
+      const x = Math.floor(rand() * w);
+      const y0 = Math.floor(rand() * h);
+      for (let y = y0; y < y0 + 8 + rand() * 20; y++) blend(set.get, set, x, y % h, rgb(r.drip), 0.5);
+    }
   },
-  planks(r, size, put) {
-    const board = r.board * r.px;
-    for (let y = 0; y < size; y++) {
-      const row = Math.floor(y / board);
-      const shift = Math.floor(hash(row, 0, r.seed) * size); // where this board's end joint falls
-      const tone = 1 + r.boardTone * signed(hash(row, 1, r.seed));
-      for (let x = 0; x < size; x++) {
-        let k = tone + r.grain * signed(noise(x, y, size, 3, (size / board) * 6, r.seed + row));
-        if (y % board === 0 || (x + shift) % size === 0) k -= r.gap;
-        put(x, y, k);
+  dock(r, w, h, set, rand) {
+    const seeds = Array.from({ length: r.stones }, () => [rand() * w, rand() * h, 1 + r.stoneTone * signed(rand())]);
+    const wire = Math.round(r.wireEvery * r.px);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        // Nearest and second-nearest stone centre (wrapped), for cells with outlines.
+        let d1 = Infinity;
+        let d2 = Infinity;
+        let k = 1;
+        for (const [sx, sy, tone] of seeds) {
+          const dx = Math.min(Math.abs(x - sx), w - Math.abs(x - sx));
+          const dy = Math.min(Math.abs(y - sy), h - Math.abs(y - sy));
+          const d = Math.hypot(dx, dy);
+          if (d < d1) [d2, d1, k] = [d1, d, tone];
+          else if (d < d2) d2 = d;
+        }
+        set(x, y, d2 - d1 < 1.2 ? rgb(r.outline) : shade(rgb(r.stone), k * (1.06 - 0.12 * Math.min(1, d1 / 7))));
+        if (x % wire === 0 || y % wire === 0) blend(set.get, set, x, y, rgb(r.wire), r.wireAlpha);
       }
-    }
-  },
-  plaster(r, size, put) {
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) put(x, y, 1 + r.blotch * signed(fbm(x, y, size, r.tile, r.seed)) + r.grain * signed(hash(x, y, r.seed + 1)));
-    }
-  },
-  trim(r, size, put) {
-    const width = r.width * r.px;
-    const stripe = rgb(r.stripe);
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) put(x, y, 1 + r.grain * signed(hash(x, y, r.seed)), Math.floor((x + y) / width) % 2 ? stripe : undefined);
     }
   },
 };
 
-// A world texture by recipe name: repeats every recipe.tile metres of world-metre UVs.
+// A map texture by recipe name; repeats every recipe.size metres of world-metre UVs.
 export function makeTexture(name) {
   const r = TEXTURES[name];
-  const size = Math.round(r.tile * r.px);
+  const w = Math.round(r.size[0] * r.px);
+  const h = Math.round(r.size[1] * r.px);
   const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext('2d');
-  const image = ctx.createImageData(size, size);
-  const base = rgb(r.base);
-  PAINTERS[name](r, size, (x, y, k, color = base) => {
-    const i = (y * size + x) * 4;
-    image.data[i] = color[0] * k;
-    image.data[i + 1] = color[1] * k;
-    image.data[i + 2] = color[2] * k;
+  const image = ctx.createImageData(w, h);
+  const wrap = (x, y) => ((((Math.round(y) % h) + h) % h) * w + (((Math.round(x) % w) + w) % w)) * 4;
+  const set = (x, y, c) => {
+    const i = wrap(x, y);
+    image.data[i] = c[0];
+    image.data[i + 1] = c[1];
+    image.data[i + 2] = c[2];
     image.data[i + 3] = 255;
-  });
+  };
+  set.get = (x, y) => {
+    const i = wrap(x, y);
+    return [image.data[i], image.data[i + 1], image.data[i + 2]];
+  };
+  PAINTERS[name](r, w, h, set, seeded(r.seed));
   ctx.putImageData(image, 0, 0);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   texture.magFilter = THREE.NearestFilter;
-  texture.anisotropy = 4;
-  texture.repeat.setScalar(1 / r.tile);
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.anisotropy = 4; // three.js clamps to the GPU's maximum
+  if (!r.faceLocal) texture.repeat.set(1 / r.size[0], 1 / r.size[1]);
   return texture;
 }
 
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const shade = (c, k) => c.map((v) => Math.min(255, v * k));
 const signed = (v) => v * 2 - 1;
 const smooth = (t) => t * t * (3 - 2 * t);
+const blend = (get, set, x, y, c, a) => set(x, y, get(x, y).map((v, i) => v + (c[i] - v) * a));
+
+// A random walk of n pixels from a random start: hairline cracks.
+function walk(rand, w, h, n, plot) {
+  let x = rand() * w;
+  let y = rand() * h;
+  let angle = rand() * 2 * Math.PI;
+  for (let i = 0; i < n; i++) {
+    plot(x, y);
+    angle += (rand() - 0.5) * 1.2;
+    x += Math.cos(angle);
+    y += Math.sin(angle);
+  }
+}
+
+function seeded(seed) {
+  let i = 0;
+  return () => hash(i++, 7, seed);
+}
 
 // Integer hash → [0, 1).
 function hash(x, y, seed) {

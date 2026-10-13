@@ -23,10 +23,21 @@ export const LOOK = {
   ao: { cell: 0.75, rays: 16, lowRays: 8, radius: 1.5, strength: 0.6 },
 };
 
-// Materials by name, as a map box's `mat` (or `top`, for its top face) names them.
-const MATERIALS = {
-  concrete: 'concrete', sand: 'sand', metal: 'metal', planks: 'planks', plaster: 'plaster', trim: 'trim',
-};
+// Map materials by box `color` (§2.6): the textures.js recipe, the footstep surface and bake
+// options (vTop: v of top faces, in the wall texture's coping band or a plain stretch; tile:
+// face-local UVs; top: the top face's own material). One draw each, plus the dock top.
+const MAP_MATERIALS = [
+  { name: 'slab', surface: 'concrete' },
+  { name: 'board', surface: 'concrete', vTop: 3.85 },
+  { name: 'precast', surface: 'concrete', vTop: 2 },
+  { name: 'plywood', surface: 'wood', tile: 1.2 },
+  { name: 'dock', surface: 'concrete', top: 'dock-top' },
+  { name: 'rust', surface: 'steel' },
+];
+// Edge treatment (§2.5): a chipped arris brightens the outer `arris` m, then a darker band to `band` m.
+const EDGE = { arris: 0.01, arrisGain: 1.08, band: 0.04, bandGain: 0.85 };
+const SAND = '#d8c39a'; // drifts in floor corners, by the baked `sand` attribute
+const HAZARD = { width: 0.3, stripe: 0.15, colors: ['#ad9862', '#3a3c40'] }; // the dock top's border
 
 // ---- Shader chunks, patched at import, before any material compiles.
 // Radial fog depth, so the haze does not swing as the camera turns.
@@ -77,24 +88,41 @@ export function buildWorld(scene, map) {
   scene.add(new THREE.HemisphereLight(LIGHTS.skyColor, LIGHTS.groundColor, LIGHTS.hemiIntensity), sun);
   world.add(sky());
 
-  const ao = { ...LOOK.ao, rays: quality === 'low' ? LOOK.ao.lowRays : LOOK.ao.rays };
-  for (const [name, arrays] of Object.entries(meshMap(map.boxes, ao).meshes)) {
-    const mesh = new THREE.Mesh(geometry(arrays), mapMaterial(MATERIALS[name] ?? 'concrete'));
+  const started = performance.now();
+  const ao = { ...LOOK.ao, rays: quality === 'low' ? LOOK.ao.lowRays : LOOK.ao.rays, sunDir: LIGHTS.sunDir };
+  const { meshes, triangles } = meshMap(map.boxes.map((b) => ({ ...b, ...materialOf(b) })), ao);
+  if (debug) console.log(`world: map baked in ${Math.round(performance.now() - started)} ms, ${triangles} triangles`);
+  const textures = {};
+  for (const [name, arrays] of Object.entries(meshes)) {
+    const recipe = name === 'dock-top' ? 'slab' : name;
+    const mesh = new THREE.Mesh(geometry(arrays), mapMaterial((textures[recipe] ??= makeTexture(recipe)), name === 'dock-top'));
     mesh.castShadow = mesh.receiveShadow = true;
+    mesh.renderOrder = name === 'slab' ? 1 : 0; // the floor after the walls, so early-z rejects hidden floor
     world.add(mesh);
   }
   scene.add(world);
+  boxes = map.boxes.map((b) => ({ min: b.pos.map((p, i) => p - b.size[i] / 2), max: b.pos.map((p, i) => p + b.size[i] / 2), surface: materialOf(b).surface }));
 }
+
+const debug = typeof location !== 'undefined' && new URLSearchParams(location.search).has('debug');
+const materialOf = (box) => {
+  const m = MAP_MATERIALS[box.color] ?? MAP_MATERIALS[0];
+  return { mat: m.name, top: m.top, vTop: m.vTop, tile: m.tile, surface: m.surface };
+};
 
 // Per frame: nothing yet beyond what follows the camera.
 export function updateWorld(now, camera) {}
 
-// The footstep surface under a point: 'concrete', 'wood' or 'steel'.
+// The footstep surface under a point (feet at y): the top of the box it stands on.
 export function surfaceAt(x, y, z) {
-  return 'concrete';
+  let best = null;
+  for (const b of boxes) {
+    if (x >= b.min[0] && x <= b.max[0] && z >= b.min[2] && z <= b.max[2] && b.max[1] <= y + 0.1 && (!best || b.max[1] > best.max[1])) best = b;
+  }
+  return best?.surface ?? 'concrete';
 }
 
-const SIZES = { position: 3, normal: 3, uv: 2, ao: 1, face: 4 };
+const SIZES = { position: 3, normal: 3, uv: 2, ao: 1, sand: 1, sun: 1, face: 4 };
 function geometry({ index, ...attributes }) {
   const g = new THREE.BufferGeometry();
   for (const [name, array] of Object.entries(attributes)) g.setAttribute(name, new THREE.BufferAttribute(array, SIZES[name]));
@@ -102,18 +130,43 @@ function geometry({ index, ...attributes }) {
   return g;
 }
 
-// Lambert with the baked AO (vertex `ao`). All map materials share one program.
-function mapMaterial(texture) {
-  const material = new THREE.MeshLambertMaterial({ map: makeTexture(texture) });
+// Lambert with the baked AO, sand drifts and per-vertex sun (used only without a shadow
+// map), and the edge treatment from the face-local `face` attribute. All map materials
+// share one program; the dock top switches its hazard border on with a uniform.
+const glsl = (hex) => `vec3( ${new THREE.Color(hex).toArray().map((v) => v.toFixed(4)).join(', ')} )`; // linear
+function mapMaterial(map, hazard) {
+  const material = new THREE.MeshLambertMaterial({ map });
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.hazard = { value: hazard ? 1 : 0 };
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float ao;\nvarying float vAo;')
-      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvAo = ao;');
+      .replace('#include <common>', `#include <common>
+        attribute float ao, sand, sun;
+        attribute vec4 face;
+        varying float vAo, vSand, vSun;
+        varying vec4 vFace;`)
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvAo = ao; vSand = sand; vSun = sun; vFace = face;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vAo;')
+      .replace('#include <common>', `#include <common>
+        uniform float hazard;
+        varying float vAo, vSand, vSun;
+        varying vec4 vFace;`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        diffuseColor.rgb = mix( diffuseColor.rgb, ${glsl(SAND)}, vSand );
+        vec2 edgeNear = min( vFace.xy, vFace.zw - vFace.xy );
+        float edgeDist = min( edgeNear.x, edgeNear.y );
+        if ( hazard > 0.5 && edgeDist < ${HAZARD.width.toFixed(3)} ) {
+          diffuseColor.rgb = mod( floor( ( vFace.x + vFace.y ) / ${(HAZARD.stripe * Math.SQRT2).toFixed(4)} ), 2.0 ) < 0.5 ? ${glsl(HAZARD.colors[0])} : ${glsl(HAZARD.colors[1])};
+        }
+        float edgePx = fwidth( edgeDist );
+        float band = max( ${EDGE.band.toFixed(3)}, edgePx ); // never thinner than a pixel: crisp box edges at range
+        diffuseColor.rgb *= mix( ${EDGE.bandGain.toFixed(3)}, 1.0, smoothstep( band - 0.5 * edgePx, band + 0.5 * edgePx, edgeDist ) );
+        diffuseColor.rgb *= mix( ${(EDGE.arrisGain / EDGE.bandGain).toFixed(4)}, 1.0, smoothstep( ${EDGE.arris.toFixed(3)} - 0.5 * edgePx, ${EDGE.arris.toFixed(3)} + 0.5 * edgePx, edgeDist ) );`)
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
         reflectedLight.indirectDiffuse *= vAo;
-        reflectedLight.directDiffuse *= 0.85 + 0.15 * vAo;`);
+        reflectedLight.directDiffuse *= 0.85 + 0.15 * vAo;
+        #ifndef USE_SHADOWMAP
+          reflectedLight.directDiffuse *= mix( 0.24, 1.0, vSun );
+        #endif`);
   };
   material.customProgramCacheKey = () => 'world-map';
   return material;

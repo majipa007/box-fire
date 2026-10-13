@@ -52,7 +52,8 @@ test('only faces open to the air are meshed, and every open face is', () => {
     const c = [0, 1, 2].map((k) => (pos(m, v[0])[k] + pos(m, v[1])[k] + pos(m, v[2])[k]) / 3 + n[k] * 1e-3);
     assert.ok(!inside(c, boxes), `hidden face at ${c}`);
     assert.ok(!(n[1] < 0 && c[1] <= 0), 'a face looks down from the floor');
-    assert.ok(Math.abs(c[0]) < 6 && Math.abs(c[2]) < 5 + 1e-3, `a face looks out of the map at ${c}`);
+    // Outer faces (seen only from the lobby camera, outside the walls) carry no AO.
+    if (Math.abs(c[0]) > 6 || Math.abs(c[2]) > 5 + 1e-3) assert.ok(v.every((i) => m.ao[i] === 1), `an outer face with AO at ${c}`);
   }
   // Nothing missing: sample the open top faces; each point lies on some up-facing triangle.
   const ups = tris.filter(({ m, v }) => nrm(m, v[0])[1] > 0.5);
@@ -172,4 +173,38 @@ test('edges darken only where a face turns away, not where it runs into another 
 test('arena_01 stays within the triangle budget', () => {
   const { triangles: n } = meshMap(arena.boxes, AO);
   assert.ok(n < 40000, `${n} triangles`);
+});
+
+test('sand drifts into floor creases only; the sun term is 0 in a shadow and on faces turned away', () => {
+  const sunDir = [Math.SQRT1_2, Math.SQRT1_2, 0]; // from +x, 45° up: the wall shades the floor west of it
+  const { meshes } = meshMap(SMALL, { ...AO, sunDir });
+  const at = (key, p, n) => {
+    for (const m of Object.values(meshes)) {
+      for (let i = 0; i < m.ao.length; i++) {
+        if (sub(pos(m, i), p).every((d) => Math.abs(d) < 1e-6) && dot(nrm(m, i), n) > 0.5) return m[key][i];
+      }
+    }
+    assert.fail(`no vertex at ${p} facing ${n}`);
+  };
+  const up = [0, 1, 0];
+  assert.equal(at('sand', [-3, 0, -3], up), 0, 'open floor');
+  assert.ok(at('sand', [5, 0, 0.5], up) > 0.2, 'the corner of floor, wall and crate');
+  assert.equal(at('sand', [-3, 2, 3], up), 0, 'no sand on crate tops');
+  for (const m of Object.values(meshes)) for (const v of m.sand) assert.ok(v >= 0 && v <= 0.55);
+  assert.equal(at('sun', [-3, 0, -3], up), 1, 'open floor in the sun');
+  assert.equal(at('sun', [4, 0, -3], up), 0, 'floor in the wall shadow');
+  assert.equal(at('sun', [-0.5, 0.5, 0], [-1, 0, 0]), 0, 'a face turned away from the sun');
+});
+
+test('crates take face-local UVs in whole tiles; vTop pins top faces into a band', () => {
+  const crate = [{ pos: [0, 0.3, 0], size: [2.4, 0.6, 1.2], mat: 'ply', tile: 1.2 }, { pos: [3, 1, 0], size: [1, 2, 1], mat: 'wall', vTop: 3.85 }];
+  const { meshes } = meshMap([{ pos: [0, -0.5, 0], size: [10, 1, 10], mat: 'floor' }, ...crate], AO);
+  const ply = meshes.ply;
+  for (let i = 0; i < ply.ao.length; i++) {
+    const [u, v] = [ply.uv[i * 2], ply.uv[i * 2 + 1]];
+    assert.ok(u >= -1e-6 && u <= 2 + 1e-6 && v >= -1e-6 && v <= 1 + 1e-6, `uv ${u}, ${v}`);
+  }
+  assert.ok(ply.uv.some((x, i) => i % 2 === 0 && Math.abs(x - 2) < 1e-6), 'a 2.4 m face spans two tiles');
+  const wall = meshes.wall;
+  for (let i = 0; i < wall.ao.length; i++) if (wall.normal[i * 3 + 1] > 0.5) assert.ok(Math.abs(wall.uv[i * 2 + 1] - 3.85) < 1e-6);
 });
