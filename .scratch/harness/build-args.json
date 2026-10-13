@@ -1,0 +1,73 @@
+{
+  "harness": "/home/sukuna/personal_projects/game/.scratch/harness",
+  "work": "/home/sukuna/personal_projects/boxfire-work",
+  "repo": "/home/sukuna/personal_projects/game",
+  "workstreams": [
+    {
+      "name": "world",
+      "port": 3111
+    },
+    {
+      "name": "characters",
+      "port": 3112
+    },
+    {
+      "name": "viewmodel",
+      "port": 3113
+    },
+    {
+      "name": "effects",
+      "port": 3114
+    },
+    {
+      "name": "audio",
+      "port": 3115
+    },
+    {
+      "name": "feel",
+      "port": 3116
+    },
+    {
+      "name": "hud",
+      "port": 3117
+    },
+    {
+      "name": "powerups",
+      "port": 3118
+    }
+  ],
+  "open": {
+    "world": [
+      "the palette reads grey and lifeless (see engine-*.png)",
+      "the near cliff band beyond the walls looks like flat cardboard",
+      "the sky is washed out and there is no visible sun",
+      "world.js takes over scene.onBeforeRender and scene.onAfterRender, so no other module can use them: hook in without claiming them"
+    ],
+    "characters": [
+      "the soldiers read as flat slot-coloured blocks: give them the bible's part detail and material response"
+    ],
+    "viewmodel": [
+      "the gun reads as a flat navy-black silhouette with no material detail (see engine-lane.png)",
+      "check its screen size and placement against the bible"
+    ],
+    "effects": [
+      "check hits, deaths and power-up impacts against the bible's counts, colours and lifetimes"
+    ],
+    "audio": [
+      "power-ups make no sound yet: pickup, use, and each power-up's own identity, per the bible",
+      "levels and mix have never been tuned by ear: tune them against the bible's mix table"
+    ],
+    "feel": [
+      "bob, roll, landing dip and recoil recovery have never been hand-tuned: tune them to the bible"
+    ],
+    "hud": [
+      "the HUD has no style yet (plain text 'rifle 25 / ∞', '100 HP'): restyle it to the bible with a vendored OFL font",
+      "the usePowerup (Q) and cyclePowerup (E) actions are missing from ACTION_NAMES in client/ui.js, so they cannot be rebound",
+      "main.js sets --spread (CSS px) on #hud every frame: size the crosshair gap from it"
+    ],
+    "powerups": [
+      "bots never pick up or use power-ups: make them use what they hold sensibly, so solo testing exercises the system (tools/bot.js is yours for this)",
+      "check every number against the bible and the shared simulation (boost, knockback) still predicts exactly"
+    ]
+  }
+}

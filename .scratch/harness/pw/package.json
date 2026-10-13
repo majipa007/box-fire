@@ -1,0 +1,1 @@
+{"private":true,"type":"module","description":"Headless browser checks for Boxfire (dev only)","dependencies":{"playwright-core":"1.63.0"}}
