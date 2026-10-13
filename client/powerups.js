@@ -342,7 +342,7 @@ function play(m) {
   } else if (m.e === 'use') {
     sound(m.k, 'use', m.x, m.z);
   } else {
-    const at = [m.x, m.y, m.z];
+    const at = [m.x, m.k === 'shock' ? dropTo(m.x, m.y, m.z) : m.y, m.z]; // a strike lands on the floor, like its ring
     if (fx.blast) fx.blast(m.k, at, m.r);
     else if (m.r) burst(at, HUE[m.k], m.r, 24, 8);
     else burst(at, FIZZLE, 0.3, 6, 3);
