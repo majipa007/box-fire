@@ -7,16 +7,16 @@
 //   onEvent(m, myId) per event; update(now, visible) per frame.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { POWERUPS, POWERUP_SLOTS, TICK_RATE, STAND_HEIGHT, CROUCH_HEIGHT } from '../shared/constants.js';
-import { padsFor } from '../shared/powerups.js';
-import { readEntity, PLAYER_FLAGS } from '../shared/protocol.js';
+import { POWERS, POWER_CAPACITY as POWERUP_SLOTS, POWER_PADS, TICK_RATE, STAND_HEIGHT, CROUCH_HEIGHT } from '../shared/constants.js';
+import { createPowers } from '../shared/powerups.js';
+import { POWER_IDS } from '../shared/protocol.js';
 import { self, renderTick, serverTick } from './net.js';
 import { bindings } from './input.js';
 
 // ---- Look: every colour, size, timing and count, for the art pass. ----
 // Placeholder colours, one per kind: Blur's code where it has one.
-const KIND_COLORS = { nitro: '#36d97a', shield: '#38c6ff', repair: '#f0f0f0', shunt: '#ff3d3d', bolt: '#4b6bff', barge: '#b25cff', mine: '#ff9a1f' };
-const KIND_LABELS = { nitro: 'Nitro', shield: 'Shield', repair: 'Repair', shunt: 'Shunt', bolt: 'Bolt', barge: 'Barge', mine: 'Mine' };
+const KIND_COLORS = { nitro: '#36d97a', shield: '#38c6ff', shunt: '#ff3d3d', bolt: '#4b6bff', barge: '#b25cff', mine: '#ff9a1f', shock: '#ffb300' };
+const KIND_LABELS = { nitro: 'Nitro', shield: 'Shield', shunt: 'Shunt', bolt: 'Bolt', barge: 'Barge', mine: 'Mine', shock: 'Shock' };
 // Gems (pickups, projectiles, mines) are unlit octahedra with shading baked
 // per face: this light direction, and this floor for faces turned away.
 const GEM_LIGHT = new THREE.Vector3(0.4, 1, 0.3).normalize();
@@ -234,7 +234,7 @@ const tint = new THREE.Color();
 export function init(scene, mapId) {
   const gemMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
   gemMesh = instanced(gemGeometry(), gemMaterial, MAX_GEMS);
-  pads = padsFor(mapId).map(([x, y, z, kind], i) => ({ x, y, z, kind, color: COLORS[kind], phase: i * PICKUP_PHASE_STEP }));
+  pads = POWER_PADS.map(({ pos: [x, y, z], pool: [kind] }, i) => ({ x, y, z, kind, color: COLORS[kind], phase: i * PICKUP_PHASE_STEP }));
   padMesh = instanced(padGeometry(), gemMaterial, Math.max(1, pads.length));
   pads.forEach((p, i) => padMesh.setMatrixAt(i, m4.makeTranslation(p.x, p.y, p.z)));
   padMesh.count = pads.length;
@@ -255,9 +255,10 @@ export function init(scene, mapId) {
 
 export function onSnapshot(m) {
   if (!m.pu) return;
-  padState = m.pu.pads;
+  padState = m.pu.pd.map(([k, ready]) => ready);
+  m.pu.pd.forEach(([k], i) => { if (pads[i]) pads[i].color = COLORS[(pads[i].kind = POWER_IDS[k])]; });
   const prev = snaps.at(-1)?.byId;
-  const list = m.pu.ents.map(readEntity);
+  const list = [];
   for (const e of list) e.born = prev?.get(e.id)?.born ?? m.tick; // trails grow out of the launch point
   snaps.push({ tick: m.tick, list, byId: new Map(list.map((e) => [e.id, e])) });
   if (snaps.length > 8) snaps.shift();
@@ -265,17 +266,17 @@ export function onSnapshot(m) {
 
 export function onEvent(m, myId) {
   if (m.e === 'spawn' && m.id === myId) {
-    self.inv = []; // a new life starts empty; don't predict with the last one's
-  } else if (m.e === 'blast' && m.k !== 'barge') {
-    const r = Math.max(BLAST_MIN_RADIUS, POWERUPS[m.k]?.radius ?? 0);
+    self.pw = createPowers(); // a new life starts empty; don't predict with the last one's
+  } else if (m.e === 'boom' && m.k !== 'barge') {
+    const r = Math.max(BLAST_MIN_RADIUS, m.r);
     addFx(m.x, m.y, m.z, COLORS[m.k], 2 * r, SHELL, BLAST_SECONDS);
-  } else if (m.e === 'pickup' && pads[m.pad]) {
+  } else if (m.e === 'pick' && pads[m.pad]) {
     const p = pads[m.pad];
     addFx(p.x, p.y + PICKUP_HOVER, p.z, p.color, PUFF_SIZE, FLASH, PUFF_SECONDS);
-  } else if (m.e === 'powerup' && COLORS[m.k]) {
+  } else if (m.e === 'use' && COLORS[m.k]) {
     // Our own use shows on the HUD; a flash on the camera would only blind us.
     if (m.id !== myId) addFx(m.x, m.y + PUFF_HEIGHT, m.z, COLORS[m.k], PUFF_SIZE, FLASH, PUFF_SECONDS);
-    if (m.k === 'barge') addFx(m.x, m.y + 0.05, m.z, COLORS.barge, 2 * POWERUPS.barge.radius, FLOOR, BARGE_RING_SECONDS);
+    if (m.k === 'barge') addFx(m.x, m.y + 0.05, m.z, COLORS.barge, 2 * POWERS.barge.radius, FLOOR, BARGE_RING_SECONDS);
   }
 }
 
@@ -298,8 +299,8 @@ export function update(now, visible) {
   drawEntities(now, s);
   for (const f of fx) if (f.until > now) drawFx(f, now);
   for (const o of visible) {
-    if (o.flags & PLAYER_FLAGS.PU_SHIELD) bubble(o.x, o.y + (o.crouch ? CROUCH_HEIGHT : STAND_HEIGHT) / 2, o.z, BUBBLE_RADIUS, COLORS.shield);
-    if (o.flags & PLAYER_FLAGS.PU_NITRO) glow(o.x, o.y + 0.03, o.z, NITRO_GLOW, COLORS.nitro, NITRO_GLOW_ALPHA, FLAT);
+    if (o.bubble) bubble(o.x, o.y + (o.crouch ? CROUCH_HEIGHT : STAND_HEIGHT) / 2, o.z, BUBBLE_RADIUS, COLORS.shield);
+    if (o.nitro) glow(o.x, o.y + 0.03, o.z, NITRO_GLOW, COLORS.nitro, NITRO_GLOW_ALPHA, FLAT);
   }
   gemMesh.count = gems;
   glowMesh.count = glows;
@@ -455,7 +456,7 @@ function buildHud() {
 
 function updateHud() {
   for (let i = 0; i < POWERUP_SLOTS; i++) {
-    const kind = self.inv[i] ?? '';
+    const kind = self.pw?.inv[i] ?? '';
     if (shown.slots[i] === kind) continue;
     shown.slots[i] = kind;
     const el = slotEls[i];
@@ -463,16 +464,16 @@ function updateHud() {
     el.style.borderColor = KIND_COLORS[kind] ?? HUD_EMPTY;
     el.style.boxShadow = kind ? `0 0 ${HUD_GLOW_PX}px ${KIND_COLORS[kind]}` : 'none';
   }
-  const shield = Math.ceil(self.shield);
-  const boost = Math.ceil((self.mover?.boost ?? 0) * 10) / 10;
+  const shield = Math.ceil(self.pw?.shield ?? 0);
+  const boost = Math.ceil(((self.mover?.boost ?? 0) / TICK_RATE) * 10) / 10;
   if (shield !== shown.shield || boost !== shown.boost) {
     shown.shield = shield;
     shown.boost = boost;
     statusEl.textContent = [shield > 0 ? `Shield ${shield}` : '', boost > 0 ? `Nitro ${boost.toFixed(1)} s` : ''].filter(Boolean).join('  ·  ');
   }
-  if (shown.use !== bindings.usePowerup || shown.cycle !== bindings.cyclePowerup) {
-    shown.use = bindings.usePowerup;
-    shown.cycle = bindings.cyclePowerup;
-    keysEl.textContent = `${keyName(bindings.usePowerup)} use  ·  ${keyName(bindings.cyclePowerup)} cycle`;
+  if (shown.use !== bindings.use || shown.cycle !== bindings.cycle) {
+    shown.use = bindings.use;
+    shown.cycle = bindings.cycle;
+    keysEl.textContent = `${keyName(bindings.use)} use  ·  ${keyName(bindings.cycle)} cycle`;
   }
 }

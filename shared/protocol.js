@@ -1,6 +1,6 @@
 // Wire format: JSON objects tagged by `t`. Client messages are validated
 // here because they arrive from the network; server messages are trusted.
-import { NAME_MAX, PRIMARIES, PITCH_LIMIT, POWERUPS } from './constants.js';
+import { NAME_MAX, PRIMARIES, PITCH_LIMIT } from './constants.js';
 
 export const encode = (msg) => JSON.stringify(msg);
 
@@ -8,32 +8,34 @@ export const encode = (msg) => JSON.stringify(msg);
 //   [id, x, y, z, yaw, pitch, flags, hp, weapon]
 // flags are PLAYER_FLAGS bits; weapon indexes WEAPON_IDS. SHIELDED is spawn
 // protection; BUBBLE (a power-up Shield), NITRO and SLOWED are power-up
-// effects. PU_SHIELD and PU_NITRO are older names for BUBBLE and NITRO, kept
-// until the powerups rework drops them.
-export const PLAYER_FLAGS = { CROUCH: 1, ALIVE: 2, SHIELDED: 4, BUBBLE: 8, NITRO: 16, SLOWED: 32, PU_SHIELD: 8, PU_NITRO: 16 };
+// effects.
+export const PLAYER_FLAGS = { CROUCH: 1, ALIVE: 2, SHIELDED: 4, BUBBLE: 8, NITRO: 16, SLOWED: 32 };
 export const WEAPON_IDS = ['rifle', 'pistol', 'shotgun'];
 
 // POWER-UPS: ids on the wire (never part of WEAPON_IDS), and entity types.
 export const POWER_IDS = ['shunt', 'bolt', 'barge', 'shock', 'mine', 'nitro', 'shield'];
 export const ENT = { SHUNT: 0, MINE: 1, DOME: 2 };
 
-// powerups: the power-up wire format.
-// - Use and cycle are not a message of their own: they ride the input packet
-//   as the press-once key bits KEY.USE and KEY.CYCLE, so the server applies
-//   them at exactly the step the client predicted (Nitro moves at once), in
-//   order with movement, and they survive the overflow drop like a click.
-// - The snapshot's `me` adds inv (kinds, first is next to fire) and shield
-//   (damage it still soaks). Its `pu` holds pads (per pad of the map, 0 when
-//   ready, else the tick it refills) and ents (entityTuple per Shunt, Bolt
-//   and Mine).
-// - Events: pickup { id, pad, k }; powerup { id, k, x, y, z } when one is
-//   used; blast { k, x, y, z } when a Shunt, Bolt, Mine or Barge goes off.
-//   Kills by power-ups carry the kind as their weapon `w`.
-export const POWERUP_IDS = Object.keys(POWERUPS);
+// POWER-UPS: the wire format (docs/bible.md §4.5).
+// - Use and cycle ride the input packet as the press-once bits KEY.USE and
+//   KEY.CYCLE, so the server applies them at exactly the predicted step.
+// - Snapshot `me.pw`: { inv, sel, cd, shield, shieldT, bolts, boltT }.
+// - Snapshot `pu`: { pd: [[k, readyTick, spanTicks] per pad], en: [[eid,
+//   type, owner, x, y, z, a, b], ...] }. k indexes POWER_IDS; readyTick 0 is
+//   up. Shunt: a = target id (0 none). Mine: a = 0 arming, 1 armed, 2 fused.
+//   Dome: a = strike tick, b = target id. type is an ENT value.
+// - Events: pick { id, pad, k, tick }, use { id, k, x, y, z, tick }, boom
+//   { k, x, y, z, r, id, eid, tick } (r 0 is a fizzle; id is the credited
+//   player). hit adds w, sh (absorbed by a Shield), sx, sz (blast source);
+//   kill's w and shot's w may be a power id.
+export const PU_STATE = { ARMING: 0, ARMED: 1, FUSED: 2 };
+
+// The engine wave's entity tuple, kept only as tested API; the `pu` rows
+// above replaced it on the wire.
+export const POWERUP_IDS = POWER_IDS;
 export const ENTITY_FLAGS = { ARMED: 1 };
 const r2 = (v) => Math.round(v * 100) / 100;
 const r1 = (v) => Math.round(v * 10) / 10;
-// [id, kind, owner, x, y, z, vx, vy, vz, flags]: kind indexes POWERUP_IDS.
 export const entityTuple = (e) => [e.id, POWERUP_IDS.indexOf(e.kind), e.owner, r2(e.x), r2(e.y), r2(e.z), r1(e.vx), r1(e.vy), r1(e.vz), e.armed ? ENTITY_FLAGS.ARMED : 0];
 export const readEntity = ([id, k, owner, x, y, z, vx, vy, vz, f]) => ({ id, kind: POWERUP_IDS[k], owner, x, y, z, vx, vy, vz, armed: !!(f & ENTITY_FLAGS.ARMED) });
 

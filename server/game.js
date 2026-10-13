@@ -5,15 +5,15 @@ import {
   RESPAWN_SECONDS, SPAWN_REUSE_SECONDS, SPAWN_PROTECT_SECONDS,
   KILL_TARGET, MATCH_SECONDS, SCOREBOARD_SECONDS, SILENT_MS, EMPTY_RESET_SECONDS,
 } from '../shared/constants.js';
-import { encode, byScore, PLAYER_FLAGS, WEAPON_IDS } from '../shared/protocol.js';
+import { encode, byScore, PLAYER_FLAGS, WEAPON_IDS, POWER_IDS } from '../shared/protocol.js';
 import { step } from '../shared/movement.js';
 import { prepareMap } from '../shared/collision.js';
 import { freshLife, stepWeapon, weaponOf, eyeOf, shotDirs, traceShot, damageAt } from '../shared/weapons.js';
 import { shotRng } from '../shared/rng.js';
 import { Player } from './player.js';
 import { History } from './history.js';
-import { Powerups } from './powerups.js'; // powerups: pads and entities
-import { stepPowerups } from '../shared/powerups.js'; // powerups: slot queue
+import { PowerServer, freshPowers } from './powerups.js'; // POWER-UPS: pads and entities
+import { stepPowers, createPowers } from '../shared/powerups.js'; // POWER-UPS: inventory step
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
@@ -32,7 +32,7 @@ export class Game {
     this.map = prepareMap(mapJson);
     this.spawnUsedAt = this.map.spawns.map(() => -Infinity); // tick each spawn was last used
     this.history = new History();
-    this.powerups = new Powerups(this, mapId); // powerups: pads, projectiles, mines
+    this.powers = new PowerServer(this); // POWER-UPS: pads, Shunts, Mines, domes
   }
 
   handle(conn, msg) {
@@ -114,9 +114,10 @@ export class Game {
     for (const p of this.players.values()) {
       p.kills = 0;
       p.deaths = 0;
+      p.pk = 0; // POWER-UPS: power-up kills
       p.alive = false;
     }
-    this.powerups.reset(); // powerups: full pads, nothing in flight
+    this.powers.reset(); // POWER-UPS: every pad up, nothing in play
     for (const p of this.players.values()) this.spawn(p);
     this.broadcastLobby();
   }
@@ -127,6 +128,9 @@ export class Game {
     this.phase = 'scoreboard';
     this.phaseEndsAt = this.tick + SCOREBOARD_SECONDS * TICK_RATE;
     const ranked = [...this.players.values()].sort(byScore);
+    // POWER-UPS: the balance target is at most 25% of kills by power-ups.
+    const kills = ranked.reduce((n, p) => n + p.kills, 0);
+    if (kills) console.log(`power-up kill share: ${Math.round((100 * ranked.reduce((n, p) => n + p.pk, 0)) / kills)}%`);
     this.broadcast({ t: 'event', e: 'match_end', winner: ranked[0]?.kills ? ranked[0].id : null }); // no kills, no winner
     this.broadcastLobby();
   }
@@ -149,7 +153,7 @@ export class Game {
     this.spawnUsedAt[i] = this.tick;
     Object.assign(p, freshLife(x, y, z, p.primary));
     p.protectedUntil = this.tick + SPAWN_PROTECT_SECONDS * TICK_RATE;
-    this.powerups.spawned(p); // powerups: empty slots, no shield
+    p.pw = freshPowers(); // POWER-UPS: empty inventory, no Shield
     p.queue = []; // inputs sent before this life are stale
     p.buffering = true;
     p.last = null; // nor may the last one leak a weapon slot into this life
@@ -191,17 +195,19 @@ export class Game {
           continue;
         }
         for (const input of inputs) {
-          // powerups: use / cycle first, so Nitro boosts this very step, as predicted.
-          const used = stepPowerups(p.inv, p.mover, input.keys);
-          if (used) this.powerups.use(p, used, input);
           step(p.mover, input, this.map.boxes);
           if (stepWeapon(p.arsenal, input)) {
             p.protectedUntil = 0; // firing ends spawn protection
             this.fire(p, input);
           }
+          const kind = stepPowers(p.pw, p.mover, p.arsenal, input); // POWER-UPS: after the gun, as predicted
+          if (kind) {
+            p.protectedUntil = 0; // so does using one
+            this.powers.use(p, kind, input);
+          }
         }
       }
-      this.powerups.step(); // powerups: pickups, flight, mines; before the snapshot and the kill check
+      this.powers.step(); // POWER-UPS: pickups, Shunts, Mines, domes, queued hits
       this.history.record(this.tick, [...this.players.values()].filter((p) => p.alive).map((p) => {
         const { x, y, z, crouch } = p.mover;
         return [p.id, { x, y, z, crouch }];
@@ -226,6 +232,7 @@ export class Game {
     const hits = new Map(); // victim id → { dmg, head }, summed over pellets
     const ends = dirs.map((dir) => {
       const hit = traceShot(origin, dir, this.map.boxes, targets);
+      this.powers.shot(p, origin, dir, hit.t, input.rt); // POWER-UPS: bullets fizzle Shunts and set off Mines
       if (hit.id !== null) {
         const h = hits.get(hit.id) ?? { dmg: 0, head: false };
         h.dmg += damageAt(weapon, hit.head, hit.t);
@@ -238,17 +245,23 @@ export class Game {
     for (const [id, { dmg, head }] of hits) this.damage(p, this.players.get(id), dmg, head, weapon);
   }
 
-  damage(attacker, victim, dmg, head, weapon) {
+  // POWER-UPS: sx, sz are a power-up blast's source, for the damage arc.
+  damage(attacker, victim, dmg, head, weapon, sx, sz) {
+    if (attacker === victim) return; // POWER-UPS: never by your own power-up
     if (this.tick < victim.protectedUntil) return; // spawn protection
-    dmg = this.powerups.absorb(victim, dmg); // powerups: a Shield soaks it first
+    const sh = Math.min(victim.pw.shield, dmg); // POWER-UPS: a Shield soaks it first
+    victim.pw.shield -= sh;
+    dmg -= sh;
     victim.hp = Math.max(0, victim.hp - dmg);
-    const hit = encode({ t: 'event', e: 'hit', a: attacker.id, v: victim.id, dmg, head });
+    const hit = encode({ t: 'event', e: 'hit', a: attacker.id, v: victim.id, dmg, head, w: weapon, sh: sh || undefined, sx, sz });
     sendRaw(attacker.conn, hit);
     sendRaw(victim.conn, hit);
     if (victim.hp > 0) return;
     victim.alive = false;
     victim.deaths++;
     attacker.kills++;
+    if (POWER_IDS.includes(weapon)) attacker.pk++; // POWER-UPS
+    victim.pw = createPowers(); // POWER-UPS: death clears the inventory
     victim.respawnAt = this.tick + RESPAWN_SECONDS * TICK_RATE;
     this.broadcast({ t: 'event', e: 'kill', k: attacker.id, v: victim.id, w: weapon, head });
     this.broadcastLobby();
@@ -261,17 +274,16 @@ export class Game {
       const m = p.mover;
       const flags = (m.crouch ? PLAYER_FLAGS.CROUCH : 0) | (p.alive ? PLAYER_FLAGS.ALIVE : 0)
         | (this.tick < p.protectedUntil ? PLAYER_FLAGS.SHIELDED : 0)
-        | (m.boost > 0 ? PLAYER_FLAGS.PU_NITRO : 0) | (p.shield > 0 ? PLAYER_FLAGS.PU_SHIELD : 0); // powerups: active effects
+        | (p.pw.shield > 0 ? PLAYER_FLAGS.BUBBLE : 0) | (m.boost > 0 ? PLAYER_FLAGS.NITRO : 0) | (m.slow > 0 ? PLAYER_FLAGS.SLOWED : 0); // POWER-UPS
       return [p.id, r3(m.x), r3(m.y), r3(m.z), r3(p.yaw), r3(p.pitch), flags, p.hp, WEAPON_IDS.indexOf(weaponOf(p.arsenal))];
     }));
-    const pu = this.powerups.snapshot(); // powerups: pads and entities, once per tick
+    const pu = this.powers.snapshot(); // POWER-UPS: pads and entities, once per tick
     for (const p of this.players.values()) {
       if (!p.conn) continue;
       const { ws } = p.conn;
       // A backed-up socket would only get a burst of stale snapshots.
       if (ws.readyState !== ws.OPEN || ws.bufferedAmount > MAX_BUFFERED_BYTES) continue;
-      // powerups: inv and shield in `me`, pads and entities in `pu`.
-      const me = p.mover ? JSON.stringify({ mover: p.mover, arsenal: p.arsenal, hp: p.hp, alive: p.alive, inv: p.inv, shield: p.shield }) : 'null';
+      const me = p.mover ? JSON.stringify({ mover: p.mover, arsenal: p.arsenal, hp: p.hp, alive: p.alive, pw: p.pw }) : 'null'; // POWER-UPS: pw
       ws.send(`{"t":"snapshot","tick":${this.tick},"ack":${p.ack},"me":${me},"ps":${ps},"pu":${pu}}`);
     }
   }
@@ -331,7 +343,7 @@ export class Game {
       end: this.phaseEndsAt,
       host: this.hostId,
       players: [...this.players.values()].map((p) => ({
-        id: p.id, name: p.name, slot: p.slot, ping: p.conn?.rtt ?? 0, bot: p.bot, kills: p.kills, deaths: p.deaths, connected: !!p.conn,
+        id: p.id, name: p.name, slot: p.slot, ping: p.conn?.rtt ?? 0, bot: p.bot, kills: p.kills, deaths: p.deaths, pk: p.pk, connected: !!p.conn, // POWER-UPS: pk
       })),
     });
   }
