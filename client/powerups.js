@@ -29,11 +29,16 @@ import * as feel from './feel.js';
 // ---- Look: every colour, size and timing, for the art pass. ----
 const LOOK = {
   plinth: { radius: 0.8, height: 0.03, rim: 0.08, color: '#45474c', rimColor: '#ad9862', segments: 20 },
-  pool: { radius: 0.7, alpha: 0.35, respawning: 0.4, lift: 0.005 },
+  // alpha 0.85, held to half the radius, with a light core, not the bible's
+  // 0.35: at 0.35 over the dark plinth a pool reads as a tinted hole, not a
+  // glow (a deviation).
+  pool: { radius: 0.7, alpha: 0.85, respawning: 0.4, lift: 0.005 },
   glyph: { voxel: 0.08, hover: 1.0, spin: Math.PI / 2, bob: 0.08, bobHz: 0.5, core: '#ffffff', hull: '#15171c', hullScale: 1.25 },
-  beam: { width: 0.15, top: 6, base: 1.4, flickerHz: 6, flickerLast: 3 }, // base: rises from just over the glyph
+  // base: rises from just over the glyph. refilling: a dim beam with no
+  // white line while a pad refills, so it stays a landmark (a deviation).
+  beam: { width: 0.15, top: 6, base: 1.4, flickerHz: 6, flickerLast: 3, refilling: 0.55 },
   countdown: { cubes: 24, size: 0.06, radius: 0.7, lift: 0.05, empty: '#45474c' },
-  hologram: { scale: 0.6, toward: '#d9d4ca', mix: 0.6, pulseHz: 1, low: 0.55 },
+  hologram: { scale: 0.6, toward: '#d9d4ca', mix: 0.6, pulseHz: 1, low: 0.85 },
   shunt: { body: [0.25, 0.25, 0.6], nose: 0.12, trail: [0.3, 2.5] },
   mine: { puck: [0.5, 0.12], top: 0.4, inner: 0.28, led: 0.06, ledColor: '#ff2a1a', armedHz: 1, fusedHz: 8, ringRange: 12 },
   shock: { pulseFrom: 2, pulseTo: 8, marker: [0.05, 6] },
@@ -107,7 +112,8 @@ void main() {
   vec3 c = vColor;
   float a;
   if (mode == 0) {
-    a = alpha * (1.0 - smoothstep(0.35, 1.0, r)); // a held centre, so the hue reads from afar
+    c = mix(c, vec3(1.0), 0.3 * (1.0 - smoothstep(0.0, 0.6, r))); // a light core glows without additive blending
+    a = alpha * (1.0 - smoothstep(0.5, 1.0, r)); // a held centre, so the hue reads from afar
   } else {
     float band = vData.z;
     float inner = 1.0 - band;
@@ -465,20 +471,21 @@ function drawPads(s, tick) {
     const y = p.y + G.hover + Math.sin(TAU * G.bobHz * s + p.phase) * G.bob;
     if (up) {
       glyph(p.kind, p.x, y, p.z, yaw, 1, hue, WHITE, true);
-      beam(p.x, p.y, p.z, hue, 1);
+      beam(p.x, p.y, p.z, hue, 1, true);
       continue;
     }
     // Refilling: the next item as a pulsing hologram, a ring of countdown
-    // cubes, and the beam flickering back over the last few seconds.
+    // cubes, and a dim beam that flickers to full over the last few seconds.
     const pulse = LOOK.hologram.low + (1 - LOOK.hologram.low) * (0.5 + 0.5 * Math.sin(TAU * LOOK.hologram.pulseHz * s));
-    glyph(p.kind, p.x, y, p.z, yaw, LOOK.hologram.scale, tint.copy(HOLO[p.kind]).multiplyScalar(pulse), HOLO_CORE, false);
+    glyph(p.kind, p.x, y, p.z, yaw, LOOK.hologram.scale, tint.copy(HOLO[p.kind]).multiplyScalar(pulse), HOLO_CORE, true);
     const C = LOOK.countdown;
     const filled = Math.floor(C.cubes * Math.min(1, 1 - (left * TICK_RATE) / (p.span || 1)));
     for (let i = 0; i < C.cubes; i++) {
       const a = (i / C.cubes) * TAU;
       cube(p.x + Math.sin(a) * C.radius, p.y + LOOK.plinth.height + C.lift, p.z - Math.cos(a) * C.radius, C.size, C.size, C.size, -a, i < filled ? hue : EMPTY, false);
     }
-    if (left < LOOK.beam.flickerLast && Math.sin(TAU * LOOK.beam.flickerHz * s) > 0) beam(p.x, p.y, p.z, hue, 0.6);
+    const full = left < LOOK.beam.flickerLast && Math.sin(TAU * LOOK.beam.flickerHz * s) > 0;
+    beam(p.x, p.y, p.z, hue, full ? 1 : LOOK.beam.refilling, full);
   }
 }
 
@@ -697,7 +704,7 @@ function demo(now, rt) {
     [901, ENT.SHUNT, 0, Math.sin(a) * 2.5, 1.4, 3 + Math.cos(a) * 2.5, 0, 0],
     [902, ENT.MINE, 0, -2.5, 0, 1.5, PU_STATE.ARMED, 0],
     [903, ENT.MINE, 0, 2.5, 0, 1.5, PU_STATE.FUSED, 0],
-    [904, ENT.DOME, 0, 0, 0, 6.5, rt + strike, 0],
+    [904, ENT.DOME, 0, 0, 1, 6.5, rt + strike, 0], // cast at a jumping target: the ring still lies on the floor
   ] });
   snaps.unshift({ tick: rt - 1, en: [[901, ENT.SHUNT, 0, Math.sin(a - 0.03) * 2.5, 1.4, 3 + Math.cos(a - 0.03) * 2.5, 0, 0]] });
   if (now - demoBoom > 2000) {
@@ -792,10 +799,10 @@ function flat(x, y, z, r, color, alpha, mode, p1, p2) {
   nFlat++;
 }
 
-// A pad's beam: two crossed quads.
-function beam(x, y, z, color, alpha) {
+// A pad's beam: two crossed quads, with the white centre line when `lit`.
+function beam(x, y, z, color, alpha, lit) {
   const B = LOOK.beam;
-  for (let i = 0; i < 2; i++) beamQuad(x, y + B.base, z, Math.PI / 4 + i * (Math.PI / 2), B.width, B.top - B.base, color, alpha, 0.04 / B.width, 0.04 / B.width, 0.6);
+  for (let i = 0; i < 2; i++) beamQuad(x, y + B.base, z, Math.PI / 4 + i * (Math.PI / 2), B.width, B.top - B.base, color, alpha, lit ? 0.04 / B.width : 0, 0.04 / B.width, 0.6);
 }
 
 function beamQuad(x, y, z, yaw, w, h, color, alpha, centre, fringe, power) {
