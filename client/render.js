@@ -3,8 +3,9 @@
 import * as THREE from 'three';
 import { sun, GRADE } from './world.js';
 import { viewScene, viewCamera, updateViewmodel } from './viewmodel.js';
+import { settings } from './ui.js'; // hud: quality and MSAA are read once, at load
 
-export const renderer = new THREE.WebGLRenderer({ antialias: true });
+export const renderer = new THREE.WebGLRenderer({ antialias: settings.quality !== 'low' && settings.msaa !== false }); // hud:
 renderer.info.autoReset = false; // count both passes of a frame (reset in draw)
 renderer.toneMapping = THREE.CustomToneMapping; // world: Neutral plus the grade, patched in by world.js
 renderer.toneMappingExposure = GRADE.exposure; // world:
@@ -57,6 +58,8 @@ export function setFovKick(deg) {
   camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(hfov + fovKick) / 2) / camera.aspect));
   camera.updateProjectionMatrix();
 }
+
+export function setBrightness(b) { renderer.toneMappingExposure = GRADE.exposure * b; } // hud:
 
 export function setView(x, y, z, yaw, pitch, roll = 0) { // feel: roll
   camera.position.set(x, y, z);
