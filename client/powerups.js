@@ -55,7 +55,7 @@ const GLYPHS = {
   barge: ['..###..', '.#ooo#.', '#o...o#', '#o...o#', '#o...o#', '.#ooo#.', '..###..'],
   shock: ['..###..', '.#ooo#.', '#ooooo#', '#ooooo#', '#######', '.#.#.#.', '#.#.#.#'],
   mine: ['#..#..#', '.#####.', '.#ooo#.', '##ooo##', '.#ooo#.', '.#####.', '#..#..#'],
-  nitro: ['...o...', '..#.#..', '.#...#.', '#..o..#', '..#.#..', '.#...#.', '#.....#'],
+  nitro: ['...#...', '..#o#..', '.#o.o#.', '#o.#.o#', '..#o#..', '.#o.o#.', '#o...o#'],
   shield: ['...#...', '.##o##.', '#ooooo#', '#ooooo#', '#ooooo#', '.##o##.', '...#...'],
 };
 
@@ -101,7 +101,7 @@ void main() {
   vec3 c = vColor;
   float a;
   if (mode == 0) {
-    a = alpha * (1.0 - smoothstep(0.0, 1.0, r));
+    a = alpha * (1.0 - smoothstep(0.35, 1.0, r)); // a held centre, so the hue reads from afar
   } else {
     float band = vData.z;
     float inner = 1.0 - band;
