@@ -13,6 +13,8 @@ import * as powerups from './powerups.js'; // powerups: pads, entities, HUD
 import { cleanName, encodeInput, byScore } from '../shared/protocol.js';
 import { EYE_STAND, EYE_CROUCH, TICK_RATE, RESPAWN_SECONDS, WALK_SPEED, NEUTRAL_MS, PLAYER_COLORS } from '../shared/constants.js'; // effects: PLAYER_COLORS
 import { prepareMap } from '../shared/collision.js';
+import { initCharacters, setShadows as rigShadows } from './characters.js'; // characters: map, sun and camera; the shadows setting
+import { SUN_DIR } from './world.js'; // characters: for the shadows-off fallback
 import { Vector3 } from 'three';
 import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf, hitboxes } from '../shared/weapons.js'; // effects: hitboxes
 import { shotRng } from '../shared/rng.js';
@@ -153,6 +155,7 @@ function pick(primary) {
 }
 
 function applySettings() {
+  rigShadows(!!ui.settings.shadows); // characters: shadow map, or sun rays
   input.setSensitivity(ui.settings.sens);
   render.setFov(ui.settings.fov);
   render.setRenderScale(Math.min(ui.settings.quality === 'low' ? 0.7 : 1, Math.max(0.5, ui.settings.scale / 100))); // hud: Low caps the scale at 70%
@@ -297,6 +300,7 @@ async function buildStage() {
   render.scene.add(powerups.powerupsGroup); // powerups:
   initEffects({ boxes: world.boxes, map, quality: ui.settings.quality, sunDir: sun.position.clone().normalize().toArray() }); // effects: debris lands on the map; shots find the face they hit
   render.renderer.compile(render.scene, render.camera); // build every shader now, not mid-fight
+  initCharacters({ boxes: world.boxes, sunDir: SUN_DIR, quality: ui.settings.quality, camera: render.camera }); // characters: after compile, clear of other branches' lines
   requestAnimationFrame(frame);
 }
 
