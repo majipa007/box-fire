@@ -84,7 +84,7 @@ const net = connect({
       ui.showPicker(false);
       audio.respawn(); // audio: un-muffles the world
     } else if (m.e === 'shot') {
-      remoteShot(m.id, m.o, m.h, m.w); // their gun kicks; tracers from its muzzle, impacts, a casing
+      remoteShot(m.id, m.o, m.h, m.w); // their gun kicks; tracers from its muzzle, impacts, a casing (effects: m.w)
       audio.gunshot(m.w, ...heard(m.o[0], m.o[2]));
       audio.impacts(m.o, m.h, heard); // audio: surface hits and ricochets
     } else if (m.e === 'hit') {
@@ -103,10 +103,10 @@ const net = connect({
         ui.damageArc(Math.atan2(dx * Math.cos(yaw) - dz * Math.sin(yaw), -dx * Math.sin(yaw) - dz * Math.cos(yaw)));
       }
     } else if ((m.e === 'blast' || m.e === 'boom') && !(m.k === 'barge' && m.id === myId)) { // effects: a power-up going off; r 0 is a fizzle; our own Barge was drawn on use
-      blast(m.k, [m.x, m.y, m.z], m.r);
+      blast(m.k, [m.x, m.y, m.z], m.r); // effects:
     } else if (m.e === 'pickup' || m.e === 'pick') { // effects: a burst at the picker's glyph height
-      const p = m.id === myId ? self.mover : others(performance.now()).find((o) => o.id === m.id);
-      if (p) pickupBurst([p.x, p.y + 1, p.z], POWER_COLORS[m.k]);
+      const p = m.id === myId ? self.mover : others(performance.now()).find((o) => o.id === m.id); // effects:
+      if (p) pickupBurst([p.x, p.y + 1, p.z], POWER_COLORS[m.k]); // effects:
     } else if (m.e === 'match_end') {
       winner = m.winner === null ? null : nameOf(m.winner);
       audio.ui(m.winner === myId ? 'win' : 'lose'); // audio:
@@ -215,7 +215,7 @@ function ownShot(inp, power) { // effects: power 'bolt' fires one beam with no s
   const all = []; // effects: every pellet's end
   for (const dir of dirs) {
     const { t, id } = traceShot(origin, dir, world.boxes, targets);
-    const end = origin.map((o, i) => o + dir[i] * t);
+    const end = origin.map((o, i) => o + dir[i] * t); // effects:
     all.push(end); // effects:
     if (id === null) ends.push(end);
   }
@@ -225,7 +225,7 @@ function ownShot(inp, power) { // effects: power 'bolt' fires one beam with no s
 
 // effects: the living players a shot can hit (never our own body: we look
 // out from inside it), in their slot colours.
-const shotTargets = () => others(performance.now())
+const shotTargets = () => others(performance.now()) // effects:
   .filter((o) => o.alive && o.id !== myId)
   .map((o) => ({ ...o, color: PLAYER_COLORS[roster.get(o.id)?.slot] }));
 
@@ -236,28 +236,28 @@ const remoteMuzzle = new Vector3();
 // killer. characters.js hides the rig and hands back its posed parts (one
 // box per part); effects.js voxelises and throws them. A victim we cannot see
 // falls back to their hitboxes; our own death has no body to break.
-function deathBurst(killerId, victimId, head) {
+function deathBurst(killerId, victimId, head) { // effects: head
   if (victimId === myId) return;
   const now = performance.now();
   const victim = others(now).find((o) => o.id === victimId);
   const killer = killerId === myId ? self.mover : others(now).find((o) => o.id === killerId);
   const push = victim && killer ? [victim.x - killer.x, 0, victim.z - killer.z] : null;
-  const parts = breakRig(victimId, Infinity).map(({ part, position: p, scale: s, color }) => ({
+  const parts = breakRig(victimId, Infinity).map(({ part, position: p, scale: s, color }) => ({ // effects: part
     part, // effects: the helmet flies off whole on a headshot
     min: [p.x - s.x / 2, p.y - s.y / 2, p.z - s.z / 2],
     max: [p.x + s.x / 2, p.y + s.y / 2, p.z + s.z / 2],
     color,
   }));
   const color = PLAYER_COLORS[roster.get(victimId)?.slot];
-  if (parts.length) explode(parts, color, push, head);
-  else if (victim) explode(Object.values(hitboxes(victim)), color, push, head);
+  if (parts.length) explode(parts, color, push, head); // effects: head
+  else if (victim) explode(Object.values(hitboxes(victim)), color, push, head); // effects: head
 }
 
 // Someone else's shot. The host sends their eye; the tracers start at the
 // drawn shooter's muzzle, or where it would be (0.3 m right of the eye,
 // 0.25 m down, 0.6 m out) when we can't see them, and a case flies out to
 // their right.
-function remoteShot(id, o, ends, weapon) {
+function remoteShot(id, o, ends, weapon) { // effects: weapon
   if (!world) return; // the map is still loading: nothing to hit, nothing drawn
   const dx = ends[0][0] - o[0];
   const dz = ends[0][2] - o[2];
