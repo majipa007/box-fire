@@ -4,7 +4,7 @@ import * as ui from './ui.js';
 import * as render from './render.js';
 import { buildWorld, sun, setQuality } from './world.js'; // effects: sun, for puffs in shade; world: quality preset
 import { charactersGroup, syncPlayers, hitFlash, fireKick, shatter as breakRig } from './characters.js'; // characters: rig events
-import { setGun, gunKick, setSunShade, sunBlocked, muzzleWorld } from './viewmodel.js'; // viewmodel: sun shade, drawn muzzle
+import { setGun, gunKick, setSunShade, sunBlocked, muzzleWorld, setArmband } from './viewmodel.js'; // viewmodel: sun shade, drawn muzzle, armband
 import { effectsGroup, updateEffects, initEffects, shot, muzzle as muzzleFlash, casing, deathBurst as explode } from './effects.js'; // effects: shots, deaths, casings
 import { addRecoil, correct, resetFeel, updateFeel, crosshair, spreadPixels, feelStats, view, blastShake, setBob, spraying } from './feel.js'; // feel:
 import * as input from './input.js';
@@ -55,6 +55,7 @@ const net = connect({
     syncClock(m.tick, performance.now());
     if (m.phase === 'playing' && lobby.phase !== 'playing') audio.ui('start'); // audio: a match begins
     roster = new Map(m.players.map((p) => [p.id, p]));
+    setArmband(PLAYER_COLORS[roster.get(myId)?.slot] ?? '#f2efe8'); // viewmodel: our slot colour on the sleeves (a late join spawns before its roster entry)
     lobby = m;
     ui.renderLobby(m, myId);
     ui.showEndMatch(m.host === myId && m.phase === 'playing');
