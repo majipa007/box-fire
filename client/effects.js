@@ -1052,6 +1052,24 @@ export function classifyHit(origin, end, players) {
     HIT.normal[bestAxis] = d[bestAxis] > 0 ? -1 : 1;
     return HIT;
   }
+  // From a muzzle rather than the eye that traced the shot, the ray can meet
+  // other cover first. Then the nearest face the end lies on (bible §3.3),
+  // of those the shot flies into.
+  let gap = WALL_EPS;
+  for (let b = 0; b < boxes.length; b++) {
+    const { min, max } = boxes[b];
+    for (let a = 0; a < 3; a++) {
+      const lo = d[a] > 0 ? Math.abs(end[a] - min[a]) : Infinity;
+      const hi = d[a] < 0 ? Math.abs(end[a] - max[a]) : Infinity;
+      if (Math.min(lo, hi) >= gap || !onFace(end, min, max, a)) continue;
+      gap = Math.min(lo, hi);
+      HIT.kind = 'wall';
+      HIT.surface = b;
+      HIT.normal.fill(0);
+      HIT.normal[a] = lo < hi ? -1 : 1;
+    }
+  }
+  if (HIT.kind === 'wall') return HIT;
   HIT.surface = -1;
   if (len > SHOT_RANGE - WALL_EPS) return HIT;
   HIT.kind = 'player';
@@ -1068,6 +1086,12 @@ export function classifyHit(origin, end, players) {
     }
   }
   return HIT;
+}
+
+// Is p within the face's bounds on the two axes other than `axis`?
+function onFace(p, min, max, axis) {
+  for (let a = 0; a < 3; a++) if (a !== axis && (p[a] < min[a] - WALL_EPS || p[a] > max[a] + WALL_EPS)) return false;
+  return true;
 }
 
 function boxDistance(p, { min, max }) {

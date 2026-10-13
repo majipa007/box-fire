@@ -42,6 +42,10 @@ test('a shot ending on a map face is a wall hit, with the face it entered', () =
   // The crate's top just in from its edge, and its side just under that edge.
   assert.deepEqual(wall([0, 1.8, 0], [4.45, 1.2, 0]), ['wall', 0, 1, 0, 2]);
   assert.deepEqual(wall([0, 1.8, 0], [4.4, 1.15, 0]), ['wall', -1, 0, 0, 2]);
+  // Classified from the muzzle, under the eye: the crate's lip is in the way
+  // of the muzzle's ray, not the eye's. The end is still on the wall.
+  assert.deepEqual(wall([5, 1.5, 3], [5, 1.3, -10]), ['wall', 0, 0, 1, 1]);
+  assert.deepEqual(wall([5, 1.15, 2.5], [5, 1.3, -10]), ['wall', 0, 0, 1, 1]);
 });
 
 test('a shot ending off the map is a player hit, matched by hitboxes(), or a miss at full range', () => {
