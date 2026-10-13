@@ -1,52 +1,97 @@
-// Power-ups, the shared part: where the pads are, the slot queue that both
-// sides step once per input, and the two effects that live in the mover
-// (Nitro's boost timer and knockback), so prediction replays them exactly.
-// The numbers are in constants.js; the server does everything else.
-import { POWERUPS, PICKUP_RADIUS, PICKUP_REACH } from './constants.js';
+// Power-ups, the shared part (docs/bible.md §4.4): the inventory step that
+// the server, predict() and the reconcile replay all run once per input,
+// after stepWeapon, plus the pure helpers the server uses. Numbers live in
+// POWERS in constants.js; Nitro and Shock's slow live in the mover.
+import {
+  TICK_RATE, POWERS, POWER_USE_SECONDS, POWER_GUN_LOCK, POWER_BOLT_GUN_LOCK, POWER_RATE_PLAYERS,
+} from './constants.js';
 import { KEY } from './movement.js';
+import { rayBox } from './collision.js';
 
-// Pickup pads per map: [x, y, z, kind], with y the floor under the pad.
-// Point-symmetric pairs plus the centre, all on open floor at least 5 m from
-// any spawn (powerups.test.js checks this for every map listed).
-export const PADS = {
-  arena_01: [
-    [0, 0, 0, 'shunt'],
-    [15, 0, 7, 'nitro'], [-15, 0, -7, 'nitro'],
-    [10, 0, 17, 'repair'], [-10, 0, -17, 'repair'],
-    [10, 0, -17, 'shield'], [-10, 0, 17, 'shield'],
-    [5.5, 0, -3.5, 'bolt'], [-5.5, 0, 3.5, 'bolt'],
-    [4, 0, -10, 'mine'], [-4, 0, 10, 'mine'],
-    [15, 0, -5, 'barge'], [-15, 0, 5, 'barge'],
-  ],
-};
+const ticks = (seconds) => Math.round(seconds * TICK_RATE);
+export const USE_TICKS = ticks(POWER_USE_SECONDS); // 60
+export const BOLT_GAP_TICKS = ticks(POWERS.bolt.gap); // 15
+export const NITRO_TICKS = ticks(POWERS.nitro.seconds); // 240
+export const SHIELD_TICKS = ticks(POWERS.shield.seconds); // 480
+export const ARENA_LIMIT = 19.4; // m: Shock domes stay this far inside arena_01's walls
 
-export const padsFor = (mapId) => PADS[mapId] ?? [];
+export const createPowers = () => ({ inv: [], sel: 0, cd: 0, shield: 0, shieldT: 0, bolts: 0, boltT: 0 });
 
-// Is a mover (feet-anchored) standing on, or jumping through, the pad at x, y, z?
-export const onPad = (m, x, y, z) => Math.hypot(m.x - x, m.z - z) <= PICKUP_RADIUS && m.y >= y - 0.25 && m.y <= y + PICKUP_REACH;
-
-// One fixed step of the slot queue, run before movement on both sides with
-// the input's keys: cycle moves the first power-up to the back, use takes
-// the first. Nitro starts here, so the very same step already runs boosted.
-// Returns the kind used, or null.
-export function stepPowerups(inv, mover, keys) {
-  if (keys & KEY.CYCLE && inv.length > 1) inv.push(inv.shift());
-  if (!(keys & KEY.USE) || !inv.length) return null;
-  const kind = inv.shift();
-  if (kind === 'nitro') mover.boost = POWERUPS.nitro.seconds;
+// Returns 'shunt'|'barge'|'shock'|'mine'|'nitro'|'shield' on the step an item
+// is used, 'bolt' on each of the 3 Bolt shots (the first on the use step),
+// else null. Everything it touches is predicted state.
+export function stepPowers(pw, mover, arsenal, input) {
+  if (pw.cd > 0) pw.cd--;
+  if (pw.shieldT > 0 && --pw.shieldT === 0) pw.shield = 0;
+  if (input.keys & KEY.CYCLE && pw.inv.length > 1) pw.sel = (pw.sel + 1) % pw.inv.length;
+  if (pw.bolts > 0 && --pw.boltT <= 0) {
+    pw.bolts--;
+    pw.boltT = BOLT_GAP_TICKS;
+    return 'bolt';
+  }
+  if (!(input.keys & KEY.USE) || pw.cd > 0 || pw.bolts > 0 || !pw.inv.length) return null;
+  const kind = pw.inv.splice(pw.sel, 1)[0];
+  pw.sel = Math.min(pw.sel, Math.max(0, pw.inv.length - 1));
+  pw.cd = USE_TICKS;
+  arsenal.switching = Math.max(arsenal.switching, kind === 'bolt' ? POWER_BOLT_GUN_LOCK : POWER_GUN_LOCK);
+  if (kind === 'nitro') mover.boost = NITRO_TICKS;
+  if (kind === 'shield') {
+    pw.shield = POWERS.shield.hp;
+    pw.shieldT = SHIELD_TICKS;
+  }
+  if (kind === 'bolt') {
+    pw.bolts = POWERS.bolt.shots - 1;
+    pw.boltT = BOLT_GAP_TICKS;
+  }
   return kind;
 }
 
-// A knockback: `speed` m/s along (dx, dz) plus `lift` m/s up. The server
-// applies it; it lives in the mover, so the client's replays carry it.
-export function knock(m, dx, dz, speed, lift) {
-  const len = Math.hypot(dx, dz);
-  if (len > 0 && speed > 0) {
-    m.kx += (dx / len) * speed;
-    m.kz += (dz / len) * speed;
-  }
-  if (lift > 0) {
-    m.vy = Math.max(m.vy, lift);
-    m.grounded = false;
-  }
+// Splash damage at distance d from a blast of radius r: max at the centre,
+// min at the edge, nothing beyond.
+export const falloff = (d, r, max, min) => (d >= r ? 0 : max - ((max - min) * d) / r);
+
+// Knock and lift scale: 1 at the centre, 0.6 at the edge.
+export const pushScale = (d, r) => 1 - (0.4 * d) / r;
+
+// Where Shock's domes land: ahead of the target along its velocity, at its
+// height, kept inside the arena.
+export function domeCentres(x, y, z, vx, vz) {
+  const { domes, lead, step } = POWERS.shock;
+  const clamp = (v) => Math.max(-ARENA_LIMIT, Math.min(ARENA_LIMIT, v));
+  return Array.from({ length: domes }, (_, i) => [clamp(x + vx * (lead + i * step)), y, clamp(z + vz * (lead + i * step))]);
 }
+
+// What a Shunt homes on: the chest, 1.0 m up (0.7 m crouched).
+export const chestOf = (m) => [m.x, m.y + (m.crouch ? 0.7 : 1), m.z];
+
+// Is the straight line from a to b free of map boxes?
+export function clearLine(a, b, boxes) {
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  if (!len) return true;
+  const dir = [(b[0] - a[0]) / len, (b[1] - a[1]) / len, (b[2] - a[2]) / len];
+  for (const box of boxes) if (rayBox(a, dir, box.min, box.max) < len) return false;
+  return true;
+}
+
+// A Shunt's lock at launch: of the candidates ({ id, x, y, z, crouch }), the
+// one with the smallest angle to dir within the cone and range, in sight.
+export function lockTarget(eye, dir, candidates, boxes) {
+  const { cone, range } = POWERS.shunt;
+  let best = null;
+  let bestCos = Math.cos((cone * Math.PI) / 180);
+  for (const c of candidates) {
+    const chest = chestOf(c);
+    const d = Math.hypot(chest[0] - eye[0], chest[1] - eye[1], chest[2] - eye[2]);
+    if (!d || d > range) continue;
+    const cos = ((chest[0] - eye[0]) * dir[0] + (chest[1] - eye[1]) * dir[1] + (chest[2] - eye[2]) * dir[2]) / d;
+    if (cos >= bestCos && clearLine(eye, chest, boxes)) {
+      best = c.id;
+      bestCos = cos;
+    }
+  }
+  return best;
+}
+
+// Ticks until a pad refills: slower in small games, so the per-player rate
+// stays near the 6-player one.
+export const padRespawnTicks = (pad, n) => Math.round(pad.respawn * TICK_RATE * Math.max(1, POWER_RATE_PLAYERS / Math.max(1, n)));

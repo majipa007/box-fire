@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { meshMap, landscape } from './bake.js';
+import { meshMap, skyline, farRidge, clouds, decals, CLOUDS, SKYLINE } from './bake.js';
 
 const AO = { cell: 0.5, rays: 16, radius: 1.5, strength: 0.6 };
 const arena = JSON.parse(fs.readFileSync(new URL('../shared/maps/arena_01.json', import.meta.url)));
@@ -52,7 +52,8 @@ test('only faces open to the air are meshed, and every open face is', () => {
     const c = [0, 1, 2].map((k) => (pos(m, v[0])[k] + pos(m, v[1])[k] + pos(m, v[2])[k]) / 3 + n[k] * 1e-3);
     assert.ok(!inside(c, boxes), `hidden face at ${c}`);
     assert.ok(!(n[1] < 0 && c[1] <= 0), 'a face looks down from the floor');
-    assert.ok(Math.abs(c[0]) < 6 && Math.abs(c[2]) < 5 + 1e-3, `a face looks out of the map at ${c}`);
+    // Outer faces (seen only from the lobby camera, outside the walls) carry no AO.
+    if (Math.abs(c[0]) > 6 || Math.abs(c[2]) > 5 + 1e-3) assert.ok(v.every((i) => m.ao[i] === 1), `an outer face with AO at ${c}`);
   }
   // Nothing missing: sample the open top faces; each point lies on some up-facing triangle.
   const ups = tris.filter(({ m, v }) => nrm(m, v[0])[1] > 0.5);
@@ -174,44 +175,127 @@ test('arena_01 stays within the triangle budget', () => {
   assert.ok(n < 40000, `${n} triangles`);
 });
 
-const SKYLINE = {
-  seed: 7, groundY: -0.05, clear: 21,
-  rings: [
-    { cell: 6, inner: 0, outer: 64, height: [0, 0], colors: ['#111111'] },
-    { cell: 4, inner: 46, outer: 58, height: [7, 15], bumps: 5, rough: 0.25, step: 2.5, strata: 2.5, colors: ['#222222', '#333333'] },
-    { cell: 12, inner: 128, outer: 144, height: [28, 46], bumps: 4, rough: 0.15, ridge: 1, colors: ['#444444'] },
-  ],
-  clouds: { count: 14, reach: [50, 125], altitude: [60, 78], puffs: [2, 5], size: [8, 20], thickness: [2, 4], colors: { top: '#fff', side: '#eee', bottom: '#ddd' } },
-};
-
-test('the skyline is deterministic, outward-facing and clear of the arena', () => {
-  const a = landscape(SKYLINE);
-  assert.deepEqual(a, landscape(SKYLINE));
-  assert.notDeepEqual(a, landscape({ ...SKYLINE, seed: 8 }));
-  for (const { p, n } of [...a.terrain, ...a.clouds]) {
-    const c = [0, 1, 2].map((k) => (p[k] + p[k + 3] + p[k + 6] + p[k + 9]) / 4);
-    assert.ok(dot(cross(sub(p.slice(3, 6), p.slice(0, 3)), sub(p.slice(6, 9), p.slice(0, 3))), n) > 0, 'inward quad');
-    if (Math.abs(c[0]) < 21 && Math.abs(c[2]) < 21) assert.ok(c[1] <= SKYLINE.groundY + 1e-9, `skyline inside the arena at ${c}`);
-  }
-  assert.ok(a.clouds.every(({ p }) => p.filter((_, k) => k % 3 === 1).every((y) => y > 50)));
-});
-
-test('every skyline vertex stays inside the camera far plane from anywhere in the arena', () => {
-  // world.js's real settings, read without three.js: its LANDSCAPE object literal.
-  const src = fs.readFileSync(new URL('./world.js', import.meta.url), 'utf8');
-  const start = src.indexOf('{', src.indexOf('export const LANDSCAPE = '));
-  let end = start;
-  for (let depth = 0; ; end++) {
-    depth += src[end] === '{' ? 1 : src[end] === '}' ? -1 : 0;
-    if (depth === 0) break;
-  }
-  const settings = Function(`return (${src.slice(start, end + 1)});`)();
-  const { terrain, clouds } = landscape(settings);
-  const corner = Math.hypot(20, 20);
-  for (const { p } of [...terrain, ...clouds]) {
-    for (let k = 0; k < 12; k += 3) {
-      const reach = Math.hypot(Math.hypot(p[k], p[k + 2]) + corner, p[k + 1]);
-      assert.ok(reach < settings.far, `vertex ${p.slice(k, k + 3)} is ${reach.toFixed(1)} m from an arena corner`);
+// The value of attribute `key` (size n) at the vertex at p on the face with normal n.
+function attrAt(meshes, key, p, normal, n = 1) {
+  for (const m of Object.values(meshes)) {
+    for (let i = 0; i < m.ao.length; i++) {
+      if (sub(pos(m, i), p).every((d) => Math.abs(d) < 1e-6) && dot(nrm(m, i), normal) > 0.5) return n === 1 ? m[key][i] : [...m[key].slice(i * n, i * n + n)];
     }
   }
+  assert.fail(`no vertex at ${p} facing ${normal}`);
+}
+
+test('crease: the distance to the nearest other box, exact at feet, capped at the AO radius', () => {
+  const { meshes } = meshMap(SMALL, AO);
+  const up = [0, 1, 0];
+  const near = (v, want) => assert.ok(Math.abs(v - want) < 2e-3, `${v} vs ${want}`);
+  near(attrAt(meshes, 'crease', [5, 0, -3], up), 0); // floor at the wall's foot
+  near(attrAt(meshes, 'crease', [4, 0, -3], up), 1); // a metre out
+  near(attrAt(meshes, 'crease', [-3, 0, -3], up), AO.radius); // open floor
+  near(attrAt(meshes, 'crease', [5, 0.5, -3], [-1, 0, 0]), 0.5); // the wall, half a metre up
+  near(attrAt(meshes, 'crease', [0, 1, 0], up), AO.radius); // the lone crate's top
+  for (const m of Object.values(meshes)) for (const c of m.crease) assert.ok(c >= 0 && c <= AO.radius);
+});
+
+test('sand: distances along each axis on the ground and what stands on it, both 0 only in inside corners', () => {
+  const { meshes } = meshMap(SMALL, AO);
+  const up = [0, 1, 0];
+  const R = AO.radius;
+  const along = (p, n) => attrAt(meshes, 'along', p, n, 2).map((v) => Math.round(v * 1e3) / 1e3);
+  assert.deepEqual(along([5, 0, -3], up), [0, R]); // floor at the wall foot: the wall across x
+  assert.deepEqual(along([4, 0, -3], up), [1, R]);
+  assert.deepEqual(along([-3, 0, -3], up), [R, R]); // open floor
+  assert.deepEqual(along([5, 0, 0.5], up), [0, 0]); // floor in the corner of the wall and a crate
+  assert.deepEqual(along([-0.5, 0, -0.5], up), [R, R]); // a lone crate's outside corner is no corner
+  assert.deepEqual(along([5, 0, 0.5], [-1, 0, 0]), [0, 0]); // the wall at that corner: the crate across z, the floor below
+  assert.deepEqual(along([5, 1, -3], [-1, 0, 0]), [R, 1]); // the wall a metre up a straight run
+  assert.deepEqual(along([-3, 2, 3], up), [-1, -1], 'no sand on a stack top');
+  assert.deepEqual(along([-3.5, 1.5, 3], [-1, 0, 0]), [-1, -1], 'nor on a stacked crate side');
+});
+
+test('the sun term is 0 in a shadow and on faces turned away', () => {
+  const sunDir = [Math.SQRT1_2, Math.SQRT1_2, 0]; // from +x, 45° up: the wall shades the floor west of it
+  const { meshes } = meshMap(SMALL, { ...AO, sunDir });
+  const up = [0, 1, 0];
+  assert.equal(attrAt(meshes, 'sun', [-3, 0, -3], up), 1, 'open floor in the sun');
+  assert.equal(attrAt(meshes, 'sun', [4, 0, -3], up), 0, 'floor in the wall shadow');
+  assert.equal(attrAt(meshes, 'sun', [-0.5, 0.5, 0], [-1, 0, 0]), 0, 'a face turned away from the sun');
+});
+
+test('crates take face-local UVs in whole tiles; vTop pins top faces into a band', () => {
+  const crate = [{ pos: [0, 0.3, 0], size: [2.4, 0.6, 1.2], mat: 'ply', tile: 1.2 }, { pos: [3, 1, 0], size: [1, 2, 1], mat: 'wall', vTop: 3.85 }];
+  const { meshes } = meshMap([{ pos: [0, -0.5, 0], size: [10, 1, 10], mat: 'floor' }, ...crate], AO);
+  const ply = meshes.ply;
+  for (let i = 0; i < ply.ao.length; i++) {
+    const [u, v] = [ply.uv[i * 2], ply.uv[i * 2 + 1]];
+    assert.ok(u >= -1e-6 && u <= 2 + 1e-6 && v >= -1e-6 && v <= 1 + 1e-6, `uv ${u}, ${v}`);
+  }
+  assert.ok(ply.uv.some((x, i) => i % 2 === 0 && Math.abs(x - 2) < 1e-6), 'a 2.4 m face spans two tiles');
+  const wall = meshes.wall;
+  for (let i = 0; i < wall.ao.length; i++) if (wall.normal[i * 3 + 1] > 0.5) assert.ok(Math.abs(wall.uv[i * 2 + 1] - 3.85) < 1e-6);
+});
+
+const SUN = [-0.683, 0.643, 0.348];
+const centreOf = (q) => [0, 1, 2].map((k) => (q.p[k] + q.p[k + 3] + q.p[k + 6] + q.p[k + 9]) / 4);
+
+test('the skyline is deterministic, in budget, faces out of its solids and keeps out of the arena', () => {
+  const quads = skyline();
+  assert.deepEqual(quads, skyline());
+  assert.ok(quads.length * 2 <= 6000, `${quads.length * 2} triangles`);
+  for (const q of quads) {
+    const [a, b, , d] = [0, 3, 6, 9].map((k) => q.p.slice(k, k + 3));
+    assert.ok(dot(cross(sub(b, a), sub(d, a)), q.n) > 0, 'winding disagrees with the normal');
+    const c = centreOf(q);
+    // Inside the walls only wall-hugging props (≤ 8 cm proud, below 3.6 m) and the fence posts above 4 m.
+    if (Math.abs(c[0]) < 19.9 && Math.abs(c[2]) < 19.9) assert.ok(c[1] < -0.01, `skyline inside the arena at ${c}`);
+    if (Math.abs(c[0]) < 20 && Math.abs(c[2]) < 20 && c[1] > 0) assert.ok(c[1] > 4 || c[1] < 3.6, `prop at ${c}`);
+    assert.ok(Math.abs(c[0]) <= 75 && Math.abs(c[2]) <= 75, `beyond the apron at ${c}`);
+  }
+  // Scree piles sit at the feet of benches 2 and 3, on the bench in front, outside the walls.
+  const scree = quads.filter((q) => q.color === SKYLINE.scree.color);
+  assert.ok(scree.length >= 3 * 40, `${scree.length / 3} scree steps`); // front and sides; the top is sand
+  assert.ok(scree.every((q) => q.rock === 1), 'scree sides take the rock tile');
+  for (const q of scree) {
+    const c = centreOf(q);
+    assert.ok(Math.hypot(c[0], c[2]) > 50 && c[1] > 6, `scree at ${c}`);
+  }
+  // The benches' cut faces look at the arena (or along it), never away.
+  assert.ok(quads.filter((q) => Array.isArray(q.color)).length > 500);
+  for (const q of quads) {
+    const c = centreOf(q);
+    const r = Math.hypot(c[0], c[2]);
+    if (Array.isArray(q.color)) { // cut faces are the quads shaded per corner
+      assert.ok((c[0] * q.n[0] + c[2] * q.n[2]) / r < 0.2, `bench face looking away at ${c}`);
+      assert.equal(q.rock, 1, 'cut faces take the rock tile');
+    }
+  }
+});
+
+test('the far group stays inside the far plane and its clouds carry their cluster centres', () => {
+  const { quads, hubs } = farRidge(SUN);
+  assert.equal(hubs.length, 3);
+  const blade = 14;
+  for (const q of quads) for (let k = 0; k < 12; k += 3) assert.ok(Math.hypot(q.p[k], q.p[k + 1], q.p[k + 2]) < 182);
+  for (const h of hubs) assert.ok(Math.hypot(h.x, h.y + blade, h.z) < 195, 'blade tips inside the 200 m far plane');
+  const sky = clouds(SUN);
+  assert.ok(sky.every((q) => q.centre && Math.hypot(q.centre[0], q.centre[2]) <= CLOUDS.reach[1] && q.centre[1] >= CLOUDS.altitude[0]));
+  assert.ok((quads.length + sky.length) * 2 + hubs.length * 3 * 12 < 3000, 'about 3k triangles');
+});
+
+test('decals: paint, grates and marks on the open floor, a stencil per crate side, the wall sign', () => {
+  const list = decals(arena.boxes);
+  assert.deepEqual(list, decals(arena.boxes));
+  const boxes = boxesOf(arena.boxes.slice(1));
+  const on = (cell) => list.filter((d) => d.cell === cell);
+  assert.equal(on('grate').length, 10);
+  assert.equal(list.filter((d) => d.cell.startsWith('crack')).length, 16);
+  assert.equal(on('oil').length, 6);
+  for (const d of list.filter((d) => d.cell.startsWith('crack') || d.cell === 'oil')) {
+    assert.ok(!inside([d.c[0], 0.01, d.c[2]], boxes), `${d.cell} under a box at ${d.c}`);
+    assert.ok(Math.abs(d.c[0]) < 19.5 && Math.abs(d.c[2]) < 19.5);
+  }
+  assert.equal(list.filter((d) => d.cell.startsWith('BX-')).length, 2 * arena.boxes.filter((b) => b.color === 3).length);
+  const pit = on('PIT 7')[0];
+  assert.deepEqual([pit.c, pit.n], [[0, 2.2, -20], [0, 0, 1]]);
+  for (const d of list) assert.ok(d.alpha > 0 && d.alpha <= 1 && d.h > 0);
 });

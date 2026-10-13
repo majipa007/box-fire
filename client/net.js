@@ -3,7 +3,7 @@
 import { encode, PLAYER_FLAGS, WEAPON_IDS } from '../shared/protocol.js';
 import { step } from '../shared/movement.js';
 import { stepWeapon } from '../shared/weapons.js';
-import { stepPowerups } from '../shared/powerups.js'; // powerups: slot queue
+import { stepPowers } from '../shared/powerups.js'; // powerups: inventory step
 import { TICK_RATE, INTERP_DELAY_TICKS, SNAP_DISTANCE } from '../shared/constants.js';
 
 const STEP_MS = 1000 / TICK_RATE;
@@ -30,15 +30,16 @@ export function connect(handlers) {
 // once, and is kept until the server acknowledges it. Each snapshot snaps to
 // the server's state and silently replays what the server has not seen yet.
 // Look angles are never touched: the camera belongs to the client.
-// powerups: inv (power-up kinds, first fires next) and shield (damage it still soaks).
-export const self = { mover: null, arsenal: null, hp: 0, alive: false, pending: [], seq: 0, shots: 0, inv: [], shield: 0 };
+// powerups: pw is the predicted power-up state (shared/powerups.js createPowers).
+export const self = { mover: null, arsenal: null, hp: 0, alive: false, pending: [], seq: 0, shots: 0, pw: null };
 
-// Returns true when this input fires a shot.
+// Returns true when this input fires a shot. powerups: input.power is what
+// the inventory step used or fired on it (stepPowers), else null.
 export function predict(input, boxes) {
   input.s = ++self.seq;
-  stepPowerups(self.inv, self.mover, input.keys); // powerups: before movement, as on the server
   step(self.mover, input, boxes);
   const fired = stepWeapon(self.arsenal, input);
+  input.power = self.pw ? stepPowers(self.pw, self.mover, self.arsenal, input) : null; // powerups: after the gun, as on the server
   if (fired) self.shots++;
   input.shot = self.shots; // seeds the shot's spread on both sides
   self.pending.push(input);
@@ -56,13 +57,12 @@ export function reconcile(snapshot, boxes) {
   Object.assign(self.arsenal, me.arsenal);
   self.hp = me.hp;
   self.alive = me.alive;
-  self.inv = me.inv ?? []; // powerups: server's slots
-  self.shield = me.shield ?? 0; // powerups: for the HUD
+  if (me.pw) self.pw = { ...me.pw, inv: [...me.pw.inv] }; // powerups: the server's inventory
   self.pending = me.alive ? self.pending.filter((i) => i.s > snapshot.ack) : [];
   for (const i of self.pending) {
-    stepPowerups(self.inv, self.mover, i.keys); // powerups: replayed like movement
     step(self.mover, i, boxes);
     stepWeapon(self.arsenal, i);
+    if (self.pw) stepPowers(self.pw, self.mover, self.arsenal, i); // powerups: replayed; its results are ignored
   }
   return { x: self.mover.x - x, y: self.mover.y - y, z: self.mover.z - z }; // feel:
 }
@@ -98,7 +98,7 @@ export const renderTick = (now) => Math.min(serverTick(now) - INTERP_DELAY_TICKS
 const lerp = (a, b, t) => a + (b - a) * t;
 const lerpAngle = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
-// [{ id, x, y, z, yaw, pitch, crouch, alive, shielded, hp, weapon }] at the render tick.
+// [{ id, x, y, z, yaw, pitch, crouch, alive, shielded, hp, weapon, bubble, nitro, slowed }] at the render tick.
 export function others(now) {
   if (!buffer.length) return [];
   const rt = renderTick(now);
@@ -115,7 +115,9 @@ export function others(now) {
       shielded: !!(flags & PLAYER_FLAGS.SHIELDED), // spawn protection
       hp,
       weapon: WEAPON_IDS[w],
-      flags, // powerups: PU_NITRO and PU_SHIELD
+      bubble: !!(flags & PLAYER_FLAGS.BUBBLE), // powerups: Shield, Nitro and Shock's slow
+      nitro: !!(flags & PLAYER_FLAGS.NITRO),
+      slowed: !!(flags & PLAYER_FLAGS.SLOWED),
     };
     // Respawns and joins snap rather than streak across the map.
     if (!p || Math.hypot(p[1] - x, p[3] - z) > SNAP_DISTANCE) {
