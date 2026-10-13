@@ -243,6 +243,7 @@ const s3 = new THREE.Vector3();
 const d3 = new THREE.Vector3();
 const Z = new THREE.Vector3(0, 0, 1);
 const DOWN = [0, -1, 0];
+const AHEAD = [0, 0, -1];
 const tint = new THREE.Color();
 
 export function initPowerups({ boxes: mapBoxes = [] } = {}) {
@@ -399,15 +400,22 @@ export function updatePowerups(now, renderTick, cam) {
   drawEntities(s, renderTick);
   drawGhosts(now);
   drawBursts(now);
-  for (const [mesh, n] of [[flats, nFlat], [cubes, nCubes], [hulls, nHulls], [beams, nBeams], [trails, nTrails]]) {
-    mesh.count = n;
-    mesh.visible = n > 0;
-    if (!n) continue;
-    flush(mesh.instanceMatrix, n, 16);
-    if (mesh.instanceColor) flush(mesh.instanceColor, n, 3);
-    if (mesh.geometry.attributes.aData) flush(mesh.geometry.attributes.aData, n, 4);
-  }
+  upload(flats, nFlat);
+  upload(cubes, nCubes);
+  upload(hulls, nHulls);
+  upload(beams, nBeams);
+  upload(trails, nTrails);
   hud();
+}
+
+// Draw the first n instances, uploading only those.
+function upload(mesh, n) {
+  mesh.count = n;
+  mesh.visible = n > 0;
+  if (!n) return;
+  flush(mesh.instanceMatrix, n, 16);
+  if (mesh.instanceColor) flush(mesh.instanceColor, n, 3);
+  if (mesh.geometry.attributes.aData) flush(mesh.geometry.attributes.aData, n, 4);
 }
 
 function flush(attr, n, size) {
@@ -450,9 +458,11 @@ function glyph(kind, x, y, z, yaw, scale, hue, core, hull) {
   const c = Math.cos(yaw);
   const sn = Math.sin(yaw);
   const coreColor = kind === 'mine' && core === WHITE ? LED : core;
-  for (const [ox, oy, isCore] of VOXELS[kind]) {
-    const px = ox * scale;
-    cube(x + c * px, y + oy * scale, z - sn * px, v, v, v, yaw, isCore ? coreColor : hue, hull);
+  const voxels = VOXELS[kind];
+  for (let i = 0; i < voxels.length; i++) {
+    const vx = voxels[i];
+    const px = vx[0] * scale;
+    cube(x + c * px, y + vx[1] * scale, z - sn * px, v, v, v, yaw, vx[2] ? coreColor : hue, hull);
   }
 }
 
@@ -464,10 +474,16 @@ function drawEntities(s, rt) {
   const a = i > 0 && snaps[i - 1].tick <= rt ? snaps[i - 1] : b;
   const t = a === b ? 0 : Math.min(1, (rt - a.tick) / (b.tick - a.tick));
   const me = self.mover;
-  for (const e of b.en) {
-    const [eid, type, , x1, y1, z1, sa] = e;
+  for (let j = 0; j < b.en.length; j++) {
+    const e = b.en[j];
+    const eid = e[0];
+    const type = e[1];
+    const x1 = e[3];
+    const y1 = e[4];
+    const z1 = e[5];
+    const sa = e[6];
     let from = e;
-    for (const f of a.en) if (f[0] === eid) from = f;
+    for (let k = 0; k < a.en.length; k++) if (a.en[k][0] === eid) from = a.en[k];
     const x = from[3] + (x1 - from[3]) * t;
     const y = from[4] + (y1 - from[4]) * t;
     const z = from[5] + (z1 - from[5]) * t;
@@ -485,7 +501,7 @@ function drawEntities(s, rt) {
         dir[1] = dy / len;
         dir[2] = dz / len;
       }
-      rocket(x, y, z, dir ?? [0, 0, -1], 1);
+      rocket(x, y, z, dir ?? AHEAD, 1);
     } else if (type === ENT.MINE) {
       const near = !me || Math.hypot(me.x - x, me.z - z) < LOOK.mine.ringRange;
       mine(x, y, z, sa, s, near);

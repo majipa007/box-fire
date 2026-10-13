@@ -252,6 +252,9 @@ export class PowerServer {
     e.x += e.dir[0] * go;
     e.y += e.dir[1] * go;
     e.z += e.dir[2] * go;
+    // One entry per tick: the position the snapshot shows (launched this
+    // tick, the launch entry is replaced).
+    if (e.hist.at(-1)[0] === tick) e.hist.pop();
     e.hist.push([tick, e.x, e.y, e.z]);
     const at = [e.x, e.y, e.z];
     for (const q of players.values()) {

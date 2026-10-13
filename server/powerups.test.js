@@ -146,7 +146,7 @@ test('one bullet at a Shunt\'s rewound position fizzles it with no damage; its c
   const eye = eyeOf(shooter.mover);
   const left = [-1, 0, 0];
   game.powers.shot(shooter, eye, left, 200, game.tick); // where it was at launch + 10 is no longer there
-  assert.equal(game.powers.ents.length, 1);
+  assert.ok(!game.powers.ents[0].gone);
   game.powers.shot(shooter, eye, left, 200, launched + 10); // what the shooter saw
   game.step();
   assert.equal(game.powers.ents.length, 0);
@@ -157,7 +157,22 @@ test('one bullet at a Shunt\'s rewound position fizzles it with no damage; its c
   game.powers.use(user, 'shunt', at);
   game.step();
   game.powers.shot(user, eyeOf(user.mover), [0, 0, -1], 200, game.tick);
-  assert.equal(game.powers.ents.length, 1);
+  assert.ok(!game.powers.ents[0].gone);
+});
+
+test('a Shunt launched by a real input rewinds to where clients draw it between ticks', () => {
+  const { game, players: [user, shooter] } = match([[0, 0], [5, -3]]);
+  user.pw.inv = ['shunt'];
+  drive(game, [[user, (i) => [i === 0 ? KEY.USE : 0, 0]]], 20);
+  const [e] = game.powers.ents;
+  const [a, b] = e.hist.slice(5, 7);
+  assert.equal(b[0], a[0] + 1); // one entry per tick
+  const drawn = [(a[1] + b[1]) / 2, (a[2] + b[2]) / 2, (a[3] + b[3]) / 2]; // half a tick on
+  const from = [5, drawn[1], drawn[2]];
+  game.powers.shot(shooter, from, [-1, 0, 0], 200, a[0] + 1.5); // a tick later it is 0.3 m on: a miss
+  assert.equal(e.gone, undefined);
+  game.powers.shot(shooter, from, [-1, 0, 0], 200, a[0] + 0.5);
+  assert.equal(e.gone, true);
 });
 
 // ---- Bolt ----

@@ -159,8 +159,8 @@ function fixedStep() {
     recoil(weaponOf(self.arsenal));
     audio.gunshot(weaponOf(self.arsenal));
   }
-  if (inp.power) powerups.cast(inp.power, inp); // powerups: ghosts, Bolt beams, sounds, the cast
   net.send(encodeInput(inp));
+  if (inp.power) powerups.cast(inp.power, inp); // powerups: ghosts, Bolt beams, sounds, the cast
 }
 
 // [distance, pan] of a sound at (x, z) as we hear it.
