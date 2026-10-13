@@ -30,6 +30,7 @@
   button.ghost:hover { background: rgba(242, 239, 232, 0.2); }
   input, select { font: 600 16px var(--font); color: var(--text); background: rgba(10, 11, 14, 0.6); border: 1px solid var(--line); padding: 8px 10px; accent-color: var(--accent); }
   input:focus, select:focus { outline: 1px solid var(--accent); }
+  input[type=color] { width: 3.4em; height: 2em; padding: 3px; cursor: pointer; }
   select option { background: #1b1d22; }
   .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
   .card { position: relative; background: rgba(21, 23, 28, 0.86); border: 1px solid var(--line); padding: 26px 30px; min-width: 320px; max-width: 92vw;
@@ -112,7 +113,8 @@
   #killx i { position: absolute; left: -2px; top: -18px; width: 4px; height: 36px; background: var(--head); box-shadow: 0 0 0 1px var(--ink); }
   #killx i:first-child { transform: rotate(45deg); }
   #killx i:last-child { transform: rotate(-45deg); }
-  #confirm { left: 0; right: 0; top: calc(50% + 60 * var(--u)); text-align: center; font: 700 calc(18 * var(--u)) var(--font); letter-spacing: 0.12em; opacity: 0; text-shadow: var(--shadow-strong); }
+  #confirm { left: 50%; top: calc(50% + 60 * var(--u)); transform: translateX(-50%); padding: calc(4 * var(--u)) calc(34 * var(--u)); white-space: nowrap; font: 700 calc(18 * var(--u)) var(--font); letter-spacing: 0.12em; opacity: 0;
+    text-shadow: var(--shadow-strong); background: linear-gradient(90deg, transparent, rgba(21, 23, 28, 0.7) 20%, rgba(21, 23, 28, 0.7) 80%, transparent); }
   #confirm b { font-weight: 700; margin-left: 0.4em; }
 
   /* Damage arc, toward the attacker or the blast. */
@@ -187,7 +189,9 @@
   /* Ammo, bottom right. */
   #ammo { right: calc(24 * var(--u)); bottom: calc(24 * var(--u)); padding: calc(10 * var(--u)) calc(18 * var(--u)) calc(12 * var(--u)) calc(18 * var(--u)); text-align: right;
     clip-path: polygon(var(--cut) 0, 100% 0, 100% 100%, 0 100%, 0 var(--cut)); }
-  #wname { font: 700 calc(13 * var(--u)) var(--font); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); min-height: calc(18 * var(--u)); }
+  #wline { display: flex; align-items: center; justify-content: flex-end; gap: calc(8 * var(--u)); min-height: calc(18 * var(--u)); }
+  #wname { font: 700 calc(13 * var(--u)) var(--font); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
+  #wicon { height: calc(16 * var(--u)); color: var(--text); }
   #ammo-line { display: flex; align-items: baseline; justify-content: flex-end; gap: calc(6 * var(--u)); }
   #mag { font: 700 calc(44 * var(--u))/1 var(--font); font-variant-numeric: tabular-nums; }
   #reserve { font: 600 calc(20 * var(--u)) var(--font); color: var(--dim); }
@@ -280,7 +284,7 @@
     <div id="bars"><div id="hpbar" class="bar"><i id="hp-ghost"></i><i id="hp-fill"></i></div><div id="shieldbar" class="bar" hidden><i></i></div></div>
   </div>
   <div id="ammo" class="panel">
-    <div id="wname"></div>
+    <div id="wline"><span id="wicon" class="ico"></span><span id="wname"></span></div>
     <div id="ammo-line"><div id="reload"></div><span id="mag"></span><span id="reserve">/ ∞</span></div>
   </div>
   <div id="toast"></div>

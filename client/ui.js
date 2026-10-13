@@ -10,7 +10,7 @@ const LOOK = {
   hitMs: 150, hitPopMs: 90, killXMs: 400, confirmMs: 1200, toastMs: 1000, arcMs: 600,
   vignetteMs: 400, vignetteBase: 0.15, vignettePerHp: 0.5 / 100, vignetteMax: 0.6,
   pulseMs: 80, pulsePx: 3, lowHp: 30, shieldMax: 60, useTicks: 60, boltShots: 3,
-  feedRows: 5, feedMs: 6000, tags: 10, shuntRing: 80, // px: the 160 px ring's radius
+  feedRows: 5, feedMs: 6000, tags: 10, shuntRing: 80, // px at 1080p: the 160 px ring's radius
   hitColor: { body: '#ffffff', head: '#ff4d4d', shield: '#66fff0' },
   status: { nitro: '#3dff8f', slowed: '#ffb300', shield: '#66fff0' },
 };
@@ -257,6 +257,7 @@ export function updateHud(hp, weapon, mag, reloading, extra = NONE) {
   statusTag('shield', sh > 0, shieldSeconds, 'SHIELD');
   if (weapon !== last.weapon) {
     $('wname').textContent = weapon;
+    setIcon($('wicon'), weapon);
     last.weapon = weapon;
     const ring = weapon === 'shotgun';
     if (ring !== last.ring) $('crosshair').classList.toggle('ring', (last.ring = ring));
@@ -299,10 +300,12 @@ export function updateCrosshair(gapPx, ring = false) {
 }
 
 export function crosshairPulse() {
+  if (!live()) return;
   $('crosshair').animate([{ '--pulse': `${LOOK.pulsePx}px` }, { '--pulse': '0px' }], { duration: LOOK.pulseMs, easing: 'ease-out' });
 }
 
 export function hitMarker(head, kind = head ? 'head' : 'body') {
+  if (!live()) return;
   const el = $('hitmarker');
   el.style.setProperty('--hc', LOOK.hitColor[kind] ?? LOOK.hitColor.body);
   const pop = LOOK.hitPopMs / LOOK.hitMs;
@@ -311,15 +314,17 @@ export function hitMarker(head, kind = head ? 'head' : 'body') {
 
 // You got the kill: a red X on the crosshair and the victim's name under it.
 export function killConfirm(name, color) {
+  if (!live()) return;
   flash($('killx'), [{ opacity: 1, transform: 'scale(1.4)' }, { opacity: 1, transform: 'scale(1)', offset: 0.2 }, { opacity: 1, offset: 0.7 }, { opacity: 0 }], LOOK.killXMs);
   const label = $('confirm-name');
   label.textContent = name;
   label.style.color = color ?? '';
-  flash($('confirm'), [{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none', offset: 0.1 }, { opacity: 1, offset: 0.8 }, { opacity: 0 }], LOOK.confirmMs);
+  flash($('confirm'), [{ opacity: 0, translate: '0 6px' }, { opacity: 1, translate: 'none', offset: 0.1 }, { opacity: 1, offset: 0.8 }, { opacity: 0 }], LOOK.confirmMs);
 }
 
 // colors: { killer, victim } hex. weapon may be a power id.
 export function addKill(killer, victim, weapon, head, mine, colors = {}) {
+  if (!live()) return;
   const li = document.createElement('li');
   const name = (text, color) => {
     const span = document.createElement('span');
@@ -340,6 +345,7 @@ export function addKill(killer, victim, weapon, head, mine, colors = {}) {
 // A red arc on a ring around the crosshair, toward whoever just hit you.
 // angle: radians clockwise from straight ahead.
 export function damageArc(angle) {
+  if (!live()) return;
   const el = $('damage');
   el.style.transform = `rotate(${angle}rad)`;
   flash(el, [{ opacity: 1 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], LOOK.arcMs);
@@ -347,6 +353,7 @@ export function damageArc(angle) {
 
 // A red flash at the screen's edge, stronger for bigger hits.
 export function damageTaken(dmg) {
+  if (!live() || !(dmg > 0)) return;
   const peak = Math.min(LOOK.vignetteMax, LOOK.vignetteBase + LOOK.vignettePerHp * dmg);
   flash($('vignette'), [{ opacity: peak }, { opacity: 0 }], LOOK.vignetteMs);
 }
@@ -354,6 +361,7 @@ export function damageTaken(dmg) {
 let deathTimer = 0;
 // info: { color, weapon, killerHp }
 export function showDeath(killer, seconds, info = {}) {
+  if (!live()) return;
   $('death').hidden = false;
   const name = $('death-killer');
   name.textContent = killer;
@@ -365,13 +373,14 @@ export function showDeath(killer, seconds, info = {}) {
   const tick = () => {
     const left = Math.max(0, Math.ceil((end - performance.now()) / 1000));
     timer.replaceChildren('Respawning in ', Object.assign(document.createElement('b'), { textContent: left }));
-    if (left > 0) deathTimer = setTimeout(tick, 200);
+    if (left > 0 && !DEMO) deathTimer = setTimeout(tick, 200); // the demo holds its number
   };
   clearTimeout(deathTimer);
   tick();
 }
 
 export function hideDeath() {
+  if (!live()) return;
   clearTimeout(deathTimer);
   $('death').hidden = true;
 }
@@ -382,6 +391,7 @@ export function initPicker(onPick) {
 }
 
 export function showPicker(open) {
+  if (!live()) return;
   $('picker').hidden = !open;
   for (const primary of PRIMARIES) $(`pick-${primary}`).classList.toggle('chosen', settings.primary === primary);
 }
@@ -484,6 +494,7 @@ export function updatePowers(pw) {
 
 // "+ SHUNT" in the item's hue, over the slots.
 export function powerToast(kind) {
+  if (!live()) return;
   const el = $('toast');
   el.textContent = `+ ${String(kind).toUpperCase()}`;
   el.style.color = ITEM_COLORS[kind] ?? '';
@@ -562,7 +573,7 @@ export function threat(t, eye = null, yaw = 0) {
     if (a === null) { el.className = ''; continue; }
     if (!el.firstChild) el.innerHTML = CHEVRON;
     el.className = 'on';
-    el.style.transform = `rotate(${a}rad) translateY(-${LOOK.shuntRing}px)`;
+    el.style.transform = `rotate(${a}rad) translateY(calc(-${LOOK.shuntRing} * var(--u)))`;
   }
 }
 
@@ -575,6 +586,7 @@ export function bearing(p, eye, yaw) {
 
 // players: the lobby list. over: { winner, secondsLeft } once a match ends.
 export function renderScoreboard(players, myId, over) {
+  if (!live()) return;
   const ranked = [...players].sort(byScore);
   $('sb-rows').replaceChildren(...ranked.map((p, i) => {
     const tr = document.createElement('tr');
@@ -663,13 +675,17 @@ export function renderLobby(m, myId) {
 }
 
 // ---- ?debug&hud=demo: every element with demo data, over the live game. ----
+const DEMO_BOARD = [
+  [4, 'bot4', 17, 6, 4, 8], [1, 'bot1', 14, 9, 2, 12], [3, 'Tester', 12, 7, 3, 3], [2, 'bot2', 9, 11, 1, 9],
+  [6, 'bot6', 8, 10, 0, 15], [5, 'bot5', 6, 12, 2, 11], [7, 'bot7', 4, 13, 1, 7], [8, 'bot8', 2, 14, 0, 18],
+].map(([id, name, kills, deaths, pk, ping]) => ({ id, name, kills, deaths, pk, ping, slot: id - 1, connected: true, bot: false }));
 function startDemo() {
   const run = (fn) => { demoing = true; try { fn(); } finally { demoing = false; } };
-  if (DEMO === 'death') {
-    showDeath('bot4', 3, { color: PLAYER_COLORS[3], weapon: 'rifle', killerHp: 64 });
-    showPicker(true);
-  }
   run(() => {
+    if (DEMO === 'death') {
+      showDeath('bot4', 3, { color: PLAYER_COLORS[3], weapon: 'rifle', killerHp: 64 });
+      showPicker(true);
+    }
     updateHud(64, 'rifle', 17, false, { maxMag: 25, shield: 30, shieldSeconds: 5.2, nitro: 2.6 });
     updatePowers({ inv: ['shunt', 'bolt', 'shield'], sel: 1, cd: 24, bolts: 0 });
     updateMatchInfo(287, { name: 'bot4', kills: 17, slot: 3 }, { rank: 3, of: 8 });
@@ -678,16 +694,17 @@ function startDemo() {
       { id: 2, name: 'bot5', color: PLAYER_COLORS[4], x: innerWidth * 0.72, y: innerHeight * 0.46, alpha: 1 },
       { id: 3, name: 'bot2', color: PLAYER_COLORS[1], x: innerWidth * 0.56, y: innerHeight * 0.42, alpha: 0.6 },
     ]);
-    threat({ shock: 1.2, shunts: [2.4, -0.9] });
+    threat({ shock: 1.2, shunts: [1.35, -0.9] });
+    renderScoreboard(DEMO_BOARD, 3, null);
+    const feed = [
+      ['bot1', 'bot4', 'rifle', true, false, 0, 3], ['Tester', 'bot2', 'shunt', false, true, 2, 1], ['bot6', 'bot5', 'shotgun', false, false, 5, 4],
+      ['bot5', 'Tester', 'mine', false, true, 4, 2], ['bot2', 'bot1', 'pistol', true, false, 1, 0],
+    ];
+    $('killfeed').classList.add('demo'); // rows stay
+    for (const [k, v, w, h, mine, kc, vc] of feed) addKill(k, v, w, h, mine, { killer: PLAYER_COLORS[kc], victim: PLAYER_COLORS[vc] });
+    hitMarker(true);
+    killConfirm('bot2', PLAYER_COLORS[1]);
+    damageArc(-2.2);
+    powerToast('shunt');
   });
-  const feed = [
-    ['bot1', 'bot3', 'rifle', true, false, 0, 2], ['Tester', 'bot2', 'shunt', false, true, 3, 1], ['bot4', 'bot5', 'shotgun', false, false, 3, 4],
-    ['bot5', 'Tester', 'mine', false, true, 4, 3], ['bot2', 'bot1', 'pistol', true, false, 1, 0],
-  ];
-  $('killfeed').classList.add('demo'); // rows stay
-  for (const [k, v, w, h, mine, kc, vc] of feed) addKill(k, v, w, h, mine, { killer: PLAYER_COLORS[kc], victim: PLAYER_COLORS[vc] });
-  hitMarker(true);
-  killConfirm('bot2', PLAYER_COLORS[1]);
-  damageArc(-2.2);
-  powerToast('shunt');
 }

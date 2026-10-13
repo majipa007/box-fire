@@ -102,7 +102,7 @@ const net = connect({
       }
       if (m.v === myId) audio.hurt(); // audio:
       if (m.v === myId) ui.damageTaken(m.dmg); // hud:
-      const attacker = m.v === myId && self.mover && others(performance.now()).find((o) => o.id === m.a);
+      const attacker = m.v === myId && self.mover && (m.sx !== undefined ? { x: m.sx, z: m.sz } : others(performance.now()).find((o) => o.id === m.a)); // hud: power hits point at sx/sz
       if (attacker) {
         // Direction to the attacker relative to where we look: 0 ahead, + to the right.
         const dx = attacker.x - self.mover.x;
