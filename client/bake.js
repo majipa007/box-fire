@@ -336,7 +336,7 @@ export function skyline(S = SKYLINE) {
   for (const y of [10, 15, 20]) block(out, [-56, y, -14.95], [8, 1.1, 0.1], S.windows); // south face
   block(out, [-34, 4.5, -8], [5, 9, 5], S.graphite); // hopper
   block(out, [-34, 9.6, -8], [6, 1.2, 6], S.ochre);
-  conveyor(out, [-34, 10.2, -8], [-51, 22, -18], S);
+  conveyor(out, [-34, 10.2, -8], [-51, 22, -17.5], S); // lands under the sign's south half
   // Water tower: 8-sided teal tank on 16 m legs.
   prism(out, 52, 26, 16, 24, 4, S.teal, true);
   prism(out, 52, 26, 24, 25.2, 2.2, S.graphite);
@@ -391,7 +391,7 @@ export function skyline(S = SKYLINE) {
     if (k) block(out, [k, 2.95, -19.96], [0.3, 0.4, 0.08], S.graphite); // clear of the PIT 7 stencil
     block(out, [19.96, 2.95, k], [0.08, 0.4, 0.3], S.graphite);
   }
-  block(out, [-50.95, 21.6, -20], [0.1, 4.2, 9.4], S.graphite); // the crusher's sign board
+  block(out, [-50.95, 24.3, -20], [0.1, 3.6, 9.4], S.graphite); // the crusher's sign board, above the conveyor
   block(out, [0, 3.3, -19.95], [40, 0.08, 0.1], S.graphite);
   block(out, [19.95, 3.3, 0], [0.1, 0.08, 40], S.graphite);
   for (let k = -21; k <= 21; k += 3) {
@@ -434,8 +434,8 @@ export function decals(mapBoxes, seed = 3) {
     if (b.color !== 3) return;
     for (const s of [-1, 1]) out.push({ c: [b.pos[0], b.pos[1] + b.size[1] * 0.1, b.pos[2] + s * (b.size[2] / 2)], n: [0, 0, s], up: UP, h: Math.min(0.16, b.size[1] / 4), cell: `BX-0${(i % 4) + 1}`, color: '#45474c', alpha: 0.85 });
   });
-  out.push({ c: [-50.9, 22.7, -20], n: [1, 0, 0], up: UP, h: 1.6, cell: 'BOXFIRE', color: '#d9d4ca', alpha: 1 });
-  out.push({ c: [-50.9, 20.5, -20], n: [1, 0, 0], up: UP, h: 1.2, cell: 'QUARRY CO.', color: '#d9d4ca', alpha: 1 });
+  out.push({ c: [-50.9, 25.0, -20], n: [1, 0, 0], up: UP, h: 1.6, cell: 'BOXFIRE', color: '#d9d4ca', alpha: 1 });
+  out.push({ c: [-50.9, 23.3, -20], n: [1, 0, 0], up: UP, h: 1.2, cell: 'QUARRY CO.', color: '#d9d4ca', alpha: 1 });
   return out;
 }
 
