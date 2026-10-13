@@ -264,10 +264,11 @@ for (const mesh of [...INSTANCED, ribbons]) {
   mesh.castShadow = false;
 }
 ribbonGeometry.setDrawRange(0, 0);
-// After any other blended pass at the default order (a blended floor would otherwise paint
-// over the blobs and ribbons): blobs and ribbons, then the bubbles over everything.
-blobs.renderOrder = ribbons.renderOrder = 2;
-bubbles.renderOrder = 3;
+// Blended order, against effects' decals (−1), dust (0), tracers (1) and sparks: the blobs
+// darken the ground and decals but no particle; ribbons and bubbles stay under tracers.
+blobs.renderOrder = -0.5;
+ribbons.renderOrder = 0.5;
+bubbles.renderOrder = 0.6;
 body.receiveShadow = true; // world shadows fall on players; players never cast into the (static) shadow map
 charactersGroup.add(body, hull, unlit, blobs, bubbles, ribbons);
 
@@ -355,7 +356,7 @@ export function syncPlayers(list, roster, dt, camera = null, more = null) {
     const info = roster.get(p.id);
     if (!info) continue;
     let rig = rigs.get(p.id);
-    if (!rig) rigs.set(p.id, (rig = makeRig()));
+    if (!rig) rigs.set(p.id, (rig = makeRig(p.id)));
     rig.name = info.name;
     if (rig.slot !== info.slot) dress(rig, info.slot);
     if (now < rig.hiddenUntil || nb + LIT_PER_RIG > body.instanceMatrix.count) continue;
@@ -439,7 +440,7 @@ export function nameTags(camera, width, height) {
   camera.getWorldPosition(_cam);
   camera.getWorldDirection(_fwd);
   const cosCone = Math.cos(LOOK.tags.cone);
-  for (const [id, rig] of rigs) {
+  for (const rig of rigs.values()) {
     let want = 0;
     if (drawn(rig, now)) {
       const p = rig.p;
@@ -454,7 +455,7 @@ export function nameTags(camera, width, height) {
     if (_d.subVectors(_v, _cam).dot(_fwd) <= 0) continue; // behind the camera
     _v.project(camera);
     const tag = tagPool[tags.length] ?? (tagPool[tags.length] = { id: 0, name: '', color: '', x: 0, y: 0, alpha: 0 });
-    tag.id = id;
+    tag.id = rig.id;
     tag.name = rig.name;
     tag.color = rig.hex;
     tag.x = ((_v.x + 1) / 2) * width;
@@ -515,9 +516,9 @@ export function shatter(id, voxel = LOOK.shatter.voxel) {
   return cubes;
 }
 
-function makeRig() {
+function makeRig(id) {
   return {
-    name: '', slot: null, hex: '', colors: parts.map(() => new THREE.Color()),
+    id, name: '', slot: null, hex: '', colors: parts.map(() => new THREE.Color()),
     p: null, weapon: 'rifle', seen: -1, hiddenUntil: 0, flashAt: -Infinity, kickAt: -Infinity, spawnAt: -Infinity, hp: 0,
     x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, ground: 0, sun: 1, tagAlpha: 0,
     crouchT: 0, c: 0, air: 0, run: 0, forward: 0, dirX: 0, dirZ: -1, phase: 0,
