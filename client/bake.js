@@ -117,6 +117,11 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1
         const lift = Math.max(0, (hi[1] - b.min[1]) / sunDir[1]);
         const swept = { min: flat.min.map((m, k) => Math.min(m, m + sunDir[k] * lift)), max: flat.max.map((m, k) => Math.max(m, m + sunDir[k] * lift)) };
         const blockers = sunDir[1] > 0 ? overlapping(solid, swept) : solid;
+        // Per row of vertices along u, only the boxes within reach of that row: the floor
+        // alone would otherwise test every box from each of its ~6k vertices.
+        const du = sunDir[1] > 0 ? sunDir[u] * lift : 0;
+        const nearRow = us.map((x) => near.filter((c) => c.min[u] - radius <= x && x <= c.max[u] + radius));
+        const blockRow = us.map((x) => (sunDir[1] > 0 ? blockers.filter((c) => c.min[u] <= x + Math.max(0, du) && x + Math.min(0, du) <= c.max[u]) : blockers));
         const crease = (t, side) => {
           const o = t === u ? v : u;
           const p = [];
@@ -152,10 +157,10 @@ export function meshMap(mapBoxes, { cell, rays, radius, strength, sunDir = [0, 1
             if (b.tile) out.uv.push((((su > 0 ? p[u] - b.min[u] : b.max[u] - p[u]) / sizeU) * tilesU), (((sv > 0 ? p[v] - b.min[v] : b.max[v] - p[v]) / sizeV) * tilesV));
             else out.uv.push(su * p[u], a === 1 && s > 0 && b.vTop !== undefined ? b.vTop : sv * p[v]);
             out.face.push(p[u] - b.min[u] + ku, p[v] - b.min[v] + kv, width, height);
-            const ao = outer ? 1 : occlusion(p, a, s, near);
+            const ao = outer ? 1 : occlusion(p, a, s, nearRow[i]);
             out.ao.push(ao);
             out.sand.push(ground && ao < 0.8 ? 0.55 * Math.min(1, (0.8 - ao) / 0.4) : 0);
-            out.sun.push(outer ? 1 : sunlit(p, a, s, blockers));
+            out.sun.push(outer ? 1 : sunlit(p, a, s, blockRow[i]));
           }
           return id;
         };
