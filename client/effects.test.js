@@ -236,7 +236,8 @@ test('a death is at most 120 voxels over the whole body; a headshot sends the he
   const ys = [...Array(cubes.count).keys()].map((i) => matrix(cubes, i)[13]);
   assert.ok(cubes.count <= 120 && cubes.count >= 100, `${cubes.count} voxels`);
   assert.ok(ys.filter((y) => y < 0.8).length >= 20, 'the legs break up too');
-  assert.equal(glows.geometry.instanceCount, 1); // the white flash
+  assert.equal(glows.geometry.instanceCount, 0); // nothing additive
+  assert.equal(streaks.geometry.instanceCount, 12 + 1); // 12 puffs and the white flash
   run(4);
   fx.deathBurst(body, '#4363d8', [0, 0, -1], true);
   frame();

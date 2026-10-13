@@ -33,7 +33,7 @@ const LOOK = {
   },
   wood: { chips: 4, size: [0.015, 0.015, 0.06], speed: [2, 3], life: [0.8, 0.8], color: '#c6a77a', decal: ['#3a2a1a', '#c6a77a'] },
   steel: { sparks: 6, px: 3, speed: [6, 10], life: 0.2, color: '#ff8a3d', decal: ['#2a2a2a', '#b0b0b0'] },
-  spark: { core: '#fff1c9', edge: '#3a2a20' }, // a hot core, the rim colour, a dark edge
+  spark: { core: '#fff1c9', edge: '#3a2a20', stretch: 0.035, maxPx: 48 }, // a hot core, the rim colour, a dark edge; streaked over `stretch` s of flight, at most maxPx long
   shade: [0.36, 0.4, 0.48], // unlit puffs in the sun's shadow take this (linear) tint of skylight
   decal: { size: { rifle: 0.07, pistol: 0.06, pellet: 0.045, bolt: 0.08 }, core: 0.42, halo: 0.85, lift: 0.004, minFit: 0.6 },
   player: { cubes: 4, headCubes: 7, size: [0.04, 0.07], speed: [1.5, 3], life: 0.5, white: '#ffffff', unknown: '#9a9fa8' },
@@ -132,13 +132,20 @@ function toColor(c) {
 // [typedArray, itemSize] pairs.
 function moveItem(fields, to, from) {
   if (to === from) return;
-  for (const [a, k] of fields) a.copyWithin(to * k, from * k, from * k + k);
+  for (let f = 0; f < fields.length; f++) {
+    const a = fields[f][0];
+    const k = fields[f][1];
+    a.copyWithin(to * k, from * k, from * k + k);
+  }
 }
 
 // Upload only the first n items of an attribute.
+// One range object per attribute, reused: three clears the list after each upload.
 function upload(attr, n) {
+  const range = (attr.fxRange ??= { start: 0, count: 0 });
+  range.count = Math.max(1, n) * attr.itemSize;
   attr.clearUpdateRanges();
-  attr.addUpdateRange(0, Math.max(1, n) * attr.itemSize);
+  attr.updateRanges.push(range);
   attr.needsUpdate = true;
 }
 
@@ -330,15 +337,18 @@ function updateCubes(dt) {
 // ---------------------------------------------------------------------------
 // Sparks and dust: points sized in metres (or pixels at 1080p, when
 // negative). Style 0 is a soft dust disc; 1 a spark with a hot core, the
-// rim colour and a dark edge; 2 a hexagon with a dark edge.
+// rim colour and a dark edge, streaked back along its velocity on screen
+// (the sprite grows to hold the streak); 2 a hexagon with a dark edge.
 const POINTS_VERTEX = /* glsl */ `
 attribute float aSize;
 attribute float aStyle;
 attribute vec4 aColor;
+attribute vec3 aVel;
 uniform float uHalfHeight;
 uniform vec2 uNearFade;
 varying vec4 vColor;
 varying float vStyle;
+varying vec4 vStreak; // unit screen direction tail to head, length and width in px
 void main() {
   vColor = aColor;
   vStyle = aStyle;
@@ -346,7 +356,20 @@ void main() {
   gl_Position = projectionMatrix * mvPosition;
   float px = aSize > 0.0 ? aSize * projectionMatrix[1][1] * uHalfHeight / max(-mvPosition.z, 0.01) : -aSize * uHalfHeight / 540.0;
   vColor.a *= min(1.0, px * px / 2.25) * smoothstep(uNearFade.x, uNearFade.y, length(mvPosition.xyz)); // a tiny point fades rather than shimmers
-  gl_PointSize = aSize != 0.0 ? max(px, 1.5) : 0.0;
+  float size = aSize != 0.0 ? max(px, 1.5) : 0.0;
+  vStreak = vec4(1.0, 0.0, 0.0, size);
+  vec4 tail = projectionMatrix * (modelViewMatrix * vec4(position - aVel * ${LOOK.spark.stretch.toFixed(3)}, 1.0));
+  if (aStyle > 0.5 && aStyle < 1.5 && size > 0.0 && tail.w > 0.01) {
+    vec2 halfPx = vec2(uHalfHeight * projectionMatrix[1][1] / projectionMatrix[0][0], uHalfHeight);
+    vec2 d = (gl_Position.xy / gl_Position.w - tail.xy / tail.w) * halfPx;
+    float l = min(length(d), ${LOOK.spark.maxPx.toFixed(1)} * uHalfHeight / 540.0);
+    if (l > 0.5) {
+      vStreak.xyz = vec3(normalize(d), l);
+      gl_Position.xy -= vStreak.xy * (0.5 * l) / halfPx * gl_Position.w; // the sprite's centre: halfway down the streak
+      size += l;
+    }
+  }
+  gl_PointSize = size;
 }`;
 const POINTS_FRAGMENT = /* glsl */ `
 uniform vec3 uCore;
@@ -354,6 +377,7 @@ uniform vec3 uEdge;
 uniform vec3 uHexEdge;
 varying vec4 vColor;
 varying float vStyle;
+varying vec4 vStreak;
 void main() {
   vec2 c = gl_PointCoord * 2.0 - 1.0;
   float r = length(c);
@@ -363,7 +387,12 @@ void main() {
     a *= max(0.0, 1.0 - r * r);
     a *= a;
   } else if (vStyle < 1.5) {
+    vec2 q = (gl_PointCoord - 0.5) * (vStreak.z + vStreak.w) * vec2(1.0, -1.0); // px from the sprite's centre, y up
+    float h = 0.5 * vStreak.z;
+    float s = clamp(dot(q, vStreak.xy), -h, h);
+    r = length(q - vStreak.xy * s) / (0.5 * vStreak.w); // across the streak: 0 on its line, 1 at its edge
     if (r > 1.0) discard;
+    a *= vStreak.z > 0.0 ? mix(0.15, 1.0, (s + h) / vStreak.z) : 1.0; // fading toward the tail
     col = mix(uCore, col, smoothstep(0.2, 0.55, r));
     col = mix(col, uEdge, smoothstep(0.62, 0.9, r));
   } else {
@@ -391,10 +420,11 @@ const pointsMaterial = new THREE.ShaderMaterial({
   toneMapped: false,
 });
 
+const POINT_ATTRS = ['position', 'aColor', 'aSize', 'aStyle', 'aVel'];
 function makePoints(name, cfg, renderOrder) {
   const size = POOLS[name];
   const geometry = new THREE.BufferGeometry();
-  for (const [attr, k] of [['position', 3], ['aColor', 4], ['aSize', 1], ['aStyle', 1]]) {
+  for (const [attr, k] of [[POINT_ATTRS[0], 3], [POINT_ATTRS[1], 4], [POINT_ATTRS[2], 1], [POINT_ATTRS[3], 1], [POINT_ATTRS[4], 3]]) {
     geometry.setAttribute(attr, new THREE.BufferAttribute(new Float32Array(size * k), k).setUsage(THREE.DynamicDrawUsage));
   }
   geometry.setDrawRange(0, 0);
@@ -406,7 +436,7 @@ function makePoints(name, cfg, renderOrder) {
   const pool = {
     name, cfg, points,
     pos: at.position.array, color: at.aColor.array, size: at.aSize.array, style: at.aStyle.array,
-    vel: new Float32Array(size * 3),
+    vel: at.aVel.array, // drawn too: a spark streaks along it
     age: new Float32Array(size),
     life: new Float32Array(size),
     size0: new Float32Array(size),
@@ -441,6 +471,7 @@ function spawnPoint(pool, p, v, color, alpha, size0, size1, life, style) {
   pool.style[i] = style;
   pool.age[i] = -1; // not drawn yet
   pool.life[i] = life;
+  return i;
 }
 
 function updatePoints(pool, dt) {
@@ -467,7 +498,7 @@ function updatePoints(pool, dt) {
   const { geometry } = pool.points;
   geometry.setDrawRange(0, pool.n);
   pool.points.visible = pool.n > 0;
-  if (pool.n) for (const name of ['position', 'aColor', 'aSize', 'aStyle']) upload(geometry.attributes[name], pool.n);
+  if (pool.n) for (let k = 0; k < POINT_ATTRS.length; k++) upload(geometry.attributes[POINT_ATTRS[k]], pool.n);
 }
 
 // ---------------------------------------------------------------------------
@@ -583,7 +614,7 @@ void main() {
     float dist = length(p - cameraPosition);
     float w = aA.w + aB.w * dist;
     float minW = uMinPixels * max(-(viewMatrix * vec4(p, 1.0)).z, 0.01) / (projectionMatrix[1][1] * uHalfHeight);
-    vColor.a *= min(1.0, w / minW) * smoothstep(uNearFade.x, uNearFade.y, dist); // thinner than a pixel and a half: wider, fainter, never broken up
+    vColor.a *= sqrt(min(1.0, w / minW)) * smoothstep(uNearFade.x, uNearFade.y, dist); // thinner than uMinPixels: wider, a little fainter, never broken up
     w = max(w, minW) + 2.0 * aD.y;
     p += side * position.y * w * 0.5;
     vMetres = vec2(position.x * length(b - a), w);
@@ -660,6 +691,8 @@ void main() {
   gl_FragColor = o;
   #include <colorspace_fragment>
 }`;
+const STREAK_ATTRS = ['aA', 'aB', 'aC', 'aD'];
+const GLOW_ATTRS = ['aA', 'aC', 'aD'];
 const quadGeometry = (count) => {
   const g = new THREE.InstancedBufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute([0, -1, 0, 1, -1, 0, 1, 1, 0, 0, 1, 0], 3));
@@ -673,7 +706,7 @@ const streaks = new THREE.Mesh(streakGeometry, new THREE.ShaderMaterial({
   uniforms: {
     uNearFade: nearFade,
     uHalfHeight: halfHeight,
-    uMinPixels: { value: 1.5 },
+    uMinPixels: { value: 2.5 },
     uTracerCore: { value: new THREE.Color(LOOK.tracer.core) },
     uTracerFringe: { value: new THREE.Color(LOOK.tracer.fringe) },
     uBeamCore: { value: new THREE.Color(LOOK.bolt.core) },
@@ -733,9 +766,10 @@ function spawnStreak(kind, p, d, len, a, b, color, alpha, life, seed = 0) {
   streak.seed[i] = seed;
 }
 
-// A spark: a point flying at `v` (m/s, a Vector3), `px` across at 1080p.
+// A spark: a point flying at `v` (m/s, a Vector3), `px` wide at 1080p, streaked along its flight.
 function spawnSpark(p, v, color, life, px) {
-  spawnPoint(sparks, p, v, color, 1, -px, -px, life, 1);
+  const i = spawnPoint(sparks, p, v, color, 1, -px, -px, life, 1) * 3;
+  for (let a = 0; a < 3; a++) sparks.pos[i + a] += sparks.vel[i + a] * LOOK.spark.stretch; // born one streak out, so its tail starts at `p`
 }
 
 // `color` as an unlit puff at `p` shows it: dimmed to skylight when a map box
@@ -839,7 +873,7 @@ function updateStreaks(dt) {
   if (streak.n === 0) streak.next = 0;
   streakGeometry.instanceCount = streak.n;
   streaks.visible = streak.n > 0;
-  if (streak.n) for (const name of ['aA', 'aB', 'aC', 'aD']) upload(at[name], streak.n);
+  if (streak.n) for (let k = 0; k < STREAK_ATTRS.length; k++) upload(at[STREAK_ATTRS[k]], streak.n);
 }
 
 // ---------------------------------------------------------------------------
@@ -958,7 +992,7 @@ function updateGlows(dt) {
   if (glow.n === 0) glow.next = 0;
   glowGeometry.instanceCount = glow.n;
   glows.visible = glow.n > 0;
-  if (glow.n) for (const name of ['aA', 'aC', 'aD']) upload(at[name], glow.n);
+  if (glow.n) for (let k = 0; k < GLOW_ATTRS.length; k++) upload(at[GLOW_ATTRS[k]], glow.n);
 }
 
 effectsGroup.add(cubes, decals, dust.points, streaks, sparks.points, glows);
@@ -1239,7 +1273,7 @@ function barge(x, y, z, radius, hue) {
 function shock(x, y, z, radius, hue) {
   const L = LOOK.shock;
   spawnStreak(BEAM, _p.set(x, y, z), _v.set(0, 1, 0), L.beam[0], L.beam[1], 0, hue, 1, L.life, -1);
-  spawnStreak(RING, _p.set(x, y + 0.04, z), _v.set(0, 1, 0), radius, 0.35, L.life * 0.4, hue, 1, L.life * 1.4);
+  spawnStreak(RING, _p.set(x, y + 0.04, z), _v.set(0, 1, 0), radius, 0.35, L.life * 0.4, hue, 1, L.life);
   spawnGlow(_p.set(x, y + 0.4, z), L.glow * 0.5, L.glow, hue, 1, L.life, false, true);
   spawnGlow(_p.set(x, y + 1.6, z), 0.6, 1.2, WHITE, 0.8, L.life * 0.6, true, false);
   for (let k = 0; k < L.sparks; k++) {
@@ -1270,7 +1304,7 @@ function fizzle(pos) {
   for (let k = 0; k < L.voxels; k++) {
     randomUnit(_v).multiplyScalar(2);
     _v.y += 1.5;
-    spawnCube(_p.fromArray(pos), _v, _s.setScalar(L.voxelSize), c, L.life * 1.5, 10, true);
+    spawnCube(_p.fromArray(pos), _v, _s.setScalar(L.voxelSize), c, L.life, 10, true);
   }
 }
 
@@ -1349,7 +1383,7 @@ export function deathBurst(parts, color, dir, head = false) {
     _p.set(cx + _v.x, cy + _v.y, cz + _v.z);
     spawnStreak(PUFF, _p, _v.multiplyScalar(2), 0, L.puffSize[0], L.puffSize[1], lit(toColor(L.puffColor), _p), L.puffAlpha, L.puffLife * (0.7 + Math.random() * 0.6), Math.random() * TAU);
   }
-  spawnGlow(_p.set(cx, cy, cz), L.flash, L.flash, WHITE, 1, L.flashLife, false, false);
+  spawnStreak(PUFF, _p.set(cx, cy, cz), _v.set(0, 0, 0), 0, L.flash * 0.8, L.flash, WHITE, 1, L.flashLife); // normal-blended: additive is for muzzles and blasts
 }
 const voxelCounts = (min, max) => [0, 1, 2].map((a) => Math.max(1, Math.round((max[a] - min[a]) / LOOK.death.voxel)));
 // Kept for main.js: a death with no headshot.
