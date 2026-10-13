@@ -36,6 +36,7 @@ export const LOOK = {
   bevel: 0.004, // m: the band along every box edge that catches the light,
   bevelLift: 2, // where the albedo becomes albedo × (1 + lift) + add,
   bevelAdd: 0.06, // and the highlight doubles;
+  bevelCatch: 0.3, // share of that kept on downward faces; upward faces catch the sky in full
   groove: [0.008, 0.0095, 0.55, 0.045], // and a panel line this far in (from, to), darkened to this share, on faces wider than the last
   // The sky light's colours reflected off each face (ground below, sky above),
   // × shine and a Schlick fresnel: metal reads as metal, and every part
@@ -336,6 +337,9 @@ material.onBeforeCompile = (s) => {
       diffuseColor.rgb *= 1.0 + ${f(2 * LOOK.grain)} * ( fract( sin( dot( floor( vGrain ), vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 ) - 0.5 );
       float vmEdge = min( min( vEdge.x, vEdge.z - vEdge.x ), min( vEdge.y, vEdge.w - vEdge.y ) );
       float vmBevel = 1.0 - smoothstep( ${f(LOOK.bevel * 0.5)}, ${f(LOOK.bevel)}, vmEdge );
+      #if NUM_HEMI_LIGHTS > 0
+        vmBevel *= mix( ${f(LOOK.bevelCatch)}, 1.0, dot( normalize( vNormal ), hemisphereLights[ 0 ].direction ) * 0.5 + 0.5 );
+      #endif
       diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * ${f(1 + LOOK.bevelLift)} + ${f(LOOK.bevelAdd)}, vmBevel );
       if ( min( vEdge.z, vEdge.w ) > ${f(LOOK.groove[3])} && vmEdge > ${f(LOOK.groove[0])} && vmEdge < ${f(LOOK.groove[1])} ) diffuseColor.rgb *= ${f(LOOK.groove[2])};`)
     .replace('#include <specularmap_fragment>', 'float specularStrength = vMat.x * ( 1.0 + vmBevel );')
