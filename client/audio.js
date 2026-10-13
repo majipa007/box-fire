@@ -231,14 +231,14 @@ export const POWER_SOUNDS = {
     pop: { src: 'noise', mode: 'lp', f: 900, a: 0.001, dur: 0.04, g: 0.7 },
     rush: { src: 'noise', mode: 'bp', f: 900, f1: 2200, sweep: 0.4, q: 1.5, a: 0.03, dur: 0.4 },
   } },
-  'shunt.hiss': { level: -20, loop: 1, layers: { // flight, looped where the rocket is
+  'shunt.hiss': { level: -14, loop: 1, layers: { // flight, looped where the rocket is: well over the wind at 8 m
     hiss: { src: 'noise', mode: 'bp', f: 2000, q: 1.5, am: [9, 0.3] },
     roar: { src: 'noise', mode: 'lp', f: 400, g: 0.5 },
   } },
   'shunt.lock': { level: -12, dry: true, vary: 0, layers: { // a 1.6 kHz beep, 30 ms
     beep: { src: 'sine', f: 1600, a: 0.001, dur: 0.03, partials: [[1, 1, 1], [3, 0.15, 1]] },
   } },
-  'shunt.boom': { level: -4, drive: 2.5, send: 1.6, slap: true, layers: {
+  'shunt.boom': { level: -1, drive: 2.5, send: 1.6, slap: true, layers: {
     crack: { src: 'noise', mode: 'hp', f: 2000, d: 0.006, g: 0.8 },
     boom: { src: 'sine', f: 80, f1: 28, glide: 0.12, a: 0.003, d: 0.3 },
     body: { src: 'noise', mode: 'lp', f: 1500, f1: 120, glide: 0.3, a: 0.005, d: 0.35, g: 0.9 },
@@ -744,7 +744,6 @@ function toBuffer(c, channels) {
 
 function init(c) {
   const t0 = performance.now();
-  const fs = c.sampleRate;
   // speakers ← clip ← master ← compressor ← muffle ← sfx (world) and the returns; confirm skips the muffle.
   out = c.createGain();
   out.gain.value = MIX.master * volume;
@@ -769,7 +768,6 @@ function init(c) {
   confirm.gain.value = MIX.confirm;
   confirm.connect(comp);
   const verb = c.createConvolver();
-  verb.buffer = toBuffer(c, renderIR(fs, REVERB, shotRng(SEED, hash('reverb'), 0)));
   const ret = c.createGain();
   ret.gain.value = MIX.reverb;
   send = c.createGain();
@@ -783,7 +781,7 @@ function init(c) {
   slap.connect(slapLp).connect(slapRet).connect(muffle);
   renderMs = performance.now() - t0;
   ctx = c;
-  ready = renderBanks(c);
+  ready = renderBanks(c, verb);
   setInterval(safe(watchLoops), 100);
   document.addEventListener('click', (e) => { if (e.target instanceof Element && e.target.closest('button')) ui('click'); });
   const q = new URLSearchParams(location.search);
@@ -795,9 +793,13 @@ function init(c) {
 // the longest single step is one partial of a 2 s sound. A sound plays once
 // its bank is in.
 const SLICE_MS = 8;
-async function renderBanks(c) {
+async function renderBanks(c, verb) {
   try {
-    let slice = Infinity; // yield first: start() runs inside a click
+    await new Promise((resolve) => setTimeout(resolve)); // start() runs inside a click
+    const t0 = performance.now();
+    verb.buffer = toBuffer(c, renderIR(c.sampleRate, REVERB, shotRng(SEED, hash('reverb'), 0))); // silent until then
+    renderMs += performance.now() - t0;
+    let slice = Infinity;
     for (const [name, r] of Object.entries(SOUNDS)) {
       const bufs = [];
       const gains = [];
