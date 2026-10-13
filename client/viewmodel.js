@@ -30,9 +30,13 @@ export const LOOK = {
     metal: '#2e3136', tan: '#b9a27a', dark: '#1b1d22', kit: '#24272d', glove: '#3a3d44',
     shell: '#b33a2e', brass: '#c9a24e', slot: '#ffffff', // slot boxes take setArmband's colour
   },
-  // Surface. Blinn-Phong strength of the sun's highlight per colour key.
-  shine: { metal: 0.6, dark: 0.12, tan: 0.12, kit: 0.08, glove: 0.25, shell: 0.3, brass: 0.9, slot: 0.2 },
-  shininess: 90, // tight, so flat faces glint at an angle rather than glaze over
+  // Surface. Blinn-Phong strength and shininess of the sun's highlight per
+  // colour key: cloth broad and faint, so a flat face shades across rather
+  // than flashing all at once as the sun turns behind us; metal tighter and
+  // stronger. Edges glint twice as bright on keys from edgeGlint gloss up.
+  shine: { metal: 0.6, dark: 0.12, tan: 0.1, kit: 0.015, glove: 0.05, shell: 0.3, brass: 0.9, slot: 0.03 },
+  gloss: { metal: 36, dark: 24, tan: 14, kit: 10, glove: 12, shell: 24, brass: 40, slot: 10 },
+  edgeGlint: 24,
   bevel: 0.004, // m: the band along every box edge that catches the light,
   bevelLift: 2, // where the albedo becomes albedo × (1 + lift) + add,
   bevelAdd: 0.06, // and the highlight doubles;
@@ -45,7 +49,8 @@ export const LOOK = {
   envFloor: 0.3, // share of it facing us; the rest comes in at grazing angles
   rim: 0.06, // fresnel rim on every surface, shine or not,
   sheen: { kit: 0.35, glove: 0.3 }, // and stronger on cloth: dark sleeves and gloves read by their edges
-  grain: 0.08, // ± share of the albedo per grain voxel: pixel-art texture with no texture
+  grain: 0.08, // ± share of the albedo per grain voxel: pixel-art texture with no texture,
+  grainAbs: 0.005, // plus ± this much linear albedo, so near-black keys show it too
   grainSize: 0.004, // m
   bottomShade: 0.3, // each box's lower vertices darken by this share: cheap baked AO
   lift: 0.25, // share of the albedo added unlit, so dark kit keeps its shape in shade
@@ -314,27 +319,29 @@ viewCamera.add(pose);
 viewScene.add(viewCamera);
 
 // One material for every gun: vertex colours and Blinn-Phong, plus bevelled
-// edges, a grain, an unlit lift, the slot colour and the barrel's glow,
-// patched into three's shader.
+// edges, a grain, an unlit lift, the slot colour, the barrel's glow and a
+// shininess per colour key, patched into three's shader.
 const f = (x) => x.toFixed(5);
 const vmUniforms = {
   vmSlot: { value: new THREE.Color('#ffffff') }, vmPulse: { value: new THREE.Color(0, 0, 0) },
 };
-const material = new THREE.MeshPhongMaterial({ vertexColors: true, specular: '#ffffff', shininess: LOOK.shininess });
+const material = new THREE.MeshPhongMaterial({ vertexColors: true, specular: '#ffffff' });
 material.onBeforeCompile = (s) => {
   Object.assign(s.uniforms, vmUniforms);
-  const decl = 'varying vec4 vEdge;\nvarying vec4 vMat;\nvarying vec3 vGrain;\n';
+  const decl = 'varying vec4 vEdge;\nvarying vec4 vMat;\nvarying vec3 vGrain;\nvarying float vGloss;\n';
   s.vertexShader = s.vertexShader
-    .replace('#include <common>', `#include <common>\nattribute vec4 edge;\nattribute vec4 mat;\n${decl}`)
+    .replace('#include <common>', `#include <common>\nattribute vec4 edge;\nattribute vec4 mat;\nattribute float gloss;\n${decl}`)
     .replace('#include <color_vertex>', `#include <color_vertex>
       vEdge = edge;
       vMat = mat;
+      vGloss = gloss;
       vGrain = ( position - normal * 0.001 ) / ${f(LOOK.grainSize)};`);
   s.fragmentShader = s.fragmentShader
     .replace('#include <common>', `#include <common>\nuniform vec3 vmSlot;\nuniform vec3 vmPulse;\n${decl}`)
     .replace('#include <color_fragment>', `#include <color_fragment>
       diffuseColor.rgb *= mix( vec3( 1.0 ), vmSlot, vMat.z );
-      diffuseColor.rgb *= 1.0 + ${f(2 * LOOK.grain)} * ( fract( sin( dot( floor( vGrain ), vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 ) - 0.5 );
+      float vmN = fract( sin( dot( floor( vGrain ), vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 ) - 0.5;
+      diffuseColor.rgb = max( vec3( 0.0 ), diffuseColor.rgb * ( 1.0 + ${f(2 * LOOK.grain)} * vmN ) + ${f(2 * LOOK.grainAbs)} * vmN );
       float vmEdge = min( min( vEdge.x, vEdge.z - vEdge.x ), min( vEdge.y, vEdge.w - vEdge.y ) );
       float vmBevel = 1.0 - smoothstep( ${f(LOOK.bevel * 0.5)}, ${f(LOOK.bevel)}, vmEdge );
       #if NUM_HEMI_LIGHTS > 0
@@ -342,7 +349,8 @@ material.onBeforeCompile = (s) => {
       #endif
       diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * ${f(1 + LOOK.bevelLift)} + ${f(LOOK.bevelAdd)}, vmBevel );
       if ( min( vEdge.z, vEdge.w ) > ${f(LOOK.groove[3])} && vmEdge > ${f(LOOK.groove[0])} && vmEdge < ${f(LOOK.groove[1])} ) diffuseColor.rgb *= ${f(LOOK.groove[2])};`)
-    .replace('#include <specularmap_fragment>', 'float specularStrength = vMat.x * ( 1.0 + vmBevel );')
+    .replace('#include <specularmap_fragment>', `float specularStrength = vMat.x * ( 1.0 + vmBevel * step( ${f(LOOK.edgeGlint)}, vGloss ) );`)
+    .replace('#include <lights_phong_fragment>', '#include <lights_phong_fragment>\nmaterial.specularShininess = vGloss;')
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       totalEmissiveRadiance += diffuseColor.rgb * ${f(LOOK.lift)} + vmPulse * vMat.y;
       #if NUM_HEMI_LIGHTS > 0
@@ -385,6 +393,7 @@ function boxGeometry(b) {
   g.setAttribute('color', new THREE.BufferAttribute(color, 3));
   g.setAttribute('edge', new THREE.BufferAttribute(edge, 4));
   g.setAttribute('mat', new THREE.BufferAttribute(mat, 4));
+  g.setAttribute('gloss', new THREE.BufferAttribute(new Float32Array(n).fill(LOOK.gloss[b.color]), 1));
   g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));
   g.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeight, 4));
   if (dir) {
