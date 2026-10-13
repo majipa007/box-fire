@@ -129,8 +129,12 @@ export function blastShake(m, myId, me) {
   if (d < LOOK.shakeRange) addTrauma((1 - d / LOOK.shakeRange) * LOOK.shakeTrauma);
 }
 
-// The "View bob" setting. Footfalls (view.step) still come when it is off.
-export const setBob = (on) => { bobOn = on; };
+// The "View bob" setting, on unless false. Footfalls (view.step) still come when it is off.
+export const setBob = (on) => { bobOn = on !== false; };
+
+// updateFeel's trigger: fire is held and a shot can still come. An empty mag,
+// a reload or a weapon switch ends the spray, so recovery starts on time.
+export const spraying = (a) => a.trigger && a.mags[a.slot] > 0 && !(a.reload > 0) && !(a.switching > 0);
 
 // A new life: no kick owed, no offsets, not mid-air.
 export function resetFeel() {
@@ -146,7 +150,7 @@ export function resetFeel() {
 
 // Once per frame, before the camera is placed. look is the live aim
 // ({ yaw, pitch }), which this kicks and recovers; me is our mover, or null
-// when we are not playing; trigger is whether the last step held fire.
+// when we are not playing; trigger is spraying(arsenal).
 // Returns view.
 export function updateFeel(frameMs, now, look, me, weapon, trigger) {
   const dt = Math.min(frameMs, MAX_DT_MS);
@@ -156,11 +160,18 @@ export function updateFeel(frameMs, now, look, me, weapon, trigger) {
   // it pulled against the kick or not: first against the recovery under way,
   // then against what is owed. Shots land on 60 Hz steps with timer jitter,
   // so a held automatic is a spray however late its next shot is.
+  // Paying off part of the recovery scales its rate with it, so the spring
+  // stays on a path that ends at zero instead of swinging past where the
+  // player put the aim.
   let pull = look.pitch - seenPitch;
-  pull += backPitch - (backPitch = payOff(backPitch, pull));
+  let left = payOff(backPitch, pull);
+  backVPitch = backPitch ? (backVPitch * left) / backPitch : 0;
+  pull += backPitch - (backPitch = left);
   owedPitch = payOff(owedPitch, pull);
   pull = look.yaw - seenYaw;
-  pull += backYaw - (backYaw = payOff(backYaw, pull));
+  left = payOff(backYaw, pull);
+  backVYaw = backYaw ? (backVYaw * left) / backYaw : 0;
+  pull += backYaw - (backYaw = left);
   owedYaw = payOff(owedYaw, pull);
   let backP = 0, backY = 0; // recovered this frame
   if (!(trigger && WEAPONS[weapon].auto) && now - lastShotAt > LOOK.recoverDelay) {

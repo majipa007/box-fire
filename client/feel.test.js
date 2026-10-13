@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  addRecoil, correct, resetFeel, updateFeel, view, crosshair, spreadPixels, blastShake, addTrauma, setBob, LOOK,
+  addRecoil, correct, resetFeel, updateFeel, view, crosshair, spreadPixels, blastShake, addTrauma, setBob, spraying, LOOK,
 } from './feel.js';
 import { self, reconcile } from './net.js';
 import { WEAPONS, SNAP_DISTANCE, RUN_SPEED, WALK_SPEED, KICK_CLIMB_SHOTS, GRAVITY, JUMP_HEIGHT } from '../shared/constants.js';
@@ -124,31 +124,77 @@ test('recovery only returns 70% of the kick the player has not already pulled do
   assert.ok(look.pitch >= -1e-9 && look.pitch < kick * 0.3, `pulled during recovery ended at ${look.pitch / kick} of the kick`);
 });
 
-test('a 10-round rifle spray with no mouse input settles at 30% ± 3% of its kick 500 ms after the last shot', () => {
-  const look = fresh();
-  // Real cadence: shots land on 60 Hz steps (gaps of 6 or 7 steps), late by
-  // a few ms of timer jitter; frames run on their own clock in between.
+// The pitch kick of an n-round rifle spray (rad).
+function rifleKick(n) {
+  const [base, climb] = WEAPONS.rifle.kick;
+  let total = 0;
+  for (let i = 1; i <= n; i++) total += (base + climb * Math.min(i, KICK_CLIMB_SHOTS)) * DEG;
+  return total;
+}
+
+// A 10-round rifle spray at the real cadence: shots land on 60 Hz steps
+// (gaps of 6 or 7 steps), late by a few ms of timer jitter; frames run on
+// their own clock in between. Fire is released on the step after the last
+// shot. Returns the time of the last shot; now is the last frame.
+function spray10(look) {
   const arsenal = createArsenal('rifle');
   const shots = [];
   for (let i = 0; shots.length < 10; i++) {
     if (stepWeapon(arsenal, { fire: true, slot: 0, keys: 0 })) shots.push(now + i * (1000 / 60) + ((i * 37) % 7));
   }
-  const [base, climb] = WEAPONS.rifle.kick;
-  let total = 0;
-  for (let n = 1; n <= 10; n++) total += (base + climb * Math.min(n, KICK_CLIMB_SHOTS)) * DEG;
   const lastShot = shots.at(-1);
   let last = look.pitch;
-  let t = now + 5;
-  for (; shots.length; t += 1000 / 60) {
+  for (let t = now + 5; shots.length; t += 1000 / 60) {
     while (shots.length && shots[0] <= t) addRecoil('rifle', shots.shift());
     updateFeel(1000 / 60, (now = t), look, null, 'rifle', true); // trigger held throughout
     assert.ok(look.pitch >= last, `the aim dropped mid-spray at ${Math.round(now - lastShot)} ms`);
     last = look.pitch;
   }
-  // Released on the next step; frames until 500 ms after the last shot.
-  for (; t <= lastShot + 500; t += 1000 / 60) updateFeel(1000 / 60, (now = t), look, null, 'rifle', false);
+  return lastShot;
+}
+
+test('a 10-round rifle spray with no mouse input settles at 30% ± 3% of its kick 500 ms after the last shot', () => {
+  const look = fresh();
+  const lastShot = spray10(look);
+  while (now + 1000 / 60 <= lastShot + 500) updateFeel(1000 / 60, (now += 1000 / 60), look, null, 'rifle', false); // released
   updateFeel(lastShot + 500 - now, (now = lastShot + 500), look, null, 'rifle', false);
-  near(look.pitch / total, 0.3, 0.03, 'share of the kick kept');
+  near(look.pitch / rifleKick(10), 0.3, 0.03, 'share of the kick kept');
+});
+
+test('a pull down mid-recovery never makes the spring swing the aim past where it ends', () => {
+  // Past all the recovery left: the aim stays where the player put it.
+  let look = fresh();
+  let lastShot = spray10(look);
+  frames(look, null, lastShot + 120 + 200 - now, 1000 / 60); // 200 ms into the recovery
+  look.pitch -= 4 * DEG;
+  const put = look.pitch;
+  frames(look, null, 1500, 1000 / 60, 'rifle', () => assert.ok(look.pitch >= put - 1e-9, `sagged to ${(look.pitch - put) / DEG}° below`));
+  near(look.pitch, put, 1e-9, 'over-pulled: stays put');
+  // Less than the recovery left: the rest comes back smoothly and stops at 30%.
+  look = fresh();
+  lastShot = spray10(look);
+  frames(look, null, lastShot + 120 + 60 - now, 1000 / 60);
+  const end = rifleKick(10) * 0.3;
+  look.pitch -= (look.pitch - end) / 2;
+  let last = look.pitch;
+  frames(look, null, 1500, 1000 / 60, 'rifle', () => {
+    assert.ok(look.pitch <= last + 1e-12 && look.pitch >= end - 1e-6, `swung to ${look.pitch / DEG}° (ends at ${end / DEG}°)`);
+    last = look.pitch;
+  });
+  near(look.pitch, end, 1e-4, 'partly pulled: ends where it would have');
+});
+
+test('holding fire through an empty mag and its reload still recovers 120 ms after the last shot', () => {
+  const look = fresh();
+  const arsenal = createArsenal('rifle');
+  let shots = 0, lastShot = -Infinity;
+  for (let t = now + 1000 / 60; t <= lastShot + 500 || shots < WEAPONS.rifle.mag; t += 1000 / 60) {
+    if (stepWeapon(arsenal, { fire: true, slot: 0, keys: 0 })) addRecoil('rifle', (lastShot = t)), shots++;
+    updateFeel(1000 / 60, (now = t), look, null, 'rifle', spraying(arsenal));
+  }
+  assert.equal(shots, WEAPONS.rifle.mag);
+  assert.ok(arsenal.trigger && arsenal.reload > 0, 'still holding fire, mid-reload');
+  near(look.pitch / rifleKick(WEAPONS.rifle.mag), 0.3, 0.03, 'share of the kick kept 500 ms after the last shot');
 });
 
 test('the crosshair shows the true cone at rest, blooms on a shot, and settles back', () => {
