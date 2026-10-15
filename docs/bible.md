@@ -565,7 +565,7 @@ The numbers live in `POWERS` in `shared/constants.js`.
 | **Shock** #ffb300 | Dome | **Target:** the highest-ranked living enemy by `byScore`, skipping the user. **Domes:** 3, centred at target position + target velocity × (1.2, 1.6, 2.0) s, clamped to abs(x) and abs(z) ≤ 19.4, at the target's y when cast. They strike at 1.2, 1.6 and 2.0 s. **Strike:** hits everyone except the owner within 2.5 m horizontally and −1/+2.5 m vertically: 30 damage, once per player per cast; slowed ×0.6 for 2 s; Nitro removed. **No target:** the domes land 15 m ahead along the aim | Change course: 5.5 m/s for 1.2 s covers 6.6 m. A Shield blocks the damage and the slow |
 | **Mine** #ffffff, LED #ff2a1a | Spiked disc | **Placement:** dropped at the feet (rayBox down to the surface below). Arms after 0.8 s. Lives 40 s. At most 2 per owner; dropping a third removes the oldest. **Trigger:** an enemy within 1.2 m horizontally (abs(dy) < 1.5 m) starts a 0.25 s fuse. **Blast:** 2.5 m, 60 → 15, knock 5 m/s with lift 6, × (1 − 0.4·d/r), line of sight from the blast. **Shootable:** a static 0.5 × 0.3 × 0.5 m box with 1 HP; any player's shot detonates it, credited to that shooter | The trigger ring is drawn for everyone within 12 m. Running through at 5.5 m/s carries you 1.375 m past the trigger during the fuse, so reverse to escape. Or shoot it |
 | **Nitro** #3dff8f | Double chevron | 4 s at ×1.4 run speed (7.7 m/s). Jump height unchanged at 1.0 m. Spread unchanged, because `spreadDegrees` caps the speed term at 1. Own FOV +6° | Shock removes it |
-| **Shield** #66fff0 | Hexagon | 60 hp overshield for 8 s, absorbed before HP | Two rifle body hits (80) break it. A 160 rifle headshot still kills from 100 HP + 60 |
+| **Shield** #66fff0 | Hexagon | 60 hp overshield for 8 s, absorbed before HP | Two rifle body hits (60) break it. A 160 rifle headshot still kills from 100 HP + 60 |
 
 ### 4.3 Pads on arena_01
 
@@ -737,13 +737,13 @@ export function knock(s, vx, vz, lift) { // horizontal impulse adds; lift only w
 | Lobby | `players[].pk` (power-up kills) |
 
 ### 4.6 Balance
-- **Gunplay unchanged:** rifle time to kill stays 205 ms (3 body hits). No single use kills from 100 HP. The maximums are Shunt direct 60, Mine centre 60, Bolt 75 (all three hits), Shock 30 and Barge 20.
+- **Gunplay:** rifle time to kill is 300 ms (4 body hits) out to about 29 m, 400 ms (5) beyond; every rifle headshot (160) kills at any range. No single use kills from 100 HP. The maximums are Shunt direct 60, Mine centre 60, Bolt 75 (all three hits), Shock 30 and Barge 20.
 - **Combos:**
-  - Shunt or Mine plus 1 rifle body hit = 100, a kill.
-  - Bolt plus 1 body hit = 115.
-  - Barge plus 2 body hits = 100, and the victim is airborne with doubled spread.
+  - Shunt or Mine plus 1 rifle body hit = 90, no kill; plus 2 = 120.
+  - Bolt plus 1 body hit = 105.
+  - Barge plus 3 body hits = 110 (2 make 80), and the victim is airborne with doubled spread.
 - **Each use costs the gun:** 0.25 s (Bolt 0.55 s), about 2.4 or 5.4 rifle rounds.
-- **Shield:** 160 effective HP. 4 body hits, or 1 headshot (160), kill.
+- **Shield:** 160 effective HP. 6 rifle body hits, or 1 headshot (160), kill.
 - **Kill-share target:** power-up kills ≤ 25%. The server logs `power-up kill share: N%` at match end, and the scoreboard shows PWR.
 - **Tuning order if over target:** respawns × 1.5, then cut Shock, then cut Bolt.
 
@@ -791,7 +791,7 @@ export function knock(s, vx, vz, lift) { // horizontal impulse adds; lift only w
 | Recoil recovery | Kick per shot as today (`WEAPONS.kick`). 120 ms after the last shot, return 70% of the kick the player has not already pulled down, with a 90 ms halflife. Acceptance: a 10-round rifle spray with no mouse input settles at 30% ± 3% of the total kick after 500 ms | feel |
 | Shake | Blasts within 8 m add trauma (1 − d/8) × 0.8, decaying 1.5 per s. Roll 1.5° × trauma² plus translation ±6 cm × trauma², with no pitch or yaw, so the aim ray never moves | feel |
 | Nitro FOV | +6°, eased in over 150 ms and out over 300 ms | feel → `render.setFovKick` |
-| Dynamic crosshair | Gap = 3 + (H/2) × tan(spread)/tan(vfov/2) px, using `spreadDegrees` on the predicted mover and the camera's vertical FOV, eased over 40 ms. At 1080p and 90° hfov: rifle 9.7 px standing, 44.9 running, 87 airborne. A shot adds a +3 px pulse for 80 ms (not spread). The shotgun adds a ring at the gap radius | hud + integrator |
+| Dynamic crosshair | Gap = 3 + (H/2) × tan(spread)/tan(vfov/2) px, using `spreadDegrees` on the predicted mover and the camera's vertical FOV, eased over 40 ms. At 1080p and 90° hfov: rifle 5.5 px standing (about 39 at full spray bloom), 44.9 running, 87 airborne. A shot adds a +3 px pulse for 80 ms (not spread). The shotgun adds a ring at the gap radius | hud + integrator |
 | Jumping | 5-tick coyote time and 6-tick jump buffer (§4.4) | powerups (shared) |
 | Viewmodel springs | §3.2 | viewmodel |
 | Gunshots | 8 ms transient at 4 kHz (band-passed noise; skipped beyond 25 m), over today's body (rifle 2200 Hz for 0.13 s, pistol 3200 Hz for 0.08 s, shotgun 900 Hz for 0.3 s). Sine thump 90 → 45 Hz over 120 ms (shotgun 70 → 35 Hz over 180 ms). Quarry slapback: one shared `DelayNode` at 180 ms, −14 dB, low-passed at 1.5 kHz | audio |

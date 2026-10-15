@@ -104,9 +104,9 @@ Scores are keyed by name for the length of the match: if a tab dies, reopening t
 
 | Weapon | Body dmg | Head mult | Fire rate | Mag | Reload (s) | Spread stand / move (°) | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Pistol | 26 | 3× | 6.75/s semi | 12 | 1.75 | 0.3 / 1.5 | Always carried |
-| Rifle | 40 | 4× (one-tap head) | 9.75/s auto | 25 | 2.5 | 0.4 / 2.5, camera kick climbs over 8 shots | Default primary |
-| Shotgun | 8 × 12 pellets | 2× | 1.1/s pump | 5 | 0.5 per shell | 4.0 cone | Falloff beyond 8 m |
+| Pistol | 26 | 3× | 6.75/s semi | 12 | 1.75 | 0.3 / 1.5 | Always carried. Falloff 25 → 40 m down to 0.75 |
+| Rifle | 30 | 160 flat (one-tap head at any range, every bullet) | 9.75/s auto | 25 | 2.5 | 0.15 / 2.5, plus spray bloom 0.25° per heat up to +2°; camera kick climbs over 8 shots | Default primary. Falloff 20 → 30 m down to 0.8 (24), so 4 body hits to about 29 m, then 5 |
+| Shotgun | 10 × 12 pellets | 2× | 1.1/s pump | 5 | 0.5 per shell | 3.5 cone | Falloff 8 → 18 m down to 0.2. A full body blast (120) kills from 100 HP, not through a Shield |
 
 All weapons are hitscan, so there is no projectile simulation. Infinite reserve ammo, finite magazine. Weapon state (fire cooldown, magazines, reload and switch timers) is predicted on the client and corrected from snapshots exactly like movement, so the muzzle flash, ammo counter and empty click are instant and right.
 
@@ -116,7 +116,8 @@ Handling rules, every number in `constants.js`:
 - Pressing fire on an empty magazine starts a reload.
 - Firing interrupts the shotgun's shell-by-shell reload.
 - The cooldown is a seconds counter that carries its remainder between shots (`cooldown += 1/rps`, never reset to full): 9.75 shots/s is 6.15 ticks at 60 Hz, and rounding to whole ticks would change the fire rate. Whenever the player is not firing it is clamped with `cooldown = max(cooldown, 0)`; otherwise a released trigger banks shots and the next press fires about 10 in a row.
-- Spread blends from the stand value to the move value by horizontal speed ÷ run speed, so stopping before you shoot matters. Airborne it is 2× the move value; crouched, 0.8× the stand value. Spread is random but seeded, so client and server roll the same numbers.
+- Spread blends from the stand value to the move value by horizontal speed ÷ run speed, so stopping before you shoot matters. Airborne it is 2× the move value; crouched, 0.8× the stand value. Spread is random but seeded, so client and server roll the same numbers. A weapon with `bloom` (the rifle) adds bloom × heat: each shot adds 1 heat, heat cools at `cool` per second, is capped so the bloom tops out at `bloomMax`, and clears on a switch. Heat is part of the predicted weapon state, and a shot fires with the heat it had before it fired, so the first shot of a spray has no bloom.
+- Damage is summed per victim per shot and rounded, so HP is always a whole number. A shotgun blast counts as a headshot only when most of its landed pellets hit the head.
 - Recoil is a camera kick you pull down to control: client-side only, with no server code, because the input already carries the resulting pitch.
 
 Hitboxes are two boxes per player: a 0.3 m head cube on a 0.6 × 1.5 × 0.6 m body standing, or a 0.6 × 0.9 × 0.6 m body crouched; the server tests the head first, against rewound positions.

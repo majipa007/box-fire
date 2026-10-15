@@ -55,8 +55,8 @@ export const LOOK = {
   nitroIn: 150,
   nitroOut: 300,
 
-  // Crosshair: the shot cone eased, plus a bloom on every shot. The sim has no
-  // firing inaccuracy, so the bloom is short: at rest the gap is the true cone.
+  // Crosshair: the shot cone eased (the sim's spray bloom included, from the
+  // arsenal's heat), plus a short punch on every shot that fades back to it.
   spreadHalfLife: 25,
   bloomPerKick: 0.5, // degrees of bloom per degree of kick
   bloomHalfLife: 80,
@@ -154,9 +154,10 @@ export function resetFeel() {
 
 // Once per frame, before the camera is placed. look is the live aim
 // ({ yaw, pitch }), which this kicks and recovers; me is our mover, or null
-// when we are not playing; trigger is spraying(arsenal).
+// when we are not playing; trigger is spraying(arsenal); heat is the
+// arsenal's spray heat, which widens the real cone.
 // Returns view.
-export function updateFeel(frameMs, now, look, me, weapon, trigger) {
+export function updateFeel(frameMs, now, look, me, weapon, trigger, heat = 0) {
   const dt = Math.min(frameMs, MAX_DT_MS);
   me ??= STILL;
 
@@ -204,7 +205,7 @@ export function updateFeel(frameMs, now, look, me, weapon, trigger) {
   look.yaw = seenYaw = yaw;
 
   // Crosshair.
-  crosshair.cone = spreadDegrees(weapon, me);
+  crosshair.cone = spreadDegrees(weapon, me, heat); // the real cone, spray bloom included
   spread += (crosshair.cone - spread) * ease(LOOK.spreadHalfLife, dt);
   bloom *= 2 ** (-dt / LOOK.bloomHalfLife);
   crosshair.spread = spread + bloom;
