@@ -18,7 +18,7 @@ export const idealRange = (w, sidearm) => (sidearm ? 12 : w.falloff ? 0.6 * w.fa
 export const SKILLS = {
   easy: { react: 0.45, lag: 0.22, lead: 0.2, flick: 6, settle: 0.4, wobble: 0.8, turn: 260, head: 0.03, stopToShoot: 0, tapRate: 4, duty: 0.6, hear: 18, fov: 100, notice: 3, memory: 3 },
   normal: { react: 0.3, lag: 0.17, lead: 0.4, flick: 4.5, settle: 0.3, wobble: 0.55, turn: 420, head: 0.12, stopToShoot: 0.2, tapRate: 5, duty: 0.8, hear: 25, fov: 120, notice: 5, memory: 6 },
-  hard: { react: 0.2, lag: 0.14, lead: 0.5, flick: 3, settle: 0.22, wobble: 0.45, turn: 720, head: 0.25, stopToShoot: 0.9, tapRate: 6, duty: 1.0, hear: 32, fov: 140, notice: 7, memory: 9 },
+  hard: { react: 0.2, lag: 0.14, lead: 0.6, flick: 3, settle: 0.22, wobble: 0.45, turn: 720, head: 0.2, stopToShoot: 0.9, tapRate: 6, duty: 1.0, hear: 32, fov: 140, notice: 7, memory: 9 },
 };
 
 const D2R = Math.PI / 180;
@@ -28,7 +28,7 @@ export const yawTo = (dx, dz) => Math.atan2(-dx, -dz); // yaw 0 faces -z
 
 // ey, ep: the error (rad) the bot cannot see; t: s since it acquired the
 // target; head, steady: rolled once per target; ready: on target and reacted.
-export const createAim = (yaw = 0, pitch = 0) => ({ yaw, pitch, ey: 0, ep: 0, t: 0, head: false, steady: false, ready: false, tol: 0, click: 0 });
+export const createAim = (yaw = 0, pitch = 0) => ({ yaw, pitch, ey: 0, ep: 0, t: 0, react: 0, head: false, steady: false, ready: false, tol: 0, click: 0 });
 
 // A new target: a flick error to settle, and this target's head and
 // stand-still rolls.
@@ -38,6 +38,7 @@ export function acquire(a, sk, rand) {
   a.ey = Math.cos(ang) * mag;
   a.ep = Math.sin(ang) * mag * 0.5;
   a.t = 0;
+  a.react = sk.react;
   a.head = rand() < sk.head;
   a.steady = rand() < sk.stopToShoot;
 }
@@ -65,9 +66,10 @@ export function stepAim(a, sk, dt, eye, seen, speedShare, rand) {
   return a.ready;
 }
 
-// Stand still to shoot: a precision gun always, otherwise if this target's
-// roll said so. Only once on target, so it still moves while turning.
-export const standsToShoot = (a, w) => a.ready && (a.steady || roleOf(w) === 'precision');
+// Stand still to shoot (a precision gun always, otherwise if this target's
+// roll said so) in a rhythm: stop just before reacting, so the spread has
+// settled by the first shot, then stand 0.5 s and strafe 0.5 s in turn.
+export const standsToShoot = (a, w) => (a.steady || roleOf(w) === 'precision') && a.t >= a.react - 0.12 && (a.t - a.react + 0.12) % 1 < 0.5;
 
 // Pull the trigger this tick? Only when on target. A bot standing to shoot
 // a single-bullet gun also waits for the gun's current spread (deg) to fit
