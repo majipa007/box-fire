@@ -33,7 +33,7 @@ cd "$REPO"
 PORT=$PORT node server/index.js > "$LOG" 2>&1 9>&- &
 PID=$!
 sleep 0.8
-if [ -n "$BOTS" ]; then PORT=$PORT node tools/bot.js --count "$BOTS" >> "$LOG" 2>&1 9>&- & BPID=$!; sleep 0.5; fi
+if [ -n "$BOTS" ]; then PORT=$PORT node tools/bot.js --count "$BOTS" ${BOTARGS:---passive} >> "$LOG" 2>&1 9>&- & BPID=$!; sleep 0.5; fi
 PORT=$PORT VIEW=$VIEW OUT=$OUT node "$@" 9>&-; CODE=$?
 [ -n "$BPID" ] && kill $BPID 2>/dev/null
 kill $PID 2>/dev/null
