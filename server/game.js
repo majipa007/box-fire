@@ -66,7 +66,7 @@ export class Game {
       this.startMatch();
     } else if (msg.t === 'end_match' && p.id === this.hostId && this.phase === 'playing') {
       this.endMatch();
-    } else if (msg.t === 'vote' && !p.bot && this.maps.has(msg.map)) {
+    } else if (msg.t === 'vote' && !p.bot && this.maps.has(msg.map) && msg.map !== p.vote && this.phase !== 'playing') {
       p.vote = msg.map; // a new vote replaces the old one
       this.broadcastLobby();
     }

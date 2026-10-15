@@ -690,9 +690,11 @@ export function renderLobby(m, myId) {
 }
 
 // ---- Map vote cards, the same in the lobby card and on the scoreboard.
-// Rebuilt only when something on them changes, so the once-a-second ping
-// refresh never swallows a click. ----
+// The buttons are made once per map list and filled in place, so a vote
+// arriving mid-press never swallows a click and keyboard focus stays put
+// (their children take no pointer events, so the button is the target). ----
 let mapsKey = '';
+let mapIds = '';
 function renderMaps(m, myId) {
   const slots = new Map(m.players.map((p) => [p.id, p.slot]));
   const cards = (m.maps ?? []).map((c) => ({
@@ -704,13 +706,18 @@ function renderMaps(m, myId) {
   const key = JSON.stringify(cards);
   if (key === mapsKey) return;
   mapsKey = key;
-  for (const id of ['lobby-maps', 'sb-maps']) $(id).replaceChildren(...cards.map(mapCard));
+  const ids = cards.map((c) => c.id).join();
+  for (const id of ['lobby-maps', 'sb-maps']) {
+    const box = $(id);
+    if (ids !== mapIds) box.replaceChildren(...cards.map(() => Object.assign(document.createElement('button'), { type: 'button' })));
+    cards.forEach((c, i) => fillCard(box.children[i], c, i));
+  }
+  mapIds = ids;
 }
 
-function mapCard(c, i) {
+function fillCard(card, c, i) {
   const el = (tag, className, text = '') => Object.assign(document.createElement(tag), { className, textContent: text });
-  const card = el('button', c.mine ? 'mapcard mine' : 'mapcard');
-  card.type = 'button';
+  card.className = c.mine ? 'mapcard mine' : 'mapcard';
   card.dataset.map = c.id;
   card.setAttribute('aria-pressed', c.mine);
   const top = el('span', 'mc-top');
@@ -724,8 +731,7 @@ function mapCard(c, i) {
   const flags = el('span', 'mc-flags');
   if (c.now) flags.append(el('span', '', c.now));
   if (c.mine) flags.append(el('span', 'you', 'Your vote'));
-  card.append(top, el('span', 'mc-tag', c.tagline), pips, flags);
-  return card;
+  card.replaceChildren(top, el('span', 'mc-tag', c.tagline), pips, flags);
 }
 
 // fn(mapId) when a card is clicked.

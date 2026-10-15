@@ -160,7 +160,7 @@ const vote = (map) => net.send({ t: 'vote', map });
 ui.onVote(vote);
 addEventListener('keydown', (e) => {
   const n = /^Digit([1-9])$/.exec(e.code)?.[1];
-  const card = n && lobby.phase === 'scoreboard' && lobby.maps?.[n - 1];
+  const card = n && lobby.phase === 'scoreboard' && !ui.pickerOpen() && lobby.maps?.[n - 1]; // 1 and 2 pick a primary while the picker is open
   if (card && !e.repeat) vote(card.id);
 });
 

@@ -78,7 +78,9 @@ test('a switch brings fresh spawns, pads, no entities and an empty rewind histor
   assert.equal(game.history.newest, game.tick, 'the rewind history has a frame on map a');
 
   vote(game, bob, 'b');
+  assert.equal(game.players.get(bob.player.id).vote ?? null, null, 'no voting mid-match');
   game.handle(alice, { t: 'end_match' });
+  vote(game, bob, 'b'); // on the scoreboard
   for (let i = 0; i <= SCOREBOARD_SECONDS * TICK_RATE && game.phase !== 'playing'; i++) game.step();
   assert.equal(game.mapId, 'b');
   assert.equal(game.spawnUsedAt.length, MAP_B.spawns.length);
