@@ -61,7 +61,9 @@ export class Game {
     if (msg.t === 'input') {
       if (p.mover) p.receive(msg, performance.now());
     } else if (msg.t === 'loadout') {
-      p.primary = msg.primary; // takes effect at the next spawn
+      // Takes effect at the next spawn. arsenal: either pick may be left out.
+      if (msg.primary) p.primary = msg.primary;
+      if (msg.secondary) p.secondary = msg.secondary;
     } else if (msg.t === 'start' && p.id === this.hostId && this.phase === 'lobby') {
       this.startMatch();
     } else if (msg.t === 'end_match' && p.id === this.hostId && this.phase === 'playing') {
@@ -179,7 +181,7 @@ export class Game {
   spawn(p) {
     const { pos: [x, y, z], i } = this.pickSpawn(p);
     this.spawnUsedAt[i] = this.tick;
-    Object.assign(p, freshLife(x, y, z, p.primary));
+    Object.assign(p, freshLife(x, y, z, p.primary, p.secondary)); // arsenal: both picks
     p.protectedUntil = this.tick + SPAWN_PROTECT_SECONDS * TICK_RATE;
     p.pw = freshPowers(); // POWER-UPS: empty inventory, no Shield
     p.queue = []; // inputs sent before this life are stale
@@ -187,7 +189,7 @@ export class Game {
     p.last = null; // nor may the last one leak a weapon slot into this life
     p.yaw = Math.atan2(x, z); // face the arena centre
     p.pitch = 0;
-    this.broadcast({ t: 'event', e: 'spawn', id: p.id, x, y, z, yaw: p.yaw, primary: p.primary });
+    this.broadcast({ t: 'event', e: 'spawn', id: p.id, x, y, z, yaw: p.yaw, primary: p.primary, secondary: p.secondary }); // arsenal: secondary
   }
 
   freeSlot() {

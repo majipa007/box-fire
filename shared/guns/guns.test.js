@@ -1,7 +1,7 @@
 // arsenal: the gun registry, through its public exports.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GUNS, GUN_IDS, PRIMARIES, SECONDARIES } from './index.js';
+import { GUNS, GUN_IDS, PRIMARIES, SECONDARIES, baseGun } from './index.js';
 import { WEAPONS } from '../constants.js';
 import { WEAPON_IDS } from '../protocol.js';
 
@@ -30,4 +30,10 @@ test('wire order: the launch guns keep snapshot indices 0, 1, 2 and keys 1, 2 in
   assert.deepEqual(PRIMARIES.slice(0, 2), ['rifle', 'shotgun']);
   assert.equal(SECONDARIES[0], 'pistol');
   assert.deepEqual([...PRIMARIES, ...SECONDARIES].sort(), [...GUN_IDS].sort());
+});
+
+test('baseGun: a gun without its own model, sound or effects borrows the nearest launch gun by class', () => {
+  assert.deepEqual(['pistol', 'rifle', 'shotgun', 'handcannon'].map(baseGun), ['pistol', 'rifle', 'shotgun', 'pistol']);
+  assert.equal(baseGun('bolt'), 'bolt', 'power-up ids pass through untouched');
+  assert.equal(baseGun('__proto__'), '__proto__');
 });

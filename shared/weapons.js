@@ -6,11 +6,12 @@ HEAT_COOL, } from './constants.js';
 import { KEY, createMover } from './movement.js';
 import { rayBox } from './collision.js';
 
-// slot 0 is the primary, slot 1 the pistol.
-export const createArsenal = (primary) => ({
+// slot 0 is the primary, slot 1 the sidearm (arsenal: any registry secondary).
+export const createArsenal = (primary, secondary = 'pistol') => ({
   primary,
+  secondary,
   slot: 0,
-  mags: [WEAPONS[primary].mag, WEAPONS.pistol.mag],
+  mags: [WEAPONS[primary].mag, WEAPONS[secondary].mag],
   cooldown: 0, // seconds until the next shot; carries its remainder
   reload: 0, // seconds of reload left, 0 when not reloading
   switching: 0, // seconds until a newly drawn weapon can fire
@@ -21,13 +22,13 @@ export const createArsenal = (primary) => ({
 // The heat a shot fires with: the heat before it, so a first shot has none.
 export const shotHeat = (a) => Math.max(0, a.heat - 1);
 
-export const weaponOf = (a) => (a.slot === 0 ? a.primary : 'pistol');
+export const weaponOf = (a) => (a.slot === 0 ? a.primary : a.secondary);
 
 // Everything a player's state holds at the moment they spawn. Server and
 // client both build it here, so a new life starts identical on both sides.
-export const freshLife = (x, y, z, primary) => ({
+export const freshLife = (x, y, z, primary, secondary) => ({
   mover: { ...createMover(x, y, z), grounded: true }, // spawns sit on a surface
-  arsenal: createArsenal(primary),
+  arsenal: createArsenal(primary, secondary),
   hp: MAX_HP,
   alive: true,
 });

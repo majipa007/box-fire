@@ -94,7 +94,7 @@ const net = connect({
     audio.event(m, myId, heard); // audio: the engine's pickups, uses and blasts (client/powerups.js plays the bible's)
     if (m.e === 'pickup' && m.id === myId) ui.powerToast(m.k); // hud: (powerups: client/powerups.js toasts the bible's 'pick')
     if (m.e === 'spawn' && m.id === myId) {
-      Object.assign(self, freshLife(m.x, m.y, m.z, m.primary)); // exactly as the server builds it
+      Object.assign(self, freshLife(m.x, m.y, m.z, m.primary, m.secondary)); // exactly as the server builds it (arsenal: both picks)
       self.pending = [];
       prev = { x: m.x, y: m.y, z: m.z };
       input.look.yaw = m.yaw;

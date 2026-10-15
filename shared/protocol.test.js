@@ -75,3 +75,13 @@ test('start and end_match carry no payload', () => {
   assert.deepEqual(decodeClient('{"t":"start","extra":1}'), { t: 'start' });
   assert.deepEqual(decodeClient('{"t":"end_match","why":"x"}'), { t: 'end_match' });
 });
+
+// arsenal: { primary, secondary }, each checked against its registry slot.
+test('loadout carries a primary, a sidearm or both, each from its own slot of the registry', () => {
+  assert.deepEqual(decodeClient('{"t":"loadout","primary":"shotgun","secondary":"handcannon"}'), { t: 'loadout', primary: 'shotgun', secondary: 'handcannon' });
+  assert.deepEqual(decodeClient('{"t":"loadout","secondary":"handcannon"}'), { t: 'loadout', secondary: 'handcannon' });
+  for (const bad of [{}, { secondary: 'rifle' }, { primary: 'rifle', secondary: 'rifle' }, { primary: 'rifle', secondary: 'bazooka' }, { secondary: '__proto__' },
+    { secondary: 'constructor' }, { primary: 'shotgun', secondary: null }, { secondary: ['pistol'] }]) {
+    assert.equal(decodeClient(JSON.stringify({ t: 'loadout', ...bad })), null, JSON.stringify(bad));
+  }
+});

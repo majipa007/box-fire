@@ -91,9 +91,12 @@ async function suite() {
     assert.deepEqual([...vm.sampleTrack(undefined, 0.5, out)], [0, 0, 0, 0, 0, 0]);
   });
 
-  test('each weapon is one skinned mesh in the bible palette, resting where §3.2 puts it', () => {
-    assert.deepEqual(Object.keys(vm.MODELS).sort(), Object.keys(WEAPONS).sort());
-    assert.deepEqual(Object.keys(vm.GUN_SHAPES).sort(), Object.keys(WEAPONS).sort()); // other players' guns
+  test('each weapon is one skinned mesh in the bible palette, resting where §3.2 puts it', async () => { // arsenal: async for baseGun
+    // arsenal: a gun without a model of its own yet draws its class's launch gun (shared/guns baseGun).
+    const { baseGun } = await import('../shared/guns/index.js');
+    for (const id of Object.keys(WEAPONS)) assert.ok(vm.MODELS[baseGun(id)] && vm.GUN_SHAPES[baseGun(id)], `${id} draws something`);
+    assert.deepEqual(Object.keys(vm.MODELS).sort(), ['pistol', 'rifle', 'shotgun']);
+    assert.deepEqual(Object.keys(vm.GUN_SHAPES).sort(), ['pistol', 'rifle', 'shotgun']); // other players' guns
     const rests = { rifle: [0.2, -0.19, -0.6], pistol: [0.17, -0.17, -0.5], shotgun: [0.2, -0.2, -0.58] };
     for (const [name, m] of Object.entries(vm.MODELS)) {
       assert.deepEqual(m.rest.slice(0, 3), rests[name]);

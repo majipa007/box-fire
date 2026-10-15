@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createArsenal, stepWeapon, traceShot, spreadDegrees, shotDirs, aimDir, damageAt, freshLife, shotHeat } from './weapons.js';
+import { createArsenal, stepWeapon, traceShot, spreadDegrees, shotDirs, aimDir, damageAt, freshLife, shotHeat, weaponOf } from './weapons.js';
+import { GUNS } from './guns/index.js'; // arsenal
 import { KEY } from './movement.js';
 import { prepareMap } from './collision.js';
 import { DT } from './constants.js';
@@ -352,4 +353,30 @@ test('server: a held rifle spray at a head 30 m away does 160 on every head hit,
   for (const [dmg, head] of hits) assert.equal(dmg, head ? 160 : 24);
   const heads = hits.filter(([, head]) => head).length;
   assert.ok(heads < 20, `the bloom keeps a 25-round spray off the head: ${heads} head hits`);
+});
+
+// ---- arsenal: two guns per player, one per slot ----
+
+test('an arsenal holds a primary and a sidearm, each with its own magazine; weaponOf names the held one', () => {
+  const a = createArsenal('shotgun', 'handcannon');
+  assert.deepEqual([a.primary, a.secondary, a.mags], ['shotgun', 'handcannon', [5, GUNS.handcannon.mag]]);
+  assert.equal(weaponOf(a), 'shotgun');
+  shots(a, { keys: 0, fire: false, slot: 1 }, 30);
+  assert.equal(weaponOf(a), 'handcannon');
+  assert.equal(shots(a, { keys: 0, fire: true, slot: 1 }, 1), 1);
+  assert.equal(a.mags[1], GUNS.handcannon.mag - 1);
+  assert.equal(createArsenal('rifle').secondary, 'pistol', 'the sidearm defaults to the pistol');
+  const life = freshLife(0, 0, 0, 'rifle', 'handcannon');
+  assert.deepEqual([life.arsenal.primary, life.arsenal.secondary], ['rifle', 'handcannon']);
+});
+
+test('the sidearm fires at its own rate: a semi gun clicked every other step is capped by its rps', () => {
+  const a = createArsenal('rifle', 'handcannon');
+  shots(a, { keys: 0, fire: false, slot: 1 }, 30);
+  a.mags[1] = 1000;
+  let n = 0;
+  for (let i = 0; i < 600; i++) if (stepWeapon(a, { keys: 0, fire: i % 2 === 0, slot: 1 })) n++;
+  // Click every 2 steps against a cooldown of 60 / rps steps: one shot per ceil-to-even interval.
+  const expected = Math.floor(600 / (2 * Math.ceil(60 / GUNS.handcannon.rps / 2)));
+  assert.ok(Math.abs(n - expected) <= 1, `${n} shots in 10 s, expected about ${expected}`);
 });
