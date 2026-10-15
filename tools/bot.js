@@ -2,13 +2,13 @@
 // They see only foes in view with a clear line of sight, hear shots and feel
 // hits, fight with human-like aim at their skill, take cover when hurt, hunt,
 // collect power-up pads and use what they hold (tools/bot/brain.js). Each
-// bot gets a random primary. --skill mixed (the default) rolls easy, normal
+// life a bot carries a random primary and sidearm from the gun registry. --skill mixed (the default) rolls easy, normal
 // or hard for each bot. --passive bots never shoot or use
 // an offensive power-up: they wander and collect pads, a harmless target for
 // visual checks and netcode tests. Up to MAX_PLAYERS minus the humans.
 //   npm run bot -- --count 6 [--skill easy|normal|hard|mixed] [--passive] [--url ws://localhost:3000]
 import { encodeInput } from '../shared/protocol.js';
-import { TICK_RATE, PORT, PRIMARIES } from '../shared/constants.js';
+import { TICK_RATE, PORT } from '../shared/constants.js';
 import { SKILLS } from './bot/aim.js';
 import { createBot, onMessage, think } from './bot/brain.js';
 
@@ -27,12 +27,12 @@ if (skill !== 'mixed' && !SKILLS[skill]) {
 }
 
 function startBot(n) {
-  const bot = createBot(n, { skill: skill === 'mixed' ? Object.keys(SKILLS)[Math.floor(Math.random() * 3)] : skill, passive, primary: PRIMARIES[Math.floor(Math.random() * PRIMARIES.length)] });
+  const bot = createBot(n, { skill: skill === 'mixed' ? Object.keys(SKILLS)[Math.floor(Math.random() * 3)] : skill, passive });
   const ws = new WebSocket(url);
   bot.ws = ws;
   ws.onopen = () => {
     ws.send(JSON.stringify({ t: 'join', name: `bot${n}`, bot: true }));
-    ws.send(JSON.stringify({ t: 'loadout', primary: bot.primary }));
+    flush(bot); // arsenal: the first loadout
   };
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
@@ -42,8 +42,13 @@ function startBot(n) {
     } else onMessage(bot, m);
   };
   ws.onerror = () => console.log(`bot${n}: cannot reach ${url}`);
-  console.log(`bot${n}: ${passive ? 'passive' : bot.skill}, ${bot.primary}`);
+  console.log(`bot${n}: ${passive ? 'passive' : bot.skill}, ${bot.primary} + ${bot.secondary}`);
   return bot;
+}
+
+// arsenal: messages the brain queued (a loadout for the next life).
+function flush(bot) {
+  while (bot.out.length) bot.ws.send(JSON.stringify(bot.out.shift()));
 }
 
 const bots = Array.from({ length: count }, (_, i) => startBot(i + 1));
@@ -60,6 +65,7 @@ setInterval(() => {
     budget.plans = 3;
     const t0 = performance.now();
     for (const bot of bots) {
+      if (bot.ws.readyState === WebSocket.OPEN) flush(bot); // arsenal
       if (bot.spawned && bot.ws.readyState === WebSocket.OPEN) bot.ws.send(encodeInput(think(bot, budget)));
     }
     const t = performance.now() - t0;

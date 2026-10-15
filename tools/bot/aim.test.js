@@ -133,3 +133,37 @@ test('semi-auto guns click at the slower of skill and gun, releasing between cli
   assert.ok(fast.every((t, i) => i === 0 || t - fast[i - 1] >= 2), 'never two ticks in a row');
   assert.equal(pulls(WEAPONS.rifle).length, 144); // 24 of every 30 ticks
 });
+
+// ---- arsenal: every registry gun gets a role from its numbers ----
+
+test('arsenal roles: autos and burst guns fire in duty bursts, a scope or a heavy semi is precision, the rest tap', () => {
+  const roles = Object.fromEntries(Object.keys(WEAPONS).map((id) => [id, roleOf(WEAPONS[id])]));
+  assert.deepEqual(roles, {
+    rifle: 'burst', pistol: 'tap', shotgun: 'close', handcannon: 'precision', machinepistol: 'burst',
+    smg: 'burst', burst: 'burst', lmg: 'burst', marksman: 'precision', sniper: 'precision',
+  });
+  assert.equal(idealRange(WEAPONS.sniper, false), 30, 'a scope holds a long range');
+  assert.equal(idealRange(WEAPONS.marksman, false), 18);
+});
+
+test('arsenal: a burst gun is clicked once per burst cycle, a one-tick press each', () => {
+  const a = createAim();
+  a.ready = true; a.tol = 2;
+  const ticks = [];
+  for (let t = 0; t < 180; t++) if (shouldFire(a, SKILLS.normal, WEAPONS.burst, t, 0)) ticks.push(t);
+  const cycle = Math.round(60 / (WEAPONS.burst.rps / WEAPONS.burst.burst.count)); // 21 ticks
+  assert.equal(ticks.length, Math.ceil(180 / cycle));
+  assert.ok(ticks.every((t, i) => i === 0 || t - ticks[i - 1] === cycle), `clicks ${ticks}`);
+});
+
+test('arsenal: a scoped gun fires only when its cone fits the target, standing or not, and stands from just before reacting', () => {
+  const a = createAim();
+  a.ready = true; a.tol = 1; a.react = 0.3; a.t = 0.9; // in a strafe half of the 1 s rhythm
+  assert.equal(standsToShoot(a, WEAPONS.marksman), false, 'a marksman keeps the rhythm');
+  assert.equal(standsToShoot(a, WEAPONS.sniper), true, 'a scope stands throughout');
+  a.t = 0.1;
+  assert.equal(standsToShoot(a, WEAPONS.sniper), false, 'not before it has nearly reacted');
+  a.t = 0.9;
+  assert.equal(shouldFire(a, SKILLS.normal, WEAPONS.sniper, 100, WEAPONS.sniper.spreadStand), false, 'the hip cone is too wide');
+  assert.equal(shouldFire(a, SKILLS.normal, WEAPONS.sniper, 100, WEAPONS.sniper.scope.spread), true, 'scoped in');
+});
