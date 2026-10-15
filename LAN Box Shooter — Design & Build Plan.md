@@ -105,7 +105,7 @@ Scores are keyed by name for the length of the match: if a tab dies, reopening t
 | Weapon | Body dmg | Head mult | Fire rate | Mag | Reload (s) | Spread stand / move (°) | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Pistol | 26 | 3× | 6.75/s semi | 12 | 1.75 | 0.3 / 1.5 | Always carried. Falloff 25 → 40 m down to 0.75 |
-| Rifle | 30 | 160 flat (one-tap head at any range, every bullet) | 9.75/s auto | 25 | 2.5 | 0.15 / 2.5, plus spray bloom 0.25° per heat up to +2°; camera kick climbs over 8 shots | Default primary. Falloff 20 → 30 m down to 0.8 (24), so 4 body hits to about 28 m, then 5 |
+| Rifle | 30 | 160 flat (one-tap head at any range, every bullet) | 9.75/s auto | 25 | 2.5 | 0.15 / 2.5, plus spray bloom 0.25° per heat up to +2°; camera kick climbs over 8 shots | Default primary. Falloff 20 → 30 m down to 0.8 (24), so 4 body hits to about 29 m, then 5 |
 | Shotgun | 10 × 12 pellets | 2× | 1.1/s pump | 5 | 0.5 per shell | 3.5 cone | Falloff 8 → 18 m down to 0.2. A full body blast (120) kills from 100 HP, not through a Shield |
 
 All weapons are hitscan, so there is no projectile simulation. Infinite reserve ammo, finite magazine. Weapon state (fire cooldown, magazines, reload and switch timers) is predicted on the client and corrected from snapshots exactly like movement, so the muzzle flash, ammo counter and empty click are instant and right.

@@ -737,7 +737,7 @@ export function knock(s, vx, vz, lift) { // horizontal impulse adds; lift only w
 | Lobby | `players[].pk` (power-up kills) |
 
 ### 4.6 Balance
-- **Gunplay:** rifle time to kill is 300 ms (4 body hits) out to about 28 m, 400 ms (5) beyond; every rifle headshot (160) kills at any range. No single use kills from 100 HP. The maximums are Shunt direct 60, Mine centre 60, Bolt 75 (all three hits), Shock 30 and Barge 20.
+- **Gunplay:** rifle time to kill is 300 ms (4 body hits) out to about 29 m, 400 ms (5) beyond; every rifle headshot (160) kills at any range. No single use kills from 100 HP. The maximums are Shunt direct 60, Mine centre 60, Bolt 75 (all three hits), Shock 30 and Barge 20.
 - **Combos:**
   - Shunt or Mine plus 1 rifle body hit = 90, no kill; plus 2 = 120.
   - Bolt plus 1 body hit = 105.
