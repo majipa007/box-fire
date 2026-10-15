@@ -52,6 +52,7 @@ const MAX_FLAT = 64;
 const MAX_BEAMS = 32;
 const MAX_TRAILS = 16;
 const MAX_BITS = 128; // fallback burst voxels
+const MAX_PADS = 16; // plinths: every map has 9 (shared/maps.test.js)
 // Our own Shunts are drawn in the present, like the ghost that launched
 // them: the newest snapshot carried on by the ticks since it plus the
 // input's trip (the server's input buffer and a tick of waiting), at most
@@ -242,6 +243,23 @@ let padView = []; // padStates()
 export function setPads(list) {
   pads = list.map(({ pos: [x, y, z], pool }, i) => ({ x, y, z, kind: pool[0], ready: 0, span: 0, phase: i * 1.7 }));
   padView = pads.map((p) => ({ pos: [p.x, p.y, p.z], kind: p.kind, up: true }));
+  if (!plinths) return;
+  pads.forEach((p, i) => plinths.setMatrixAt(i, m4.makeTranslation(p.x, p.y, p.z)));
+  plinths.count = pads.length;
+  plinths.instanceMatrix.needsUpdate = true;
+}
+
+// A map switch: the plinths move to the new map's pads, and nothing from the
+// old one is left: entity ids restart with the match, so a stale snapshot,
+// event or ghost would pass for a new entity.
+export function setMap({ boxes: mapBoxes = [], pads: list = [] } = {}) {
+  setPads(list);
+  boxes = mapBoxes;
+  snaps.length = 0;
+  pending.length = 0;
+  ghosts.length = 0;
+  shownDir.clear();
+  grounds.clear();
 }
 const snaps = []; // { tick, en } from the last few snapshots, oldest first
 const shownDir = new Map(); // eid → [x, y, z] heading, kept when a Shunt stops moving between snapshots
@@ -268,10 +286,9 @@ const tint = new THREE.Color();
 
 export function initPowerups({ boxes: mapBoxes = [], pads: list = [] } = {}) {
   if (plinths) return;
-  setPads(list);
   boxes = mapBoxes; // quality: one look for both presets, 6 draws either way
-  plinths = new THREE.InstancedMesh(plinthGeometry(), new THREE.MeshLambertMaterial({ vertexColors: true }), pads.length);
-  pads.forEach((p, i) => plinths.setMatrixAt(i, m4.makeTranslation(p.x, p.y, p.z)));
+  plinths = new THREE.InstancedMesh(plinthGeometry(), new THREE.MeshLambertMaterial({ vertexColors: true }), MAX_PADS);
+  setPads(list);
   plinths.receiveShadow = true;
   plinths.castShadow = false;
   const flat = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);

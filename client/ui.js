@@ -685,6 +685,57 @@ export function renderLobby(m, myId) {
   const isHost = m.host === myId;
   $('start').hidden = !(isHost && m.phase === 'lobby');
   $('lobby-status').textContent = m.phase === 'lobby' ? (isHost ? '' : 'Waiting for host…') : 'Match in progress.';
+  $('scoreboard').classList.toggle('over', m.phase === 'scoreboard');
+  renderMaps(m, myId);
+}
+
+// ---- Map vote cards, the same in the lobby card and on the scoreboard.
+// Rebuilt only when something on them changes, so the once-a-second ping
+// refresh never swallows a click. ----
+let mapsKey = '';
+function renderMaps(m, myId) {
+  const slots = new Map(m.players.map((p) => [p.id, p.slot]));
+  const cards = (m.maps ?? []).map((c) => ({
+    id: c.id, name: c.name ?? c.id, tagline: c.tagline ?? '', votes: c.votes,
+    pips: c.voters.map((id) => PLAYER_COLORS[slots.get(id)] ?? 'var(--dim)'),
+    mine: c.voters.includes(myId),
+    now: c.id === m.map ? (m.phase === 'lobby' ? 'Current' : 'Now playing') : '',
+  }));
+  const key = JSON.stringify(cards);
+  if (key === mapsKey) return;
+  mapsKey = key;
+  for (const id of ['lobby-maps', 'sb-maps']) $(id).replaceChildren(...cards.map(mapCard));
+}
+
+function mapCard(c, i) {
+  const el = (tag, className, text = '') => Object.assign(document.createElement(tag), { className, textContent: text });
+  const card = el('button', c.mine ? 'mapcard mine' : 'mapcard');
+  card.type = 'button';
+  card.dataset.map = c.id;
+  card.setAttribute('aria-pressed', c.mine);
+  const top = el('span', 'mc-top');
+  top.append(el('span', 'key', i + 1), el('span', 'mc-name', c.name), el('span', c.votes ? 'mc-count some' : 'mc-count', c.votes));
+  const pips = el('span', 'mc-pips');
+  for (const color of c.pips) {
+    const pip = el('i', '');
+    pip.style.setProperty('--c', color);
+    pips.append(pip);
+  }
+  const flags = el('span', 'mc-flags');
+  if (c.now) flags.append(el('span', '', c.now));
+  if (c.mine) flags.append(el('span', 'you', 'Your vote'));
+  card.append(top, el('span', 'mc-tag', c.tagline), pips, flags);
+  return card;
+}
+
+// fn(mapId) when a card is clicked.
+export function onVote(fn) {
+  for (const id of ['lobby-maps', 'sb-maps']) {
+    $(id).addEventListener('click', (e) => {
+      const card = e.target.closest('[data-map]');
+      if (card) fn(card.dataset.map);
+    });
+  }
 }
 
 // ---- ?debug&hud=demo: every element with demo data, over the live game. ----

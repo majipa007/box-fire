@@ -52,10 +52,13 @@ function notFound(res) {
 const isLoopback = (addr = '') => /^(127\.|::1$|::ffff:127\.)/.test(addr);
 const port = Number(process.env.PORT) || PORT;
 
+// Every playable map, loaded once: votes switch between them by id, so no
+// file path is ever built from what a client sends.
+const MAP_FILES = new Map(MAPS.map((id) => [id, JSON.parse(fs.readFileSync(path.join(root, 'shared', 'maps', `${id}.json`), 'utf8'))]));
 // MAP=arena_02 starts on another map (for testing one map); only listed ids count.
 if (process.env.MAP && !MAPS.includes(process.env.MAP)) console.warn(`MAP=${process.env.MAP} is not one of ${MAPS.join(', ')}; using ${MAPS[0]}`);
 const MAP_ID = MAPS.includes(process.env.MAP) ? process.env.MAP : MAPS[0];
-const game = new Game(MAP_ID, JSON.parse(fs.readFileSync(path.join(root, 'shared', 'maps', `${MAP_ID}.json`), 'utf8')));
+const game = new Game(MAP_ID, MAP_FILES.get(MAP_ID), MAP_FILES);
 const conns = new Set();
 const MAX_MSG = 4096;
 const wss = new WebSocketServer({ server, maxPayload: MAX_MSG });

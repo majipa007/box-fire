@@ -101,30 +101,51 @@ export function configureRenderer(renderer) {
 }
 
 let boxes = []; // prepared map boxes with their surface, for surfaceAt
-export function buildWorld(scene, map) {
+const mapGroup = new THREE.Group(); // the map's meshes and decals: setMap replaces them
+// Shared by every map, so a switch never repaints a texture or recompiles the
+// 'world-map' program: recipe → texture, mesh name → material.
+const textures = {};
+const materials = {};
+
+// Once: lights, sky, fog, the skyline, the far group, motes and the fence.
+export function setupWorld(scene) {
   const world = new THREE.Group();
   scene.background = new THREE.Color(LOOK.sky.horizon); // clear colour only: the dome covers it
   scene.fog = new THREE.Fog(LOOK.sky.horizon, LOOK.fog.near, LOOK.fog.far);
   scene.add(new THREE.HemisphereLight(LIGHTS.skyColor, LIGHTS.groundColor, LIGHTS.hemiIntensity), sun);
   world.add(sky());
+  const solid = new THREE.Mesh(quadGeometry(skyline()), skylineMaterial());
+  solid.castShadow = solid.receiveShadow = true;
+  world.add(solid, buildFar(), buildMotes(), buildFence(), mapGroup);
+  scene.add(world);
+}
 
+// Per map: the baked map meshes and its decals. The old geometry is freed;
+// textures and materials are kept. Every map shares the 40 × 40 m footprint
+// the setup dresses, and the static sun shadow is rendered again.
+export function setMap(map) {
+  for (const mesh of mapGroup.children) mesh.geometry.dispose();
+  mapGroup.clear();
   const started = performance.now();
   const ao = { ...LOOK.ao, rays: quality === 'low' ? LOOK.ao.lowRays : LOOK.ao.rays, sunDir: LIGHTS.sunDir };
   const { meshes, triangles } = meshMap(map.boxes.map((b) => ({ ...b, ...materialOf(b) })), ao);
   if (debug) console.log(`world: map baked in ${Math.round(performance.now() - started)} ms, ${triangles} triangles`);
-  const textures = {};
   for (const [name, arrays] of Object.entries(meshes)) {
     const recipe = name === 'dock-top' ? 'slab' : name;
-    const mesh = new THREE.Mesh(geometry(arrays), mapMaterial((textures[recipe] ??= makeTexture(recipe)), name === 'dock-top'));
+    const mesh = new THREE.Mesh(geometry(arrays), (materials[name] ??= mapMaterial((textures[recipe] ??= makeTexture(recipe)), name === 'dock-top')));
     mesh.castShadow = mesh.receiveShadow = true;
     mesh.renderOrder = name === 'slab' ? 1 : 0; // the floor after the walls, so early-z rejects hidden floor
-    world.add(mesh);
+    mapGroup.add(mesh);
   }
-  const solid = new THREE.Mesh(quadGeometry(skyline()), skylineMaterial());
-  solid.castShadow = solid.receiveShadow = true;
-  world.add(solid, buildFar(), buildMotes(), buildDecals(map), buildFence());
-  scene.add(world);
+  mapGroup.add(buildDecals(map));
   boxes = map.boxes.map((b) => ({ min: b.pos.map((p, i) => p - b.size[i] / 2), max: b.pos.map((p, i) => p + b.size[i] / 2), surface: materialOf(b).surface }));
+  sun.shadow.needsUpdate = true;
+}
+
+// Both at once, for callers that build a single map.
+export function buildWorld(scene, map) {
+  setupWorld(scene);
+  setMap(map);
 }
 
 const debug = typeof location !== 'undefined' && new URLSearchParams(location.search).has('debug');
@@ -230,8 +251,11 @@ function buildMotes() {
 }
 
 // Decals (1 draw): lit, shadowed, fogged quads from the atlas, tinted by vertex colour.
+// The atlas and its material are made once and shared by every map.
+let decalAtlas = null;
+let decalMaterial = null;
 function buildDecals(map) {
-  const { texture, cells } = makeDecalAtlas();
+  const { texture, cells } = (decalAtlas ??= makeDecalAtlas());
   const list = decals(map.boxes, 3, map.lanes);
   const position = new Float32Array(list.length * 12);
   const normal = new Float32Array(list.length * 12);
@@ -262,8 +286,8 @@ function buildDecals(map) {
   g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   g.setAttribute('color', new THREE.BufferAttribute(color, 4));
   g.setIndex(new THREE.BufferAttribute(index, 1));
-  const material = new THREE.MeshLambertMaterial({ map: texture, vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 });
-  const mesh = new THREE.Mesh(g, material);
+  decalMaterial ??= new THREE.MeshLambertMaterial({ map: texture, vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 });
+  const mesh = new THREE.Mesh(g, decalMaterial);
   mesh.receiveShadow = true;
   return mesh;
 }

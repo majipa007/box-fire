@@ -61,6 +61,28 @@
   #lobby-players li .swatch { width: 4px; height: 18px; box-shadow: none; }
   .ping { margin-left: auto; color: var(--dim); font-size: 13px; }
   #start { width: 100%; padding: 13px; font-size: 17px; }
+
+  /* Map vote cards, in the lobby card and on the scoreboard: name, tagline,
+     live tally, the voters as slot-coloured pips. Yours is ringed in the accent. */
+  .vote-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 8px; }
+  .vote-head .dim { font-size: 12px; }
+  .maps { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 0 0 18px; }
+  .mapcard { display: flex; flex-direction: column; gap: 5px; padding: 10px 12px 9px; text-align: left; text-transform: none; letter-spacing: normal;
+    font: 600 12px/1.3 var(--font); color: var(--text); background: rgba(242, 239, 232, 0.06); box-shadow: inset 0 0 0 1px var(--line); }
+  .mapcard:hover { background: rgba(242, 239, 232, 0.13); }
+  .mapcard.mine { background: rgba(217, 180, 90, 0.14); box-shadow: inset 0 0 0 2px var(--accent); }
+  .mc-top { display: flex; align-items: center; gap: 8px; }
+  .mc-name { font: 700 15px/1.1 var(--font); letter-spacing: 0.06em; text-transform: uppercase; }
+  .mc-count { margin-left: auto; font: 700 22px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--dim); }
+  .mc-count.some { color: var(--text); }
+  .mapcard.mine .mc-name, .mapcard.mine .mc-count { color: var(--accent); }
+  .mc-tag { color: var(--dim); }
+  .mc-pips { display: flex; flex-wrap: wrap; gap: 4px; min-height: 8px; margin-top: auto; } /* pips and flags line up along the bottom */
+  .mc-pips i { width: 8px; height: 8px; background: var(--c); box-shadow: 0 0 0 1px var(--ink); }
+  .mc-flags { display: flex; gap: 10px; min-height: 12px; font: 700 10px/12px var(--font); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
+  .mc-flags .you { color: var(--accent); }
+  .mapcard .key { display: none; font-size: 11px; padding: 2px 5px; }
+  #sb-maps .key { display: block; }
   #lobby-status { margin: 10px 0 0; font-size: 14px; }
 
   /* Menu. */
@@ -247,9 +269,15 @@
   #picker button { margin: 10px 4px 0; color: var(--text); background: rgba(242, 239, 232, 0.1); font-size: 13px; }
   #picker button.chosen { color: var(--ink); background: var(--accent); }
 
-  /* Scoreboard. */
+  /* Scoreboard. Between matches (.over) its map cards take clicks, and the pause
+     menu waits underneath until the next match starts. */
   #scoreboard { pointer-events: none; }
-  #scoreboard .card { width: 680px; }
+  #scoreboard.over { pointer-events: auto; }
+  body:has(#scoreboard.over:not([hidden])) #menu { display: none; }
+  #scoreboard:not(.over) #sb-vote { display: none; }
+  #sb-vote { margin-top: 18px; }
+  #sb-vote .maps { margin-bottom: 0; }
+  #scoreboard .card { width: 680px; max-height: 92vh; overflow-y: auto; }
   #scoreboard table { width: 100%; border-collapse: collapse; font-size: 15px; }
   #scoreboard th { font: 700 11px var(--font); letter-spacing: 0.16em; color: var(--dim); text-align: right; padding: 4px 10px 8px; border-bottom: 1px solid var(--line); }
   #scoreboard td { padding: 7px 10px; text-align: right; border-bottom: 1px solid rgba(242, 239, 232, 0.06); font-variant-numeric: tabular-nums; }
@@ -350,6 +378,10 @@
       <thead><tr><th></th><th></th><th class="l">Player</th><th>K</th><th>D</th><th>PWR</th><th>Ping</th></tr></thead>
       <tbody id="sb-rows"></tbody>
     </table>
+    <div id="sb-vote">
+      <div class="vote-head"><span class="eyebrow">Vote for the next map</span><span class="dim">Press its number, or Esc and click</span></div>
+      <div id="sb-maps" class="maps"></div>
+    </div>
   </div>
 </div>
 <div id="stats" hidden></div>
@@ -365,6 +397,8 @@
     <p id="join-error"></p>
     <div id="lobby-room" hidden>
       <ul id="lobby-players"></ul>
+      <div class="vote-head"><span class="eyebrow">Map vote</span><span class="dim">Click a map to vote</span></div>
+      <div id="lobby-maps" class="maps"></div>
       <button id="start" hidden>Start match</button>
       <p id="lobby-status" class="dim"></p>
     </div>
