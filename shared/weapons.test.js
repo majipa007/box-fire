@@ -8,15 +8,15 @@ import { shotRng } from './rng.js';
 const mover = (speed, extra = {}) => ({ x: 0, y: 0, z: 0, vx: speed, vy: 0, vz: 0, grounded: true, crouch: false, ...extra });
 const close = (a, b) => Math.abs(a - b) < 1e-9;
 
-test('rifle spread blends from 0.4° standing to 2.5° at run speed', () => {
-  assert.ok(close(spreadDegrees('rifle', mover(0)), 0.4));
+test('rifle spread blends from 0.15° standing to 2.5° at run speed', () => {
+  assert.ok(close(spreadDegrees('rifle', mover(0)), 0.15));
   assert.ok(close(spreadDegrees('rifle', mover(5.5)), 2.5));
-  assert.ok(close(spreadDegrees('rifle', mover(2.75)), 1.45));
+  assert.ok(close(spreadDegrees('rifle', mover(2.75)), 1.325));
 });
 
 test('airborne spread is double the moving value, crouched is 0.8 of standing', () => {
   assert.ok(close(spreadDegrees('rifle', mover(0, { grounded: false })), 5));
-  assert.ok(close(spreadDegrees('rifle', mover(1.8, { crouch: true })), 0.32));
+  assert.ok(close(spreadDegrees('rifle', mover(1.8, { crouch: true })), 0.12));
 });
 
 test('seeded shot directions stay inside the spread cone and repeat exactly', () => {
@@ -130,10 +130,16 @@ test('each weapon keeps its own magazine', () => {
   assert.deepEqual(a.mags, [20, 11]);
 });
 
-test('the shotgun fires 12 pellets inside a 4° cone', () => {
-  const dirs = shotDirs(0, 0, 'shotgun', mover(0), shotRng(7, 1, 1));
-  assert.equal(dirs.length, 12);
-  for (const d of dirs) assert.ok((Math.acos(Math.min(1, -d[2])) * 180) / Math.PI <= 4 + 1e-9);
+test('the shotgun fires 12 pellets inside a 3.5° cone, standing or running', () => {
+  for (const speed of [0, 5.5]) {
+    let widest = 0;
+    for (let shot = 1; shot <= 50; shot++) {
+      const dirs = shotDirs(0, 0, 'shotgun', mover(speed), shotRng(7, 1, shot));
+      assert.equal(dirs.length, 12);
+      for (const d of dirs) widest = Math.max(widest, (Math.acos(Math.min(1, -d[2])) * 180) / Math.PI);
+    }
+    assert.ok(widest <= 3.5 + 1e-9 && widest > 3.3, `widest pellet ${widest}°`);
+  }
 });
 
 test('the shotgun pumps at 1.1 shots per second and holds 5 shells', () => {
@@ -169,13 +175,30 @@ test('firing interrupts a shell-by-shell reload', () => {
   assert.equal(a.mags[0], 1);
 });
 
-test('shotgun damage falls off beyond 8 m; the rifle has no falloff', () => {
-  assert.equal(damageAt('shotgun', false, 5), 8);
-  assert.equal(damageAt('shotgun', false, 8), 8);
-  assert.ok(close(damageAt('shotgun', false, 14), 5));
+test('a shotgun pellet does 10 out to 8 m, falling to 2 from 18 m on: a full close blast kills 100 HP but not a Shield', () => {
+  assert.equal(damageAt('shotgun', false, 5), 10);
+  assert.equal(damageAt('shotgun', false, 8), 10);
+  assert.ok(close(damageAt('shotgun', false, 13), 6));
   assert.ok(close(damageAt('shotgun', false, 40), 2));
-  assert.equal(damageAt('shotgun', true, 5), 16);
-  assert.equal(damageAt('rifle', true, 40), 160);
+  assert.equal(damageAt('shotgun', true, 5), 20);
+  assert.equal(12 * damageAt('shotgun', false, 4), 120);
+});
+
+test('the pistol does 26 out to 25 m, falling to 19.5 from 40 m on', () => {
+  assert.equal(damageAt('pistol', false, 25), 26);
+  assert.ok(close(damageAt('pistol', false, 40), 19.5));
+  assert.ok(close(damageAt('pistol', false, 60), 19.5));
+});
+
+test('every rifle headshot does a flat 160, at any range', () => {
+  for (const d of [2, 20, 40, 50]) assert.equal(damageAt('rifle', true, d), 160, `${d} m`);
+});
+
+test('a rifle body hit does 30 out to 20 m, falling to 24 from 30 m on', () => {
+  assert.equal(damageAt('rifle', false, 2), 30);
+  assert.equal(damageAt('rifle', false, 20), 30);
+  assert.ok(close(damageAt('rifle', false, 25), 27));
+  assert.ok(close(damageAt('rifle', false, 35), 24));
 });
 
 test('a fresh life starts grounded at the spawn with full HP, magazines and the primary drawn', () => {

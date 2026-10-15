@@ -317,12 +317,14 @@ test('a shot Mine goes off for the shooter, owner included', () => {
 test('a Shield absorbs 60: two rifle body hits break it, and a 160 headshot kills through it', () => {
   const { game, players: [a, b] } = match([[0, 0], [5, 0]]);
   b.pw.shield = 60;
-  game.damage(a, b, 40, false, 'rifle');
-  assert.deepEqual([b.hp, b.pw.shield], [MAX_HP, 20]);
-  game.damage(a, b, 40, false, 'rifle');
-  assert.deepEqual([b.hp, b.pw.shield], [MAX_HP - 20, 0]);
+  game.damage(a, b, 30, false, 'rifle');
+  assert.deepEqual([b.hp, b.pw.shield], [MAX_HP, 30]);
+  game.damage(a, b, 30, false, 'rifle');
+  assert.deepEqual([b.hp, b.pw.shield], [MAX_HP, 0]);
   const hit = events(a, 'hit').at(-1);
-  assert.deepEqual([hit.dmg, hit.sh], [20, 20]);
+  assert.deepEqual([hit.dmg, hit.sh], [0, 30]);
+  game.damage(a, b, 30, false, 'rifle');
+  assert.deepEqual([b.hp, b.pw.shield], [MAX_HP - 30, 0]);
   const { players: [c, d], game: g2 } = match([[0, 0], [5, 0]]);
   d.pw.shield = 60;
   g2.damage(c, d, 160, true, 'rifle');

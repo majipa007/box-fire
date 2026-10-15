@@ -64,16 +64,16 @@ assert.ok(Math.abs(Math.hypot(sp.x - A.mover.x, sp.z - A.mover.z) - far) < 1e-9,
 assert.equal(B.hp, 100);
 console.log('respawn furthest ok');
 
-// Body shots: 40 each, so three to kill.
+// Body shots: 30 each, so four to kill.
 place(B, -5, 0);
 settle();
 const hitsBefore = events(ca, 'hit').length;
 run(2, true, 0.8);
-assert.equal(events(ca, 'hit').at(-1).dmg, 40);
+assert.equal(events(ca, 'hit').at(-1).dmg, 30);
 assert.equal(events(ca, 'hit').at(-1).head, false);
 run(20, true, 0.8);
 assert.equal(B.alive, false);
-assert.equal(events(ca, 'hit').length - hitsBefore, 3, 'exactly three body hits');
+assert.equal(events(ca, 'hit').length - hitsBefore, 4, 'exactly four body hits');
 console.log('body damage ok');
 
 // Walls block: Bob behind the divider at x = 8.

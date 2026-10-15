@@ -61,6 +61,7 @@ export function shotDirs(yaw, pitch, weapon, m, rand) {
 // Damage of one hit (one pellet for the shotgun) at a distance in metres.
 export function damageAt(weapon, head, dist) {
   const w = WEAPONS[weapon];
+  if (head && w.headDmg) return w.headDmg; // flat at any range, on every bullet
   const f = w.falloff;
   const scale = !f || dist <= f.from ? 1 : Math.max(f.min, 1 - ((1 - f.min) * (dist - f.from)) / (f.to - f.from));
   return w.dmg * (head ? w.head : 1) * scale;
