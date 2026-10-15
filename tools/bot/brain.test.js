@@ -16,13 +16,13 @@ const boxes = navFor('arena_01').map.boxes;
 
 // A bot (id 1) on arena_01 at `at`, looking along `yaw`, in a snapshot with
 // the foes given as [id, x, y, z, flags, hp].
-function situation({ at, yaw, hp = 100, foes = [], skill = 'normal', passive = false, tick = 1000 }) {
-  const bot = createBot(1, { skill, passive, primary: 'rifle', rand: shotRng(3, 0, 0) });
+function situation({ at, yaw, hp = 100, foes = [], skill = 'normal', passive = false, tick = 1000, primary = 'rifle' }) {
+  const bot = createBot(1, { skill, passive, primary, rand: shotRng(3, 0, 0) });
   onMessage(bot, { t: 'welcome', id: 1, map: 'arena_01' });
-  onMessage(bot, { t: 'event', e: 'spawn', id: 1, x: at[0], y: at[1], z: at[2], yaw, primary: 'rifle' });
+  onMessage(bot, { t: 'event', e: 'spawn', id: 1, x: at[0], y: at[1], z: at[2], yaw, primary });
   const snap = (t) => ({
     t: 'snapshot', tick: t, ack: 0,
-    me: { mover: { ...createMover(...at), grounded: true }, arsenal: createArsenal('rifle'), hp, alive: true, pw: createPowers() },
+    me: { mover: { ...createMover(...at), grounded: true }, arsenal: createArsenal(primary), hp, alive: true, pw: createPowers() },
     ps: [[1, ...at, yaw, 0, ALIVE, hp, 0], ...foes.map(([id, x, y, z, flags, fhp = 100]) => [id, x, y, z, 0, 0, flags, fhp, 0])],
     pu: { pd: navFor('arena_01').map.pads.map(() => [0, 0, 0]), en: [] },
   });
@@ -92,4 +92,14 @@ test('a bot shoots a foe it can see, but never a spawn-protected one, and a pass
   assert.ok(shotsIn2s(ALIVE) > 0, 'shoots a bare foe');
   assert.equal(shotsIn2s(ALIVE | PLAYER_FLAGS.SHIELDED), 0, 'spawn protection');
   assert.equal(shotsIn2s(ALIVE, true), 0, 'passive');
+});
+
+test('a shotgun bot fights a far foe with its pistol and a near one with the shotgun', () => {
+  const slotFor = (foe) => {
+    assert.ok(clearLine([10, 1.6, -17], [foe[0], 1, foe[2]], boxes), 'fixture: the line is clear');
+    const { bot } = situation({ at: [10, 0, -17], yaw: yawTo(0, 1), primary: 'shotgun', foes: [[2, ...foe, ALIVE]] });
+    return think(bot, budget()).slot;
+  };
+  assert.equal(slotFor([10, 0, 3]), 1, '20 m: pistol');
+  assert.equal(slotFor([10, 0, -12]), 0, '5 m: shotgun');
 });

@@ -9,7 +9,7 @@ import { clearLine } from '../../shared/powerups.js';
 import { eyeOf, weaponOf, spreadDegrees } from '../../shared/weapons.js';
 import { TICK_RATE, DT, POWER_CAPACITY, MAX_HP, WEAPONS, RUN_SPEED } from '../../shared/constants.js';
 import { navFor, createRoute, follow, floorReachable } from './nav.js';
-import { SKILLS, createAim, acquire, stepAim, shouldFire, standsToShoot, idealRange, yawTo } from './aim.js';
+import { SKILLS, createAim, acquire, stepAim, shouldFire, standsToShoot, idealRange, roleOf, yawTo } from './aim.js';
 
 const { ALIVE, CROUCH, SHIELDED, BUBBLE } = PLAYER_FLAGS;
 const D2R = Math.PI / 180;
@@ -209,11 +209,16 @@ export function think(bot, budget) {
     const dx = tgt.x - m.x, dz = tgt.z - m.z, d = Math.hypot(dx, dz) || 1, ux = dx / d, uz = dz / d;
     stepAim(a, sk, DT, eye, seenPoint(bot, g.id, tgt), Math.hypot(m.vx, m.vz) / RUN_SPEED, rand);
     if (!tgt.prot && !bot.passive) inp.fire = shouldFire(a, sk, w, bot.tick, spreadDegrees(wname, m, ars.heat ?? 0));
-    if (mag === 0 && ars.slot === 0 && d < 12) inp.slot = 1; // empty up close: draw the pistol
+    // The pistol when the primary is empty up close, or when a close-range
+    // primary cannot reach; back to the primary once in its range.
+    const primary = WEAPONS[ars.primary], range0 = idealRange(primary, false);
+    if (ars.slot === 0 && mag === 0 && d < 12) inp.slot = 1;
+    else if (roleOf(primary) === 'close' && ars.slot === 0 && d > 2 * range0) inp.slot = 1;
+    else if (roleOf(primary) === 'close' && ars.slot === 1 && d < 1.5 * range0 && ars.mags[0] > 0) inp.slot = 0;
     if (!standsToShoot(a, w)) {
       // Close in or back off along a route, strafing on top.
       if (bot.tick >= bot.flipAt) { bot.strafe = rand() < 0.5 ? -1 : 1; bot.flipAt = bot.tick + Math.round((0.3 + 0.6 * rand()) * TICK_RATE); }
-      const range = idealRange(w, ars.slot === 1);
+      const range = ars.mags[0] > 0 ? range0 : idealRange(w, ars.slot === 1); // close in for the primary
       const close = d > range * 1.3 ? 1 : d < range * 0.6 ? -1 : 0;
       PT[0] = close > 0 ? tgt.x : close < 0 ? m.x - ux * 4 : m.x;
       PT[1] = m.y;
