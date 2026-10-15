@@ -125,7 +125,11 @@ export function navFor(id) {
 
 // A goal against a wall sits in a cell the inflation raised to the wall's
 // top: plan to the nearest cell within 1 m at the goal's own height instead.
+// A goal off the grid (a noisy heard shot) is first pulled 1 m inside its
+// edge, which on every listed map is the outer wall's inner face.
 function floorCell(g, x, y, z) {
+  x = Math.min(Math.max(x, g.x0 + 1), g.x0 + g.w * CELL - 1);
+  z = Math.min(Math.max(z, g.z0 + 1), g.z0 + g.d * CELL - 1);
   const c = cellOf(g, x, z);
   if (c < 0 || g.h[c] <= y + 0.3) return c;
   let best = c, bd = Infinity;

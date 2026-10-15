@@ -97,7 +97,7 @@ function perceive(bot, eye) {
     HEAD[1] = y + (crouch ? 1.05 : 1.65); CHEST[1] = y + (crouch ? 0.7 : 1);
     if (!clearLine(eye, HEAD, boxes) && !clearLine(eye, CHEST, boxes)) continue;
     let mem = bot.mem.get(id);
-    if (!mem) bot.mem.set(id, (mem = { x, y, z, tick: -1e9, prot: false, bubble: false, hp: 0, crouch }));
+    if (!mem) bot.mem.set(id, (mem = { id, x, y, z, tick: -1e9, prot: false, bubble: false, hp: 0, crouch }));
     if (bot.tick - mem.tick > 30) bot.fresh = true; // newly in sight
     mem.x = x; mem.y = y; mem.z = z; mem.tick = bot.tick; mem.hp = p[7]; mem.crouch = crouch;
     mem.prot = !!(flags & SHIELDED); mem.bubble = !!(flags & BUBBLE);
@@ -147,7 +147,7 @@ function choose(bot, m, ars) {
     if (spot) offer({ kind: 'cover', s: 1.2 - 0.5 * hpShare, pos: spot });
     let lost = null;
     for (const mem of bot.mem.values()) if (t - mem.tick > 20 && (!lost || mem.tick > lost.tick)) lost = mem;
-    if (lost) offer({ kind: 'hunt', s: 0.6 * (1 - (t - lost.tick) / (sk.memory * TICK_RATE)), pos: [lost.x, lost.y, lost.z] });
+    if (lost) offer({ kind: 'hunt', id: lost.id, s: 0.6 * (1 - (t - lost.tick) / (sk.memory * TICK_RATE)), pos: [lost.x, lost.y, lost.z] });
     if (t - bot.noise.tick < 4 * TICK_RATE) offer({ kind: 'hunt', s: 0.5, pos: [bot.noise.x, bot.noise.y, bot.noise.z] });
   }
   const inv = bot.me.pw?.inv.length ?? POWER_CAPACITY;
@@ -240,8 +240,11 @@ export function think(bot, budget) {
     else if (mag < w.mag * 0.4 && !ars.reload) keys |= KEY.RELOAD;
     if (g) {
       const s = follow(bot.nav, bot.route, m, g.pos, bot.tick, budget);
-      if (!s) bot.goal = null;
-      else {
+      if (!s) {
+        // Cannot get there: forget what sent it, or choose() offers it again.
+        if (g.kind === 'hunt') { if (g.id === undefined) bot.noise.tick = -1e9; else bot.mem.delete(g.id); }
+        bot.goal = null;
+      } else {
         mx = s.x - m.x; mz = s.z - m.z; routeLeft = s.left;
         if (s.jump) keys |= KEY.JUMP;
         if (s.left < 0.8 && g.kind !== 'pad') bot.goal = null; // arrived

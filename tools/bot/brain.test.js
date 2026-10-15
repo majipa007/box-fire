@@ -2,7 +2,7 @@
 // input out. Situations are built from the same messages the server sends.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createMover } from '../../shared/movement.js';
+import { createMover, step } from '../../shared/movement.js';
 import { createArsenal } from '../../shared/weapons.js';
 import { createPowers, clearLine } from '../../shared/powerups.js';
 import { PLAYER_FLAGS } from '../../shared/protocol.js';
@@ -137,4 +137,43 @@ test('a roaming bot that holds an item still goes for a pad once patience has pa
   onMessage(bot, snap(1000 + 8 * 60 + 1));
   think(bot, budget());
   assert.equal(bot.goal.kind, 'pad');
+});
+
+// A hard bot at a spawn on arena_02 with nothing else to do: a full
+// inventory, every pad refilling, no foe in sight. Hears one shot from
+// `o`, then walks through the real step() for 2 s. Returns how many ticks
+// it held no move keys, and how far it ends from the shot.
+function afterShot(at, o) {
+  const a2 = navFor('arena_02').map;
+  const bot = createBot(1, { skill: 'hard', rand: shotRng(5, 0, 0) });
+  onMessage(bot, { t: 'welcome', id: 1, map: 'arena_02' });
+  onMessage(bot, { t: 'event', e: 'spawn', id: 1, x: at[0], y: at[1], z: at[2], yaw: 0 });
+  const m = { ...createMover(...at), grounded: true };
+  const snap = (t) => ({
+    t: 'snapshot', tick: t, ack: 0,
+    me: { mover: m, arsenal: createArsenal('rifle'), hp: 100, alive: true, pw: { ...createPowers(), inv: ['bolt', 'mine', 'shield'] } },
+    ps: [[1, m.x, m.y, m.z, 0, 0, ALIVE, 100, 0]], pu: { pd: a2.pads.map(() => [0, 1e9, 0]), en: [] },
+  });
+  onMessage(bot, snap(1000));
+  onMessage(bot, { t: 'event', e: 'shot', id: 2, o });
+  let idle = 0;
+  for (let t = 1001; t <= 1120; t++) {
+    onMessage(bot, snap(t));
+    const input = think(bot, budget());
+    step(m, input, a2.boxes);
+    if (!(input.keys & 15)) idle++;
+  }
+  return { idle, left: Math.hypot(o[0] - m.x, o[2] - m.z) };
+}
+
+test('a bot that hears a shot beyond the edge of the map does not stand frozen', () => {
+  // Beyond the outer wall at x = 20, 12 m from the spawn at (12.6, 0, -12).
+  const { idle } = afterShot([12.6, 0, -12], [24, 1.6, -6.6]);
+  assert.ok(idle < 60, `held no move keys for ${idle} of 120 ticks`);
+});
+
+test('a bot walks toward a shot it heard beyond the wall, to the nearest floor it can reach', () => {
+  // 12.9 m away to start; the nearest floor is 4 m short of the shot.
+  const { left } = afterShot([12.6, 0, -12], [24, 1.6, -6.6]);
+  assert.ok(left < 9, `still ${left.toFixed(1)} m from the shot after 2 s`);
 });
