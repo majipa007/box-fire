@@ -62,3 +62,34 @@ test('a hurt bot takes cover from a foe it can see, at a spot that foe cannot se
   const [x, y, z] = bot.goal.pos;
   assert.ok(!clearLine([foe[0], foe[1] + 1.6, foe[2]], [x, y + 1, z], boxes), `the foe can see ${x.toFixed(1)}, ${z.toFixed(1)}`);
 });
+
+test('a bot leaves a pad that just came up for 2-8 s, unless it is within 6 m; passive bots collect pads too', () => {
+  for (const passive of [false, true]) {
+    // 9 m from the nearest pad, at (-16, 0, -8).
+    const far = situation({ at: [-17, 0, -17], yaw: yawTo(1, 1), passive, tick: 1000 });
+    think(far.bot, budget());
+    assert.notEqual(far.bot.goal.kind, 'pad', 'patience: not straight away');
+    onMessage(far.bot, far.snap(1000 + 2 * 60 - 13));
+    think(far.bot, budget());
+    assert.notEqual(far.bot.goal.kind, 'pad', 'patience: not before 2 s');
+    onMessage(far.bot, far.snap(1000 + 8 * 60 + 1));
+    think(far.bot, budget());
+    assert.equal(far.bot.goal.kind, 'pad', 'patience passed');
+    assert.deepEqual(far.bot.goal.pos, [-16, 0, -8]);
+  }
+  const near = situation({ at: [-16, 0, -12], yaw: 0, tick: 1000 });
+  think(near.bot, budget());
+  assert.equal(near.bot.goal.kind, 'pad');
+});
+
+test('a bot shoots a foe it can see, but never a spawn-protected one, and a passive bot never shoots', () => {
+  const shotsIn2s = (flags, passive = false) => {
+    const { bot, snap } = situation({ at: [-17, 0, -17], yaw: yawTo(1, 1), foes: [[2, -12, 0, -12, flags]], passive });
+    let shots = 0;
+    for (let t = 1000; t < 1120; t++) { onMessage(bot, snap(t)); shots += think(bot, budget()).fire ? 1 : 0; }
+    return shots;
+  };
+  assert.ok(shotsIn2s(ALIVE) > 0, 'shoots a bare foe');
+  assert.equal(shotsIn2s(ALIVE | PLAYER_FLAGS.SHIELDED), 0, 'spawn protection');
+  assert.equal(shotsIn2s(ALIVE, true), 0, 'passive');
+});
