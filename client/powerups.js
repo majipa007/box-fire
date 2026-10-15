@@ -519,7 +519,9 @@ export function padStates() {
 // secs: whole seconds left), 'full' on an up pad with a full inventory. It
 // follows the server's ready flag, never our clock, and `took` latches your
 // own pick from this pad, so standing through a refill never cues 'refill'
-// again after you grab the item.
+// again after you grab the item. Stepping on clears it: your pick always
+// arrives before the snapshot that shows the pad refilling (same tick, one
+// socket), so if someone else grabs first, you see 'refill'.
 const cue = { state: '', kind: '', secs: 0, pad: -1, took: false };
 export const padCue = () => cue;
 
@@ -527,7 +529,7 @@ function padCueStep(tick) {
   const i = self.alive && self.mover ? padUnder(self.mover, pads) : -1;
   if (i !== cue.pad) {
     cue.pad = i;
-    cue.took = i >= 0 && !pads[i].ready; // up when you step on: you take it, or are told you're full
+    cue.took = false;
   }
   const p = i >= 0 ? pads[i] : null;
   const state = !p ? '' : p.ready ? (cue.took ? '' : 'refill') : (self.pw?.inv.length ?? 0) >= POWER_CAPACITY ? 'full' : '';

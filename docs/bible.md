@@ -771,7 +771,7 @@ export function knock(s, vx, vz, lift) { // horizontal impulse adds; lift only w
 |---|---|
 | Pickup | Your own only, at your ear. 3 sines at 0 / 40 / 80 ms with 250 ms decay. Root by item: Shunt 523 Hz, Bolt 587, Barge 659, Shock 698, Mine 784, Nitro 880, Shield 988; then a major third and a fifth above |
 | Pad taken (others' pick) | Spatial at the pad, −20 dB: sine 262 Hz for 0.12 s plus noise high-passed at 3 kHz for 0.06 s at gain 0.4. Others' picks get no chime and no burst (15/10/2026) |
-| Pad empty (yours) | Dry, −17 dB: triangle 494 Hz for 0.07 s, then 370 Hz at 0.075 s for 0.09 s. Plays as you step onto a refilling pad |
+| Pad empty (yours) | Dry, −17 dB: triangle 494 Hz for 0.07 s, then 370 Hz at 0.075 s for 0.09 s. Plays as you step onto a refilling pad, or when someone else takes the pad you stand on |
 | Pad full (yours) | Dry, −15 dB: two square ticks at 880 Hz, 25 ms, at 0 and 0.06 s, over a 140 Hz thud of 0.05 s. Plays as you step onto an up pad with 3 items |
 | Shunt launch | Noise band-pass sweeping 900 → 2200 Hz over 0.4 s; the flight hiss loops spatially |
 | Shunt lock (target only) | 1.6 kHz beeps, 30 ms long, 3 → 9 per second as distance closes from 40 to 0 m |

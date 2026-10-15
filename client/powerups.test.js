@@ -228,3 +228,20 @@ for (const order of ['pick, then snapshot', 'snapshot, then pick']) {
     assert.equal(pu.cues.empty, empty);
   });
 }
+
+// Someone else's grab lands first on the pad you just stepped onto: you now
+// stand on an empty pad, and the chip is the only clock you can see there.
+for (const [label, inv] of [['room', []], ['a full inventory', ['shunt', 'bolt', 'mine']]]) {
+  test(`stepping onto an up pad with ${label}, then someone else grabs it: "refill"`, () => {
+    pu.setMap({ boxes: [], pads: PADS });
+    pu.onSnapshot(padSnapshot([]));
+    standOn(0, inv);
+    pu.updatePowerups(clock, 2e5, CAM);
+    const { empty } = pu.cues;
+    pu.onEvent({ t: 'event', e: 'pick', id: 202, pad: 0, k: PADS[0].pool[0], tick: 2e5 }, ME);
+    pu.onSnapshot(padSnapshot([3e5]));
+    for (let k = 1; k <= 3; k++) pu.updatePowerups(clock + k * STEP, 2e5, CAM);
+    assert.equal(pu.padCue().state, 'refill');
+    assert.equal(pu.cues.empty, empty + 1);
+  });
+}
