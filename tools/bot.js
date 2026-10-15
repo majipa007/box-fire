@@ -9,7 +9,7 @@ import { KEY } from '../shared/movement.js';
 import { encodeInput, PLAYER_FLAGS } from '../shared/protocol.js';
 import { prepareMap } from '../shared/collision.js';
 import { chestOf, clearLine } from '../shared/powerups.js';
-import { TICK_RATE, PORT, INTERP_DELAY_TICKS, POWER_PADS, POWER_CAPACITY, MAX_HP } from '../shared/constants.js';
+import { TICK_RATE, PORT, INTERP_DELAY_TICKS, POWER_CAPACITY, MAX_HP } from '../shared/constants.js';
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -18,21 +18,21 @@ const opt = (name, fallback) => {
 };
 const count = Number(opt('count', 1));
 const url = opt('url', `ws://localhost:${process.env.PORT || PORT}`);
-const maps = new Map(); // map id → prepared boxes
-const boxesOf = (id) => {
-  if (!maps.has(id)) maps.set(id, prepareMap(JSON.parse(readFileSync(new URL(`../shared/maps/${id}.json`, import.meta.url)))).boxes);
+const maps = new Map(); // map id → prepared map (boxes, spawns, pads)
+const mapOf = (id) => {
+  if (!maps.has(id)) maps.set(id, prepareMap(JSON.parse(readFileSync(new URL(`../shared/maps/${id}.json`, import.meta.url)))));
   return maps.get(id);
 };
 
 function startBot(n) {
   const ws = new WebSocket(url);
-  const bot = { n, ws, id: null, tick: 0, spawned: false, yaw: 0, pitch: 0, seq: 0, boxes: [], me: null, ps: [], pd: [], stuck: 0, dodge: 0, last: null, holdAim: 0 };
+  const bot = { n, ws, id: null, tick: 0, spawned: false, yaw: 0, pitch: 0, seq: 0, boxes: [], pads: [], me: null, ps: [], pd: [], stuck: 0, dodge: 0, last: null, holdAim: 0 };
   ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name: `bot${n}`, bot: true }));
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
     if (m.t === 'welcome') {
       bot.id = m.id;
-      bot.boxes = boxesOf(m.map);
+      ({ boxes: bot.boxes, pads: bot.pads } = mapOf(m.map));
     } else if (m.t === 'snapshot') {
       bot.tick = m.tick;
       bot.me = m.me;
@@ -89,7 +89,7 @@ function input(bot, i) {
   let pad = null;
   let padDist = Infinity;
   if (pw && pw.inv.length < POWER_CAPACITY) {
-    POWER_PADS.forEach(({ pos }, k) => {
+    bot.pads.forEach(({ pos }, k) => {
       const d = Math.hypot(pos[0] - m.x, pos[2] - m.z);
       if (bot.pd[k] && !bot.pd[k][1] && d < padDist) [pad, padDist] = [pos, d];
     });

@@ -108,14 +108,7 @@ export const POWERS = {
   nitro: { seconds: 4, speed: 1.4 },
   shield: { hp: 60, seconds: 8 },
 };
-export const POWER_PADS = [
-  { pos: [0, 0, 0], pool: ['shunt'], respawn: 30 },
-  { pos: [3, 1.2, 13], pool: ['shield'], respawn: 30 },
-  { pos: [0, 0, -10.5], pool: ['shock'], respawn: 40 },
-  { pos: [8, 0, 0], pool: ['barge', 'bolt'], respawn: 20 },
-  { pos: [-8, 0, 0], pool: ['bolt', 'barge'], respawn: 20 },
-  { pos: [17, 0, -6], pool: ['nitro'], respawn: 20 },
-  { pos: [-17, 0, 6], pool: ['nitro'], respawn: 20 },
-  { pos: [16, 0, 8], pool: ['mine'], respawn: 30 },
-  { pos: [-16, 0, -8], pool: ['mine'], respawn: 30 },
-];
+
+// Every playable map, in vote order. Map files are shared/maps/<id>.json; a
+// vote or a MAP= override naming anything else is ignored.
+export const MAPS = ['arena_01', 'arena_02'];

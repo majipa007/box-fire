@@ -4,7 +4,7 @@
 // (shared/powerups.js) decides what is used and when; Game calls use() for
 // it, shot() per bullet, step() once per tick and snapshot() for the wire.
 import {
-  TICK_RATE, POWERS, POWER_PADS, POWER_PAD_BOX, POWER_CAPACITY, PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, HISTORY_TICKS,
+  TICK_RATE, POWERS, POWER_PAD_BOX, POWER_CAPACITY, PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, HISTORY_TICKS,
 } from '../shared/constants.js';
 import { knock } from '../shared/movement.js';
 import { createPowers, falloff, pushScale, domeCentres, chestOf, clearLine, lockTarget, padRespawnTicks } from '../shared/powerups.js';
@@ -45,8 +45,7 @@ function boxDist(p, m) {
 export class PowerServer {
   constructor(game) {
     this.game = game;
-    // Pads live in constants.js for arena_01; other maps (tests) have none.
-    this.pads = (game.mapId === 'arena_01' ? POWER_PADS : []).map((pad) => {
+    this.pads = game.map.pads.map((pad) => { // from the map file
       const [x, y, z] = pad.pos;
       const [w, h, d] = POWER_PAD_BOX;
       return { ...pad, box: { min: [x - w / 2, y, z - d / 2], max: [x + w / 2, y + h, z + d / 2] }, idx: 0, readyAt: 0, span: 0 };

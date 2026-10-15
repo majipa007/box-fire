@@ -297,7 +297,7 @@ async function buildStage() {
   buildWorld(render.scene, map);
   render.scene.add(charactersGroup, effectsGroup);
   world = prepareMap(map);
-  powerups.initPowerups({ boxes: world.boxes }); // powerups: pads, entities, ghosts
+  powerups.initPowerups({ boxes: world.boxes, pads: map.pads }); // powerups: pads, entities, ghosts
   render.scene.add(powerups.powerupsGroup); // powerups:
   initEffects({ boxes: world.boxes, map, quality: ui.settings.quality, sunDir: sun.position.clone().normalize().toArray() }); // effects: debris lands on the map; shots find the face they hit
   initCharacters({ boxes: world.boxes, sunDir: SUN_DIR, quality: ui.settings.quality, camera: render.camera }); // characters: before the compile, so its shaders build behind the lobby

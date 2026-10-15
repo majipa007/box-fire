@@ -7,11 +7,11 @@ import {
   createPowers, stepPowers, falloff, pushScale, domeCentres, lockTarget, padRespawnTicks, NITRO_TICKS, ARENA_LIMIT,
 } from './powerups.js';
 import { createMover, step, knock, KEY } from './movement.js';
-import { prepareMap, overlaps } from './collision.js';
+import { prepareMap } from './collision.js';
 import { decodeClient } from './protocol.js';
 import { createArsenal } from './weapons.js';
 import { shotRng } from './rng.js';
-import { DT, POWER_PADS, POWER_PAD_BOX, POWERS, TICK_RATE } from './constants.js';
+import { DT, POWERS, TICK_RATE } from './constants.js';
 
 const FLOOR = { pos: [0, -0.5, 0], size: [100, 1, 100] };
 const world = (...boxes) => prepareMap({ boxes: [FLOOR, ...boxes], spawns: [] }).boxes;
@@ -228,12 +228,3 @@ test('pads refill at the 6-player rate, slower in smaller games', () => {
   assert.equal(padRespawnTicks(pad, 0), 180 * TICK_RATE);
 });
 
-test('every pad\'s pickup box stands clear of the map', () => {
-  const [w, h, d] = POWER_PAD_BOX;
-  for (const { pos: [x, y, z], pool } of POWER_PADS) {
-    assert.ok(pool.every((k) => k in POWERS), `${pool}`);
-    assert.ok(!overlaps({ x, y, z }, w / 2, h, arena), `pad at ${x}, ${y}, ${z}`);
-    assert.ok(overlaps({ x, y: y - 0.01, z }, w / 2, 0.02, arena), `pad at ${x}, ${y}, ${z} stands on something`);
-  }
-  assert.equal(w, d);
-});

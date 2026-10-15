@@ -11,7 +11,7 @@
 //   uses one; updatePowerups(now, renderTick, camera) per frame.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { POWER_COLORS, POWER_PADS, POWERS, POWER_CAPACITY, TICK_RATE, INPUT_BUFFER } from '../shared/constants.js';
+import { POWER_COLORS, POWERS, POWER_CAPACITY, TICK_RATE, INPUT_BUFFER } from '../shared/constants.js';
 import { createPowers } from '../shared/powerups.js';
 import { POWER_IDS, ENT, PU_STATE } from '../shared/protocol.js';
 import { eyeOf, aimDir, traceShot } from '../shared/weapons.js';
@@ -235,8 +235,14 @@ const quadMaterial = (vertexShader, fragmentShader, extra = {}) => new THREE.Sha
 // ---- State ----
 // Until the first snapshot (the lobby, a join mid-scoreboard), every pad is
 // up at its pool's first item, as a fresh match starts on the server.
-const pads = POWER_PADS.map(({ pos: [x, y, z], pool }, i) => ({ x, y, z, kind: pool[0], ready: 0, span: 0, phase: i * 1.7 }));
-const padView = pads.map((p) => ({ pos: [p.x, p.y, p.z], kind: p.kind, up: true })); // padStates()
+let pads = []; // setPads(), from the map file
+let padView = []; // padStates()
+
+// The map's pads ({ pos, pool, respawn }), each up at its pool's first item.
+export function setPads(list) {
+  pads = list.map(({ pos: [x, y, z], pool }, i) => ({ x, y, z, kind: pool[0], ready: 0, span: 0, phase: i * 1.7 }));
+  padView = pads.map((p) => ({ pos: [p.x, p.y, p.z], kind: p.kind, up: true }));
+}
 const snaps = []; // { tick, en } from the last few snapshots, oldest first
 const shownDir = new Map(); // eid → [x, y, z] heading, kept when a Shunt stops moving between snapshots
 const pending = []; // others' events, waiting for the render tick
@@ -260,8 +266,9 @@ const DOWN = [0, -1, 0];
 const AHEAD = [0, 0, -1];
 const tint = new THREE.Color();
 
-export function initPowerups({ boxes: mapBoxes = [] } = {}) {
+export function initPowerups({ boxes: mapBoxes = [], pads: list = [] } = {}) {
   if (plinths) return;
+  setPads(list);
   boxes = mapBoxes; // quality: one look for both presets, 6 draws either way
   plinths = new THREE.InstancedMesh(plinthGeometry(), new THREE.MeshLambertMaterial({ vertexColors: true }), pads.length);
   pads.forEach((p, i) => plinths.setMatrixAt(i, m4.makeTranslation(p.x, p.y, p.z)));

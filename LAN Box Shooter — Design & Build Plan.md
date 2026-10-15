@@ -135,11 +135,11 @@ Seven Blur-inspired pickups sit on 9 pads around the arena. You carry up to thre
 | Nitro | 4 s at 1.4× run speed |
 | Shield | 60-point overshield for 8 s |
 
-Nothing heals, no single use kills from full health, and power-up kills should stay at or below 25% of all kills. Pickups, damage and knockback are server-authoritative; your own uses, cooldown, Nitro and Shield are predicted like weapons. Every number lives in `shared/constants.js` (`POWERS`, `POWER_PADS`); the full spec is `docs/bible.md` §4.
+Nothing heals, no single use kills from full health, and power-up kills should stay at or below 25% of all kills. Pickups, damage and knockback are server-authoritative; your own uses, cooldown, Nitro and Shield are predicted like weapons. Every number lives in `shared/constants.js` (`POWERS`), and each map file lists its own pads; the full spec is `docs/bible.md` §4.
 
-The v1 map is one 40 × 40 m arena in `shared/maps/arena_01.json`: a list of boxes (`pos`, `size`, `color`) plus spawn points. Open middle, two side lanes, scattered crates for cover, one raised platform at 1.2 m reached over a 0.6 m crate, 4 m perimeter walls. Because a map is pure data, a second map is just another JSON file.
+The v1 map is one 40 × 40 m arena in `shared/maps/arena_01.json`: a list of boxes (`pos`, `size`, `color`) plus spawn points, power-up pads and painted lane lines. Open middle, two side lanes, scattered crates for cover, one raised platform at 1.2 m reached over a 0.6 m crate, 4 m perimeter walls. Because a map is pure data, a second map is just another JSON file.
 
-Players pick the map by vote. The lobby shows one card per map; each player clicks one, and the cards show live tallies. When the host presses Start, the map with the most votes wins. Ties go to the host's pick, or else the earliest tied map in the list, and no votes at all keeps the current map. Matches restart without returning to the lobby, so the 15 s scoreboard shows the same cards to vote on the next match. Bots never vote.
+Players pick the map by vote. The lobby shows one card per map; each player clicks one, and the cards show live tallies. When the host presses Start, the map with the most votes wins. Ties go to the host's pick, or else the earliest tied map in the list, and no votes at all keeps the current map. Matches restart without returning to the lobby, so the 15 s scoreboard shows the same cards to vote on the next match. Votes clear when a match starts, so each scoreboard is a fresh vote. Bots never vote. Every map shares the 40 × 40 m footprint and perimeter walls, which the quarry around the arena is built for.
 
 ## Look and performance
 

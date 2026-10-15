@@ -12,7 +12,7 @@
 // ?debug&sfx plays every sound in turn (BOARD, about 600 ms apart).
 import { shotRng } from '../shared/rng.js';
 import { prepareMap } from '../shared/collision.js';
-import { SHOT_RANGE, POWER_COLORS, POWER_PADS } from '../shared/constants.js';
+import { SHOT_RANGE, POWER_COLORS } from '../shared/constants.js';
 import { KEY } from '../shared/movement.js';
 // Namespaces, not named imports, for both power-up wires: the engine wave's
 // padsFor and entity tuple are gone (or going) from the bible's modules, and
@@ -1026,6 +1026,7 @@ export const casing = safe(() => play('casing', { delay: CASING_DELAY, pri: PRI.
 // wave's pads. Works before start().
 export function setWorld(map, id = null) {
   mapId = id;
+  biblePads = (map.pads ?? []).map((p) => p.pos);
   try { surfaces = surfacesOf(map); } catch (e) { fail(e); }
 }
 
@@ -1128,11 +1129,11 @@ export const entities = safe((list, heard) => {
 });
 
 // The pads as padHums wants them, from either wire: the bible's pd rows
-// ([k, readyTick, span], up at readyTick 0) at POWER_PADS, or the engine
+// ([k, readyTick, span], up at readyTick 0) at the map's pads, or the engine
 // wave's pads (0 when up) at its padsFor(map).
-const BIBLE_PADS = POWER_PADS.map((p) => p.pos);
+let biblePads = []; // setWorld()
 function padsHeard(pu, heard) {
-  const at = pu.pd ? BIBLE_PADS : sharedPowers.padsFor?.(mapId) ?? [];
+  const at = pu.pd ? biblePads : sharedPowers.padsFor?.(mapId) ?? [];
   const state = pu.pd ?? pu.pads ?? [];
   const n = Math.min(at.length, state.length);
   for (let i = 0; i < n; i++) {

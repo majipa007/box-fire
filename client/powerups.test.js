@@ -16,12 +16,14 @@ const { KEY } = await import('../shared/movement.js');
 const { eyeOf } = await import('../shared/weapons.js');
 const net = await import('./net.js');
 const pu = await import('./powerups.js');
-const { POWER_PADS } = await import('../shared/constants.js');
+const { readFile } = await import('node:fs/promises');
+const { pads: PADS } = JSON.parse(await readFile(new URL('../shared/maps/arena_01.json', import.meta.url)));
+pu.setPads(PADS);
 const { ENT } = await import('../shared/protocol.js');
 
 // First, while the module has seen no snapshot: the lobby's view.
 test('before any snapshot, every pad is up at its pool\'s first item', () => {
-  assert.deepEqual(pu.padStates().map((p) => [p.kind, p.up]), POWER_PADS.map((p) => [p.pool[0], true]));
+  assert.deepEqual(pu.padStates().map((p) => [p.kind, p.up]), PADS.map((p) => [p.pool[0], true]));
 });
 
 const STEP = 1000 / 60;

@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { PORT, HEARTBEAT_MS, DEAD_MS } from '../shared/constants.js';
+import { PORT, HEARTBEAT_MS, DEAD_MS, MAPS } from '../shared/constants.js';
 import { decodeClient } from '../shared/protocol.js';
 import { Game } from './game.js';
 
@@ -52,7 +52,9 @@ function notFound(res) {
 const isLoopback = (addr = '') => /^(127\.|::1$|::ffff:127\.)/.test(addr);
 const port = Number(process.env.PORT) || PORT;
 
-const MAP_ID = 'arena_01';
+// MAP=arena_02 starts on another map (for testing one map); only listed ids count.
+if (process.env.MAP && !MAPS.includes(process.env.MAP)) console.warn(`MAP=${process.env.MAP} is not one of ${MAPS.join(', ')}; using ${MAPS[0]}`);
+const MAP_ID = MAPS.includes(process.env.MAP) ? process.env.MAP : MAPS[0];
 const game = new Game(MAP_ID, JSON.parse(fs.readFileSync(path.join(root, 'shared', 'maps', `${MAP_ID}.json`), 'utf8')));
 const conns = new Set();
 const MAX_MSG = 4096;

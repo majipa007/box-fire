@@ -1,6 +1,7 @@
 {
   "name": "Arena 01",
-  "note": "Boxes are centre + size in metres, y up, floor top at y = 0. color indexes materials (looks are in client/world.js and client/textures.js). Playable area is x and z in [-20, 20].",
+  "tagline": "Open middle, two side lanes, a raised dock",
+  "note": "Boxes are centre + size in metres, y up, floor top at y = 0. color indexes materials (looks are in client/world.js and client/textures.js). Playable area is x and z in [-20, 20]. pads are the power-up pads (pool cycles; respawn in seconds); lanes are the x of painted lane lines running along z.",
   "materials": [
     { "name": "slab",    "base": "#b7b0a3", "accents": ["#8f887d", "#d8c39a"] },
     { "name": "board",   "base": "#c9c3b8", "accents": ["#d9d4ca", "#7d776d"] },
@@ -52,5 +53,17 @@
     [-17, 0, -17], [17, 0, -17], [-17, 0, 17], [17, 0, 17],
     [0, 0, -18], [-14, 0, 0], [14, 0, 0], [0, 1.2, 16],
     [-5, 0, -9], [5, 0, 9], [-11, 0, 8], [11, 0, -8]
-  ]
+  ],
+  "pads": [
+    { "pos": [0,  0,  0], "pool": ["shunt"], "respawn": 30 },
+    { "pos": [3,  1.2,  13], "pool": ["shield"], "respawn": 30 },
+    { "pos": [0,  0,  -10.5], "pool": ["shock"], "respawn": 40 },
+    { "pos": [8,  0,  0], "pool": ["barge",  "bolt"], "respawn": 20 },
+    { "pos": [-8,  0,  0], "pool": ["bolt",  "barge"], "respawn": 20 },
+    { "pos": [17,  0,  -6], "pool": ["nitro"], "respawn": 20 },
+    { "pos": [-17,  0,  6], "pool": ["nitro"], "respawn": 20 },
+    { "pos": [16,  0,  8], "pool": ["mine"], "respawn": 30 },
+    { "pos": [-16,  0,  -8], "pool": ["mine"], "respawn": 30 }
+  ],
+  "lanes": [-11, 11]
 }

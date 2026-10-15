@@ -456,12 +456,12 @@ export function skyline(S = SKYLINE) {
 // Decals (§2.7): paint, grates, cracks, oil, stencils and the crusher sign, as
 // { c: centre, n: normal, up: texture up, h: height in m, w?: width (else from the atlas
 // cell's aspect), cell: atlas name, color, alpha }. They sit 5 mm off their surface.
-export function decals(mapBoxes, seed = 3) {
+export function decals(mapBoxes, seed = 3, lanes = []) {
   const rand = seeded(seed);
   const out = [];
   const floor = (x, z, w, h, cell, color, alpha, up = [0, 0, -1]) => out.push({ c: [x, 0, z], n: UP, up, w, h, cell, color, alpha });
   const paint = '#ad9862';
-  for (const x of [-11, 11]) for (let z = -18; z + 1 <= 18; z += 1.5) floor(x, z + 0.5, 0.1, 1, 'solid', paint, 0.85);
+  for (const x of lanes) for (let z = -18; z + 1 <= 18; z += 1.5) floor(x, z + 0.5, 0.1, 1, 'solid', paint, 0.85);
   for (const [x, z, w, h] of [[0, -19, 38, 0.1], [0, 19, 38, 0.1], [-19, 0, 0.1, 38], [19, 0, 0.1, 38]]) floor(x, z, w, h, 'solid', paint, 0.8);
   [[-15.6, -17.6], [15.6, -17.6], [15.6, 17.6], [-15.6, 17.6]].forEach(([x, z], i) => floor(x, z, undefined, 1.2, `0${i + 1}`, '#45474c', 0.6, [0, 0, Math.sign(z)]));
   for (const z of [-12, -4, 4, 12]) for (const x of [-19, 19]) floor(x, z, 0.6, 0.6, 'grate', '#45474c', 1);

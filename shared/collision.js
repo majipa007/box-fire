@@ -10,6 +10,7 @@ export function prepareMap(map) {
       max: pos.map((p, i) => p + size[i] / 2),
     })),
     spawns: map.spawns,
+    pads: map.pads ?? [], // power-up pads: { pos, pool, respawn }
   };
 }
 

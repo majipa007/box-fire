@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Game } from './game.js';
 import { KEY } from '../shared/movement.js';
-import { MAX_HP, POWERS, POWER_PADS, TICK_RATE, HISTORY_TICKS } from '../shared/constants.js';
+import { MAX_HP, POWERS, TICK_RATE, HISTORY_TICKS } from '../shared/constants.js';
 import { POWER_IDS, ENT, PLAYER_FLAGS } from '../shared/protocol.js';
 import { eyeOf } from '../shared/weapons.js';
 
@@ -355,7 +355,7 @@ test('the pu state stays under 600 B with 9 pads and 6 entities, and the snapsho
   game.step();
   const pu = game.powers.snapshot();
   const { pd, en } = JSON.parse(pu);
-  assert.equal(pd.length, POWER_PADS.length);
+  assert.equal(pd.length, arena.pads.length);
   assert.ok(en.length >= 6, `${en.length} entities`);
   assert.ok(pu.length < 600, `${pu.length} B`);
   const snap = lastSnap(p);

@@ -232,7 +232,7 @@ function buildMotes() {
 // Decals (1 draw): lit, shadowed, fogged quads from the atlas, tinted by vertex colour.
 function buildDecals(map) {
   const { texture, cells } = makeDecalAtlas();
-  const list = decals(map.boxes);
+  const list = decals(map.boxes, 3, map.lanes);
   const position = new Float32Array(list.length * 12);
   const normal = new Float32Array(list.length * 12);
   const uv = new Float32Array(list.length * 8);
