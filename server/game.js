@@ -17,6 +17,17 @@ import { stepPowers, createPowers } from '../shared/powerups.js'; // POWER-UPS: 
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
+// The next match's map (the plan's vote rules): most votes; a tie goes to the
+// host's pick if it is one of the tied maps, else the earliest tied map in
+// `order`; no votes at all keeps `current`. votes: one map id per voter.
+export function pickMap(votes, hostVote, order, current) {
+  const tally = order.map((id) => votes.filter((v) => v === id).length);
+  const top = Math.max(0, ...tally);
+  if (!top) return current;
+  const tied = order.filter((_, i) => tally[i] === top);
+  return tied.includes(hostVote) ? hostVote : tied[0];
+}
+
 export class Game {
   players = new Map(); // id → Player
   nextId = 1;
@@ -27,9 +38,17 @@ export class Game {
   emptySince = null; // tick the last connected player left
   seed = Math.floor(Math.random() * 2 ** 32); // one per server run, seeds every shot's spread
 
-  constructor(mapId, mapJson) {
-    this.mapId = mapId;
-    this.map = prepareMap(mapJson);
+  // maps: id → map JSON for every playable map, in vote order (index.js loads
+  // them all at startup). A vote naming anything else is ignored.
+  constructor(mapId, mapJson, maps = new Map([[mapId, mapJson]])) {
+    this.maps = maps;
+    this.setMap(mapId);
+  }
+
+  // A fresh world on this map: spawns, rewind history, pads up and nothing in play.
+  setMap(id) {
+    this.mapId = id;
+    this.map = prepareMap(this.maps.get(id));
     this.spawnUsedAt = this.map.spawns.map(() => -Infinity); // tick each spawn was last used
     this.history = new History();
     this.powers = new PowerServer(this); // POWER-UPS: pads, Shunts, Mines, domes
@@ -47,6 +66,9 @@ export class Game {
       this.startMatch();
     } else if (msg.t === 'end_match' && p.id === this.hostId && this.phase === 'playing') {
       this.endMatch();
+    } else if (msg.t === 'vote' && !p.bot && this.maps.has(msg.map)) {
+      p.vote = msg.map; // a new vote replaces the old one
+      this.broadcastLobby();
     }
   }
 
@@ -103,12 +125,19 @@ export class Game {
   // gets a fresh spawn (and refreshing the page is no way to heal).
   leave(p) {
     p.conn = null;
+    p.vote = null; // a player who leaves loses their vote
     if (p.alive) p.respawnAt = this.tick + RESPAWN_SECONDS * TICK_RATE;
     p.alive = false;
   }
 
+  // Lobby Start and the scoreboard's restart: the vote picks the map, then
+  // every vote clears so the next scoreboard is a fresh one.
   startMatch() {
     for (const p of this.players.values()) if (!p.conn) this.players.delete(p.id);
+    const next = pickMap(this.votes().map((p) => p.vote), this.players.get(this.hostId)?.vote, [...this.maps.keys()], this.mapId);
+    if (next !== this.mapId) console.log(`map: ${this.maps.get(next).name ?? next}`);
+    this.setMap(next); // the same map too: pads up, nothing in play, as every match starts
+    for (const p of this.players.values()) p.vote = null;
     this.phase = 'playing';
     this.phaseEndsAt = this.tick + MATCH_SECONDS * TICK_RATE;
     for (const p of this.players.values()) {
@@ -117,13 +146,12 @@ export class Game {
       p.pk = 0; // POWER-UPS: power-up kills
       p.alive = false;
     }
-    this.powers.reset(); // POWER-UPS: every pad up, nothing in play
     for (const p of this.players.values()) this.spawn(p);
     this.broadcastLobby();
   }
 
   // First to the kill target, the clock, or the host's End match: freeze the
-  // world and show the scoreboard, then go again on the same map.
+  // world and show the scoreboard, then go again on the map voted for.
   endMatch() {
     this.phase = 'scoreboard';
     this.phaseEndsAt = this.tick + SCOREBOARD_SECONDS * TICK_RATE;
@@ -335,7 +363,13 @@ export class Game {
     for (const p of this.players.values()) if (p !== except) sendRaw(p.conn, data);
   }
 
+  // The players whose vote counts: connected humans who have voted.
+  votes() {
+    return [...this.players.values()].filter((p) => p.vote && p.conn && !p.bot);
+  }
+
   broadcastLobby() {
+    const voters = this.votes();
     this.broadcast({
       t: 'lobby',
       phase: this.phase,
@@ -345,6 +379,12 @@ export class Game {
       players: [...this.players.values()].map((p) => ({
         id: p.id, name: p.name, slot: p.slot, ping: p.conn?.rtt ?? 0, bot: p.bot, kills: p.kills, deaths: p.deaths, pk: p.pk, connected: !!p.conn, // POWER-UPS: pk
       })),
+      map: this.mapId, // the map being played (in the lobby: the one kept if nobody votes)
+      // One card per map, in vote order: its tally and who voted for it.
+      maps: [...this.maps].map(([id, { name, tagline }]) => {
+        const ids = voters.filter((p) => p.vote === id).map((p) => p.id);
+        return { id, name, tagline, votes: ids.length, voters: ids };
+      }),
     });
   }
 }

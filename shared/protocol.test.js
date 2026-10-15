@@ -44,6 +44,13 @@ test('loadout accepts only the two primaries', () => {
   for (const primary of ['pistol', 'bazooka', 1, null]) assert.equal(decodeClient(JSON.stringify({ t: 'loadout', primary })), null);
 });
 
+test('a vote names a listed map id and nothing else', () => {
+  assert.deepEqual(decodeClient('{"t":"vote","map":"arena_02","x":1}'), { t: 'vote', map: 'arena_02' });
+  for (const map of ['arena_03', '../maps/arena_01', 'arena_01.json', 'ARENA_01', 'constructor', '__proto__', '', ['arena_01'], { id: 'arena_01' }, 1, null, undefined]) {
+    assert.equal(decodeClient(JSON.stringify({ t: 'vote', map })), null, JSON.stringify(map));
+  }
+});
+
 test('players rank by kills, then by fewer deaths', () => {
   const players = [{ id: 1, kills: 3, deaths: 5 }, { id: 2, kills: 7, deaths: 1 }, { id: 3, kills: 3, deaths: 2 }];
   assert.deepEqual([...players].sort(byScore).map((p) => p.id), [2, 3, 1]);
