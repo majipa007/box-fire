@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { POWER_COLORS, POWERS, POWER_CAPACITY, TICK_RATE, INPUT_BUFFER } from '../shared/constants.js';
-import { createPowers } from '../shared/powerups.js';
+import { createPowers, padUnder } from '../shared/powerups.js';
 import { POWER_IDS, ENT, PU_STATE } from '../shared/protocol.js';
 import { eyeOf, aimDir, traceShot } from '../shared/weapons.js';
 import { rayBox } from '../shared/collision.js';
@@ -301,6 +301,7 @@ export function setMap({ boxes: mapBoxes = [], pads: list = [] } = {}) {
   setPads(list);
   boxes = mapBoxes;
   seenSnap = false; // the new map's first snapshot is no pad's edge
+  cue.pad = -1; // nor is the old map's pad the one you stand on
   snaps.length = 0;
   pending.length = 0;
   ghosts.length = 0;
@@ -425,6 +426,7 @@ function play(m) {
       return;
     }
     cues.own++;
+    if (m.pad === cue.pad) cue.took = true; // stood through the refill: you got it, don't cue 'refill'
     const at = [p.x, p.y + LOOK.glyph.hover, p.z];
     if (fx.pickupBurst) fx.pickupBurst(at, POWER_COLORS[m.k]);
     else burst(at, HUE[m.k], 1, 10, 2);
@@ -511,6 +513,39 @@ export function padStates() {
   return padView;
 }
 
+// ---- The pad cue: an answer to every pickup attempt (spec §2). ----
+// state: '' none, 'refill' on a pad that is refilling (kind: the next item,
+// secs: whole seconds left), 'full' on an up pad with a full inventory. It
+// follows the server's ready flag, never our clock, and `took` latches your
+// own pick from this pad, so standing through a refill never cues 'refill'
+// again after you grab the item.
+const cue = { state: '', kind: '', secs: 0, pad: -1, took: false };
+export const padCue = () => cue;
+
+function padCueStep(tick) {
+  const i = self.alive && self.mover ? padUnder(self.mover, pads) : -1;
+  if (i !== cue.pad) {
+    cue.pad = i;
+    cue.took = i >= 0 && !pads[i].ready; // up when you step on: you take it, or are told you're full
+  }
+  const p = i >= 0 ? pads[i] : null;
+  const state = !p ? '' : p.ready ? (cue.took ? '' : 'refill') : (self.pw?.inv.length ?? 0) >= POWER_CAPACITY ? 'full' : '';
+  if (state !== cue.state) {
+    cue.state = state;
+    if (state === 'refill') {
+      cues.empty++;
+      audio.power?.('pad', 'empty');
+    } else if (state === 'full') {
+      cues.full++;
+      audio.power?.('pad', 'full');
+      ui.padShake?.();
+    }
+  }
+  cue.kind = p ? p.kind : '';
+  cue.secs = p?.ready ? Math.max(1, Math.ceil((p.ready - tick) / TICK_RATE)) : 0;
+  ui.padCue?.(state, cue.kind, cue.secs);
+}
+
 // ---- Frame ----
 
 export function updatePowerups(now, renderTick, cam) {
@@ -523,6 +558,7 @@ export function updatePowerups(now, renderTick, cam) {
   const s = now / 1000;
   const tick = serverTick(now);
   drawPads(s, tick, now);
+  padCueStep(tick);
   flyGhosts(now);
   drawEntities(s, renderTick, tick);
   drawGhosts(now);

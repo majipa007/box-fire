@@ -172,3 +172,59 @@ test('your own pick plays the chime and the toast at once', () => {
   assert.equal(pu.cues.other, other);
   assert.equal(toastEl.textContent, '+ SHUNT');
 });
+
+// ---- The pad cue: every pickup attempt gets an answer (spec §2). ----
+const { createPowers } = await import('../shared/powerups.js');
+function standOn(i, inv = []) {
+  const [x, y, z] = PADS[i].pos;
+  Object.assign(net.self, { alive: true, mover: { x, y, z, crouch: false }, pw: { ...createPowers(), inv } });
+}
+
+test('standing on a refilling pad gives "refill", with the next item and its sound once', () => {
+  pu.setMap({ boxes: [], pads: PADS });
+  pu.onSnapshot(padSnapshot([3e5])); // pad 0 refilling
+  standOn(0);
+  const { empty } = pu.cues;
+  pu.updatePowerups(clock, 2e5, CAM);
+  pu.updatePowerups(clock + STEP, 2e5, CAM);
+  assert.equal(pu.padCue().state, 'refill');
+  assert.equal(pu.padCue().kind, PADS[0].pool[0]);
+  assert.equal(pu.cues.empty, empty + 1);
+  standOn(1); // an up pad, room in the inventory: the server hands it over, no cue
+  pu.updatePowerups(clock + 2 * STEP, 2e5, CAM);
+  assert.equal(pu.padCue().state, '');
+});
+
+test('standing on an up pad with a full inventory gives "full", its sound once', () => {
+  pu.onSnapshot(padSnapshot([]));
+  standOn(1, ['shunt', 'bolt', 'mine']);
+  const { full } = pu.cues;
+  pu.updatePowerups(clock, 2e5, CAM);
+  pu.updatePowerups(clock + STEP, 2e5, CAM);
+  assert.equal(pu.padCue().state, 'full');
+  assert.equal(pu.cues.full, full + 1);
+  net.self.pw.inv.pop(); // used one: there is room, so the server hands it over
+  pu.updatePowerups(clock + 2 * STEP, 2e5, CAM);
+  assert.equal(pu.padCue().state, '');
+});
+
+// The server grabs for you on the tick the pad refills, so its snapshots
+// never say "up": the pad goes from refilling straight to refilling again.
+for (const order of ['pick, then snapshot', 'snapshot, then pick']) {
+  test(`standing through a refill: after your grab, no "refill" again (${order})`, () => {
+    pu.setMap({ boxes: [], pads: PADS });
+    pu.onSnapshot(padSnapshot([1])); // refilling, and our clock already says it's due
+    standOn(0);
+    pu.updatePowerups(clock, 2e5, CAM);
+    assert.equal(pu.padCue().state, 'refill');
+    const { empty, own } = pu.cues;
+    const pick = () => pu.onEvent({ t: 'event', e: 'pick', id: ME, pad: 0, k: PADS[0].pool[0], tick: 2e5 }, ME);
+    const refilled = () => pu.onSnapshot(padSnapshot([3e5])); // the next refill, never a 0 between
+    if (order.startsWith('pick')) { pick(); refilled(); } else { refilled(); pick(); }
+    net.self.pw.inv.push(PADS[0].pool[0]);
+    for (let k = 1; k <= 3; k++) pu.updatePowerups(clock + k * STEP, 2e5, CAM);
+    assert.equal(pu.cues.own, own + 1);
+    assert.equal(pu.padCue().state, '');
+    assert.equal(pu.cues.empty, empty);
+  });
+}
