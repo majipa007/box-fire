@@ -224,7 +224,7 @@ export function think(bot, budget) {
         if (l > 1e-3) { mx = ((s.x - m.x) / l) * Math.abs(close); mz = ((s.z - m.z) / l) * Math.abs(close); }
         if (s.stuck === 5) bot.strafe = -bot.strafe; // strafing into a wall: the other way first
         if (s.jump) keys |= KEY.JUMP;
-      } else bot.strafe = -bot.strafe;
+      }
       mx += -uz * bot.strafe; mz += ux * bot.strafe;
     }
   } else {

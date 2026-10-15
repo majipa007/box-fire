@@ -123,14 +123,28 @@ export function navFor(id) {
   return navs.get(id);
 }
 
+// A goal against a wall sits in a cell the inflation raised to the wall's
+// top: plan to the nearest cell within 1 m at the goal's own height instead.
+function floorCell(g, x, y, z) {
+  const c = cellOf(g, x, z);
+  if (c < 0 || g.h[c] <= y + 0.3) return c;
+  let best = c, bd = Infinity;
+  for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
+    const v = cellOf(g, x + di * CELL, z + dj * CELL);
+    if (v >= 0 && Math.abs(g.h[v] - y) <= 0.3 && di * di + dj * dj < bd) { best = v; bd = di * di + dj * dj; }
+  }
+  return best;
+}
+
 // A walker's route state. Clear it (make a new one) on a map change.
-export const createRoute = () => ({ cells: null, goal: -1, gx: 0, gz: 0, at: 0, gy: null, lx: NaN, lz: NaN, stuck: 0, ax: 0, az: 0, ajump: false, aoff: 0, aleft: 0, out: { x: 0, z: 0, jump: false, left: 0, stuck: 0 } });
+export const createRoute = () => ({ cells: null, goal: -1, gx: 0, gz: 0, at: -1e9, fail: -1e9, gy: null, lx: NaN, lz: NaN, stuck: 0, ax: 0, az: 0, ajump: false, aoff: 0, aleft: 0, out: { x: 0, z: 0, jump: false, left: 0, stuck: 0 } });
 
 // One tick of walking toward `goal` ([x, y, z]); call it only while holding
 // move keys. Returns { x, z, jump, left, stuck } (steer toward x, z) or null
 // when the goal is unreachable or the walker has been stuck for 1 s.
-// Replans when the goal moves 1.5 m, every 0.5 s, or 1.5 m off the route, at
-// most budget.plans times per tick across every bot (the caller resets it).
+// Follows an A* route, replanned when the goal moves 1.5 m, every 0.5 s, or
+// 1.5 m off it, at most budget.plans times per tick across every bot (the
+// caller resets it). A goal found unreachable is not retried for 0.5 s.
 export function follow(nav, r, m, goal, tick, budget) {
   const g = nav.g, out = r.out;
   if (m.grounded || r.gy === null) r.gy = m.y;
@@ -139,14 +153,16 @@ export function follow(nav, r, m, goal, tick, budget) {
   if (r.stuck > 60) { r.stuck = 0; r.cells = null; return null; }
   out.x = goal[0]; out.z = goal[2]; out.jump = r.stuck > 4; out.stuck = r.stuck;
   out.left = Math.hypot(goal[0] - m.x, goal[2] - m.z);
+  const near = Math.hypot(goal[0] - r.gx, goal[2] - r.gz) < 1.5;
   if (out.left < 0.75) return out; // there: nothing to plan
-  const keep = r.cells && Math.hypot(goal[0] - r.gx, goal[2] - r.gz) < 1.5;
+  if (near && tick - r.fail < 30) return null; // just found unreachable
+  const keep = r.cells && near;
   if (keep) along(g, r, m.x, r.gy, m.z);
   if ((!keep || tick - r.at > 30 || r.aoff > 1.5) && budget.plans > 0) {
     budget.plans--;
-    r.goal = cellOf(g, goal[0], goal[2]); r.gx = goal[0]; r.gz = goal[2]; r.at = tick;
+    r.goal = floorCell(g, goal[0], goal[1], goal[2]); r.gx = goal[0]; r.gz = goal[2]; r.at = tick;
     r.cells = path(g, m.x, r.gy, m.z, r.goal);
-    if (!r.cells) return null;
+    if (!r.cells) { r.fail = tick; return null; }
     along(g, r, m.x, r.gy, m.z);
   } else if (!keep) return out; // waiting for a plan slot: walk straight meanwhile
   if (r.aleft >= 1) { out.x = r.ax; out.z = r.az; out.left = r.aleft; out.jump ||= r.ajump; }
