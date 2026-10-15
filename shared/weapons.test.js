@@ -285,3 +285,66 @@ test('R reloads a partly used magazine, but not a full one', () => {
   assert.equal(used.mags[0], 25);
   assert.equal(used.reload, 0);
 });
+
+// ---- Through the server: a real Game with fake sockets ----
+
+// Alice at the origin facing Bob, dist metres away down -z, both standing,
+// spawn protection over, Bob with HP to spare so every hit shows.
+async function duel(primary, dist) {
+  const { Game } = await import('../server/game.js');
+  const game = new Game('flat', { boxes: [{ pos: [0, -0.5, 0], size: [200, 1, 200] }], spawns: [[0, 0, 0], [0, 0, -dist]] });
+  game.seed = 1234; // every shot's spread repeats
+  const [a, b] = ['Alice', 'Bob'].map((name) => {
+    const conn = { out: [], ws: { readyState: 1, OPEN: 1, bufferedAmount: 0, send: (d) => conn.out.push(JSON.parse(d)), terminate() {} } };
+    game.handle(conn, { t: 'join', name, bot: false });
+    game.handle(conn, { t: 'loadout', primary });
+    return conn.player;
+  });
+  game.handle(a.conn, { t: 'start' });
+  for (const [p, z] of [[a, 0], [b, -dist]]) {
+    Object.assign(p.mover, { x: 0, y: 0, z, vx: 0, vy: 0, vz: 0, grounded: true, crouch: false });
+    p.protectedUntil = 0;
+  }
+  b.hp = 1000;
+  game.step(); // the rewind history records where they stand
+  let s = 0;
+  // Alice holds the trigger at height y on Bob for n ticks; returns her hit events.
+  const fire = (y, n = 1) => {
+    const from = a.conn.out.length;
+    for (let i = 0; i < n; i++) {
+      for (let k = i ? 1 : 2; k > 0; k--) {
+        s++;
+        game.handle(a.conn, { t: 'input', s, rt: game.tick, keys: 0, yaw: 0, pitch: Math.atan2(y - 1.6, dist), fire: true, shot: s, slot: 0 });
+      }
+      game.step();
+    }
+    return a.conn.out.slice(from).filter((m) => m.t === 'event' && m.e === 'hit');
+  };
+  return { game, a, b, fire };
+}
+
+test('server: a rifle body hit at 23 m lands as a whole 28, not 28.4 (falloff from the body face at 22.7 m)', async () => {
+  const { b, fire } = await duel('rifle', 23);
+  const [hit] = fire(1.0);
+  assert.deepEqual([hit.dmg, hit.head], [28, false]);
+  assert.equal(b.hp, 1000 - 28);
+});
+
+test('server: a shotgun blast is a headshot only when most of its landed pellets hit the head', async () => {
+  // Seed 1234, shot 1: at 2 m, aiming at 1.55 m puts 5 of 12 pellets in the head (5 × 20 + 7 × 10).
+  assert.deepEqual((await duel('shotgun', 2)).fire(1.55).map((h) => [h.dmg, h.head]), [[170, false]]);
+  // At 3 m, aiming at 1.65 m lands 11 pellets, 10 in the head (10 × 20 + 10).
+  assert.deepEqual((await duel('shotgun', 3)).fire(1.65).map((h) => [h.dmg, h.head]), [[210, true]]);
+  // Point-blank on the head: all 12.
+  assert.deepEqual((await duel('shotgun', 2)).fire(1.65).map((h) => [h.dmg, h.head]), [[240, true]]);
+});
+
+test('server: a held rifle spray at a head 30 m away does 160 on every head hit, while the bloom scatters the later bullets', async () => {
+  const { b, fire } = await duel('rifle', 30);
+  b.hp = 1e6; // soaks the whole magazine
+  const hits = fire(1.65, 150).map((h) => [h.dmg, h.head]);
+  assert.deepEqual(hits.slice(0, 3), [[160, true], [160, true], [160, true]], 'mid-spray headshots stay 160');
+  for (const [dmg, head] of hits) assert.equal(dmg, head ? 160 : 24);
+  const heads = hits.filter(([, head]) => head).length;
+  assert.ok(heads < 20, `the bloom keeps a 25-round spray off the head: ${heads} head hits`);
+});
