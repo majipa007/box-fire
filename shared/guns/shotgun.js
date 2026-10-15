@@ -4,5 +4,7 @@ export default {
   id: 'shotgun', name: 'Crusher', slot: 'primary', class: 'shotgun',
   dmg: 10, head: 2, pellets: 12, rps: 1.1, mode: 'semi', mag: 5, reload: 0.5, perShell: true,
   spreadStand: 3.5, spreadMove: 3.5, falloff: { from: 8, to: 18, min: 0.2 }, kick: [2.5, 0],
-  look: null, sound: null, icon: null,
+  look: null, // models workstream: the box model (docs/guns.md)
+  sound: null, // sound workstream: the recipe
+  icon: null, // hud workstream: the SVG path
 };
