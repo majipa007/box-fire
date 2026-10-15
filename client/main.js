@@ -92,7 +92,7 @@ const net = connect({
     powerups.onEvent(m, myId); // powerups: pickups, uses, blasts
     if (m.e === 'blast') blastShake(m, myId, self.alive && self.mover); // feel: blasts near us shake the camera ('boom' shakes from powerups' queued play())
     audio.event(m, myId, heard); // audio: the engine's pickups, uses and blasts (client/powerups.js plays the bible's)
-    if ((m.e === 'pickup' || m.e === 'pick') && m.id === myId) ui.powerToast(m.k); // hud:
+    if (m.e === 'pickup' && m.id === myId) ui.powerToast(m.k); // hud: (powerups: client/powerups.js toasts the bible's 'pick')
     if (m.e === 'spawn' && m.id === myId) {
       Object.assign(self, freshLife(m.x, m.y, m.z, m.primary)); // exactly as the server builds it
       self.pending = [];
