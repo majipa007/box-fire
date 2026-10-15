@@ -25,7 +25,7 @@ async function open(name) {
   await page.goto(`http://localhost:${port}/?debug`);
   await page.fill('#name', name);
   await page.click('#join-form button');
-  await page.waitForSelector('#lobby-maps [data-map=arena_02]');
+  await page.waitForSelector('#lobby-maps [data-map=arena_02]', { timeout: 90000 }); // after the stage build, on a busy machine
   return page;
 }
 
@@ -36,8 +36,8 @@ try {
   await ally.click('#lobby-maps [data-map=arena_02]');
   await ally.click('#lobby-maps [data-map=arena_01]'); // a changed vote
   await host.waitForFunction(() => [...document.querySelectorAll('#lobby-maps .mc-count')].map((e) => e.textContent).join() === '1,1');
-  assert.equal(await host.getAttribute('#lobby-maps [data-map=arena_02]', 'aria-pressed'), 'true');
-  assert.equal(await ally.getAttribute('#lobby-maps [data-map=arena_01]', 'aria-pressed'), 'true');
+  await host.waitForSelector('#lobby-maps [data-map=arena_02][aria-pressed=true]');
+  await ally.waitForSelector('#lobby-maps [data-map=arena_01][aria-pressed=true]'); // each tab marks its own vote
   assert.equal(await host.locator('#lobby-players li').count(), 10, 'a full game');
   await waitMap(host, 'arena_01');
   await host.locator('#lobby-maps').scrollIntoViewIfNeeded();
