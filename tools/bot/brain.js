@@ -125,11 +125,12 @@ function seenPoint(bot, id, mem) {
 }
 
 // Utility choice at 5 Hz: fight, cover, hunt, pad or roam. The current goal
-// gets a bonus so bots do not flip-flop.
+// gets a bonus so bots do not flip-flop; roaming does not, since it is only
+// the fallback.
 function choose(bot, m, ars) {
   const sk = bot.sk, t = bot.tick, cur = bot.goal?.kind;
   let best = null;
-  const offer = (g) => { if (g.kind === cur) g.s += 0.15; if (!best || g.s > best.s) best = g; };
+  const offer = (g) => { if (g.kind === cur && cur !== 'roam') g.s += 0.15; if (!best || g.s > best.s) best = g; };
   if (!bot.passive) {
     let target = null, score = Infinity, shootable = 0;
     for (let i = 0; i < bot.nvis; i++) {

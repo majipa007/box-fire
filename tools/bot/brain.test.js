@@ -16,13 +16,13 @@ const boxes = navFor('arena_01').map.boxes;
 
 // A bot (id 1) on arena_01 at `at`, looking along `yaw`, in a snapshot with
 // the foes given as [id, x, y, z, flags, hp].
-function situation({ at, yaw, hp = 100, foes = [], skill = 'normal', passive = false, tick = 1000, primary = 'rifle' }) {
+function situation({ at, yaw, hp = 100, foes = [], skill = 'normal', passive = false, tick = 1000, primary = 'rifle', inv = [] }) {
   const bot = createBot(1, { skill, passive, primary, rand: shotRng(3, 0, 0) });
   onMessage(bot, { t: 'welcome', id: 1, map: 'arena_01' });
   onMessage(bot, { t: 'event', e: 'spawn', id: 1, x: at[0], y: at[1], z: at[2], yaw, primary });
   const snap = (t) => ({
     t: 'snapshot', tick: t, ack: 0,
-    me: { mover: { ...createMover(...at), grounded: true }, arsenal: createArsenal(primary), hp, alive: true, pw: createPowers() },
+    me: { mover: { ...createMover(...at), grounded: true }, arsenal: createArsenal(primary), hp, alive: true, pw: { ...createPowers(), inv } },
     ps: [[1, ...at, yaw, 0, ALIVE, hp, 0], ...foes.map(([id, x, y, z, flags, fhp = 100]) => [id, x, y, z, 0, 0, flags, fhp, 0])],
     pu: { pd: navFor('arena_01').map.pads.map(() => [0, 0, 0]), en: [] },
   });
@@ -128,4 +128,13 @@ test('a bot follows a map switch, which spawns it before the lobby names the map
     if (bot.goal) assert.ok(onA2(bot.goal.pos), `goal ${bot.goal.pos} is on arena_02`);
   }
   assert.ok(moving > 150, 'still playing arena_02');
+});
+
+test('a roaming bot that holds an item still goes for a pad once patience has passed', () => {
+  const { bot, snap } = situation({ at: [-17, 0, -17], yaw: yawTo(1, 1), inv: ['bolt'] });
+  think(bot, budget());
+  assert.equal(bot.goal.kind, 'roam');
+  onMessage(bot, snap(1000 + 8 * 60 + 1));
+  think(bot, budget());
+  assert.equal(bot.goal.kind, 'pad');
 });
