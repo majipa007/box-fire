@@ -114,6 +114,25 @@ async function suite() {
     assert.deepEqual(vm.LOOK.colors.metal + vm.LOOK.colors.tan + vm.LOOK.colors.dark, '#2e3136#b9a27a#1b1d22');
   });
 
+  // arsenal: every gun is drawn from the look in its own gun file, nothing else.
+  const { GUN_IDS } = await import('../shared/guns/index.js');
+  const DRAWN = ['rifle', 'pistol', 'shotgun'];
+  test('each gun is drawn from its own look: every look box is in the model, on its tagged bone', () => {
+    const BONE_OF = { mag: 'part', pump: 'part', slide: 'slide', bolt: 'slide', cover: 'slide' };
+    for (const id of DRAWN) {
+      const look = WEAPONS[id].look;
+      assert.ok(look && look.parts.length >= 8, `${id} has a look`);
+      const m = vm.MODELS[id];
+      for (const p of look.parts) {
+        assert.ok(p.c in vm.LOOK.colors, `${id}: unknown colour ${p.c}`);
+        assert.ok(m.boxes.some((b) => b.part === (BONE_OF[p.bone] ?? 'body') && b.color === p.c && b.size === p.s && b.at === p.at), `${id}: a look box is missing`);
+      }
+      assert.deepEqual(m.muzzle, look.muzzle, `${id}: the flash sits on the look's muzzle`);
+      const front = Math.min(...look.parts.filter((p) => p.hot).map((p) => p.at[2] - p.s[2] / 2));
+      assert.ok(Math.abs(front - look.muzzle[2]) < 0.03, `${id}: the muzzle is at the front of the barrel`);
+    }
+  });
+
   test('at peak, with the flash up and casings flying, the view pass is ≤ 4 draws and ≤ 1.5k triangles', () => {
     for (const w of ['rifle', 'pistol', 'shotgun']) {
       spawn(w);
