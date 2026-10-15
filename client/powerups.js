@@ -43,9 +43,10 @@ const LOOK = {
   // facing the camera: a band filled clockwise in the next item's hue, and
   // the whole seconds left in voxel digits (a numeric timer, new to §4.7).
   // radius grows from `near` m out to `grow`x; in the last `hot` s the digits
-  // take the hue and the clock pulses. A floor clock replaces the pool and
-  // the plinth dims to plinthOff.
-  clock: { radius: 0.4, near: 18, grow: 1.6, hot: 3, pulseHz: 2, pulse: 0.08, floorBand: 0.22 },
+  // take the hue and the clock pulses. It fades out from fade[1] to fade[0] m
+  // away: on the pad it would fill the view, and the HUD chip has the number.
+  // A floor clock replaces the pool and the plinth dims to plinthOff.
+  clock: { radius: 0.4, near: 18, grow: 1.6, fade: [0.9, 1.6], hot: 3, pulseHz: 2, pulse: 0.08, floorBand: 0.22 },
   // Up again (visual only): the beam shoots up over beamMs at `flare`x width,
   // settling over flareMs; the glyph springs 0 → 1.2 → 1 over glyphMs; a
   // ringR floor ring flashes. Taken: the glyph collapses over takenMs.
@@ -587,7 +588,7 @@ function flush(attr, n, size) {
   attr.needsUpdate = true;
 }
 
-const backOut = (k) => 1 + 2.7 * (k - 1) ** 3 + 1.7 * (k - 1) ** 2; // 0 → 1.1 → 1
+const backOut = (k) => 1 + 3.6 * (k - 1) ** 3 + 2.6 * (k - 1) ** 2; // 0 → 1.2 → 1 (spec §2)
 
 function drawPads(s, tick, now) {
   const G = LOOK.glyph;
@@ -625,11 +626,13 @@ function drawPads(s, tick, now) {
     const hot = left < C.hot;
     flat(p.x, p.y + LOOK.plinth.height + LOOK.pool.lift, p.z, LOOK.pool.radius, hue, 1, 4, C.floorBand, prog);
     if (taken < 1) continue;
-    let r = C.radius;
-    if (camera) r *= Math.min(C.grow, Math.max(1, Math.hypot(camera.position.x - p.x, camera.position.z - p.z) / C.near));
+    const d = camera ? Math.hypot(camera.position.x - p.x, camera.position.z - p.z) : C.near;
+    const alpha = Math.min(1, Math.max(0, (d - C.fade[0]) / (C.fade[1] - C.fade[0])));
+    if (!alpha) continue;
+    let r = C.radius * Math.min(C.grow, Math.max(1, d / C.near));
     if (hot) r *= 1 + C.pulse * (0.5 + 0.5 * Math.sin(TAU * C.pulseHz * s));
     // Never 0: the server's snapshot, not our clock, says when it is up.
-    stand(p.x, p.y + G.hover, p.z, r, hue, 1, prog, Math.max(1, Math.ceil(left)) + (hot ? 1000 : 0));
+    stand(p.x, p.y + G.hover, p.z, r, hue, alpha, prog, Math.max(1, Math.ceil(left)) + (hot ? 1000 : 0));
   }
 }
 
