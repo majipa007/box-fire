@@ -2,8 +2,8 @@
 // They see only foes in view with a clear line of sight, hear shots and feel
 // hits, fight with human-like aim at their skill, take cover when hurt, hunt,
 // collect power-up pads and use what they hold (tools/bot/brain.js). Each
-// bot gets a random primary. --skill mixed (the default) deals each bot
-// easy, normal or hard at random, evenly. --passive bots never shoot or use
+// bot gets a random primary. --skill mixed (the default) rolls easy, normal
+// or hard for each bot. --passive bots never shoot or use
 // an offensive power-up: they wander and collect pads, a harmless target for
 // visual checks and netcode tests. Up to MAX_PLAYERS minus the humans.
 //   npm run bot -- --count 6 [--skill easy|normal|hard|mixed] [--passive] [--url ws://localhost:3000]
@@ -26,15 +26,8 @@ if (skill !== 'mixed' && !SKILLS[skill]) {
   process.exit(1);
 }
 
-// Mixed: deal skills from shuffled sets of all three, so every skill shows up.
-const bag = [];
-const deal = () => {
-  if (!bag.length) bag.push(...Object.keys(SKILLS).sort(() => Math.random() - 0.5));
-  return bag.pop();
-};
-
 function startBot(n) {
-  const bot = createBot(n, { skill: skill === 'mixed' ? deal() : skill, passive, primary: PRIMARIES[Math.floor(Math.random() * PRIMARIES.length)] });
+  const bot = createBot(n, { skill: skill === 'mixed' ? Object.keys(SKILLS)[Math.floor(Math.random() * 3)] : skill, passive, primary: PRIMARIES[Math.floor(Math.random() * PRIMARIES.length)] });
   const ws = new WebSocket(url);
   bot.ws = ws;
   ws.onopen = () => {
