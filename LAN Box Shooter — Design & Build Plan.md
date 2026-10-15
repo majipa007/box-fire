@@ -98,15 +98,24 @@ Movement is Valorant-style: no sprint, no air strafing.
 - Player collider: axis-aligned box 0.6 × 1.8 × 0.6 m standing, 0.6 × 1.2 × 0.6 m crouched, swept against the map's boxes. Crouching shrinks the collider from the top, in the air too, so there is no crouch-jump in v1 and the ledge rules above hold. Standing up is blocked while anything is above the head.
 - Players pass through each other. There is no player-vs-player collision, because predicting collisions against players drawn 33 ms in the past rubber-bands both of them.
 
-Health is 100 with no armour. Dying respawns you after 3 s at the spawn point furthest from any enemy, skipping any point used in the last 3 s so two players who die together never spawn stacked, with 2 s of invulnerability that ends early if you fire; protected players blink so everyone can see it. Everyone carries the pistol plus one primary. Press B at any time, or use the same two-button panel on the respawn screen, to pick rifle or shotgun; the choice applies on the next spawn and defaults to the rifle, so drop-in players never need the lobby.
+Health is 100 with no armour. Dying respawns you after 3 s at the spawn point furthest from any enemy, skipping any point used in the last 3 s so two players who die together never spawn stacked, with 2 s of invulnerability that ends early if you fire; protected players blink so everyone can see it. Everyone carries one primary and one sidearm. Press B at any time, or use the same panel on the respawn screen, to pick either from the full roster (seven primaries, three sidearms); the choice applies on the next spawn and defaults to the rifle and pistol, so drop-in players never need the lobby.
 
 Scores are keyed by name for the length of the match: if a tab dies, reopening the URL with the same name gets the kills back. Names are compared case-insensitively, so rejoining as "sam" after playing as "Sam" still works. A name already in use is rejected, unless that slot has been silent (no heartbeat pong) for over 2 s, in which case the newcomer takes it over as a reconnect. Disconnected players stay on the scoreboard, greyed out, until the match ends, and keep their slot even if the game is full. Leaving mid-life counts as a death without a kill: a rejoin waits out the 3 s respawn, so refreshing the page never heals.
 
-| Weapon | Body dmg | Head mult | Fire rate | Mag | Reload (s) | Spread stand / move (°) | Notes |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Pistol | 26 | 3× | 6.75/s semi | 12 | 1.75 | 0.3 / 1.5 | Always carried. Falloff 25 → 40 m down to 0.75 |
-| Rifle | 30 | 160 flat (one-tap head at any range, every bullet) | 9.75/s auto | 25 | 2.5 | 0.15 / 2.5, plus spray bloom 0.25° per heat up to +2°; camera kick climbs over 8 shots | Default primary. Falloff 20 → 30 m down to 0.8 (24), so 4 body hits to about 29 m, then 5 |
-| Shotgun | 10 × 12 pellets | 2× | 1.1/s pump | 5 | 0.5 per shell | 3.5 cone | Falloff 8 → 18 m down to 0.2. A full body blast (120) kills from 100 HP, not through a Shield |
+The guns live one file each in `shared/guns/` (the registry); every field, the kill tables and how to add a gun are in `docs/guns.md`.
+
+| Gun | Slot | Body dmg | Head | Fire rate | Mag | Reload (s) | Spread stand / move (°) | Niche |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Rivet (pistol) | sidearm | 26 | 3× | 6.75/s semi | 12 | 1.75 | 0.3 / 1.5 | Falloff 25 → 40 m down to 0.75 |
+| Sledge (handcannon) | sidearm | 50 | 3× | 2.2/s semi | 6 | 2.25 | 0.25 / 2.5 | Two body hits or one headshot; hard kick |
+| Nailer (machinepistol) | sidearm | 18 | 2.5× | 16/s auto | 18 | 1.6 | 0.9 / 1.6, bloom to +3 | Close spray, falloff 6 → 18 m down to 0.5 |
+| Mason (rifle) | primary | 30 | 160 flat | 9.75/s auto | 25 | 2.5 | 0.15 / 2.5, bloom to +2 | Default. 4 body hits to about 29 m |
+| Crusher (shotgun) | primary | 10 × 12 pellets | 2× | 1.1/s pump | 5 | 0.5 per shell | 3.5 cone | Falloff 8 → 18 m down to 0.2; a full blast (120) kills 100 HP, not a Shield |
+| Grinder (smg) | primary | 20 | 2.5× | 15/s auto | 30 | 2.1 | 0.6 / 1.1 | Accurate on the move; falloff 10 → 22 m |
+| Ratchet (burst) | primary | 26 | 3× | 3-round bursts (8.57/s sustained) | 21 | 2.4 | 0.08 / 3 | Tight and steady mid range |
+| Piledriver (lmg) | primary | 25 | 2.5× | 9.5/s auto | 75 | 4.5 | 0.25 / 4.5 | Carried at 0.88 speed, 0.6 while firing |
+| Plumb (marksman) | primary | 55 | 2.5× | 2.75/s semi | 10 | 2.4 | 0.05 / 3 | Two body hits at any range |
+| Surveyor (sniper) | primary | 150 | 2× | 1.33/s bolt | 5 | 3 | 10 / 15 hip, 0.05 scoped | Right mouse scopes (0.35 s, 30° fov); a scoped body hit kills 100 HP |
 
 All weapons are hitscan, so there is no projectile simulation. Infinite reserve ammo, finite magazine. Weapon state (fire cooldown, magazines, reload and switch timers) is predicted on the client and corrected from snapshots exactly like movement, so the muzzle flash, ammo counter and empty click are instant and right.
 

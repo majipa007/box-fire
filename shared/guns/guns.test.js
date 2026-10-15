@@ -54,10 +54,12 @@ const TAKEN = ['classic', 'shorty', 'frenzy', 'ghost', 'sheriff', 'stinger', 'sp
   'marshal', 'outlaw', 'operator', 'ares', 'odin', 'awp', 'deagle', 'desert eagle', 'glock', 'famas', 'galil', 'negev', 'wingman', 'kraber', 'peacekeeper'];
 const inRange = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
 
-test('the roster: one gun per class of the brief, three sidearms and seven primaries', () => {
-  assert.deepEqual(GUN_IDS.map((id) => GUNS[id].class).sort(), [...CLASSES].sort());
-  assert.deepEqual(SECONDARIES.map((id) => GUNS[id].class).sort(), ['handcannon', 'machinepistol', 'pistol']);
-  assert.equal(PRIMARIES.length, 7);
+// Open-ended: a new gun may share a class or bring a new one (with a BASE
+// entry in index.js), so no exact counts here.
+test('the roster: every class of the brief is carried, and every gun borrows a launch gun until it has its own look', () => {
+  for (const c of CLASSES) assert.ok(GUN_IDS.some((id) => GUNS[id].class === c), `no gun of class ${c}`);
+  assert.ok(PRIMARIES.length && SECONDARIES.length, 'both slots have guns');
+  for (const id of GUN_IDS) assert.ok(['pistol', 'rifle', 'shotgun'].includes(baseGun(id)), `${id}: class ${GUNS[id].class} has no BASE entry in shared/guns/index.js`);
 });
 
 test('every gun file is listed in the index under its own file name, as plain data with no imports', () => {
@@ -79,7 +81,7 @@ test('every gun passes the field rules', () => {
     assert.ok(!names.has(g.name), at('name is unique'));
     names.add(g.name);
     assert.ok(['primary', 'secondary'].includes(g.slot), at('slot'));
-    assert.ok(CLASSES.includes(g.class), at('class'));
+    assert.match(g.class, /^[a-z]+$/, at('class is lowercase letters'));
     assert.ok(['semi', 'auto', 'burst'].includes(g.mode), at('mode'));
     assert.equal(g.auto, g.mode === 'auto', at('auto follows mode'));
     assert.ok(inRange(g.dmg, 1, 200), at('dmg'));
