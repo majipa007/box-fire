@@ -86,7 +86,11 @@ test('a bot shoots a foe it can see, but never a spawn-protected one, and a pass
   const shotsIn2s = (flags, passive = false) => {
     const { bot, snap } = situation({ at: [-17, 0, -17], yaw: yawTo(1, 1), foes: [[2, -12, 0, -12, flags]], passive });
     let shots = 0;
-    for (let t = 1000; t < 1120; t++) { onMessage(bot, snap(t)); shots += think(bot, budget()).fire ? 1 : 0; }
+    for (let t = 1000; t < 1120; t++) {
+      onMessage(bot, snap(t));
+      shots += think(bot, budget()).fire ? 1 : 0;
+      if (passive) assert.notEqual(bot.goal?.kind, 'fight', 'a passive bot never takes a fight');
+    }
     return shots;
   };
   assert.ok(shotsIn2s(ALIVE) > 0, 'shoots a bare foe');
@@ -102,6 +106,15 @@ test('a shotgun bot fights a far foe with its pistol and a near one with the sho
   };
   assert.equal(slotFor([10, 0, 3]), 1, '20 m: pistol');
   assert.equal(slotFor([10, 0, -12]), 0, '5 m: shotgun');
+});
+
+test('a shotgun bot that hears a far shot gets its pistol out before the foe shows', () => {
+  const { bot, snap } = situation({ at: [-17, 0, -17], yaw: yawTo(1, 1), primary: 'shotgun' });
+  think(bot, budget());
+  onMessage(bot, { t: 'event', e: 'shot', id: 2, o: [3, 1.6, -17] }); // 20 m off, out of sight
+  let slot = 0;
+  for (let t = 1001; t <= 1030 && !slot; t++) { onMessage(bot, snap(t)); slot = think(bot, budget()).slot; }
+  assert.equal(slot, 1, 'pistol within 0.5 s');
 });
 
 test('a bot follows a map switch, which spawns it before the lobby names the map, and ignores unlisted maps', () => {

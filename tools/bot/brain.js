@@ -236,7 +236,12 @@ export function think(bot, budget) {
     }
   } else {
     bot.target = null;
-    if (ars.slot === 1) inp.slot = 0; // back to the primary, to reload it
+    // A close-range primary hunting something far: the pistol out before
+    // the foe shows, so the first shot pays no switch. Otherwise back to a
+    // primary that needs reloading.
+    const primary = WEAPONS[ars.primary], close = roleOf(primary) === 'close';
+    if (close && g?.kind === 'hunt' && Math.hypot(g.pos[0] - m.x, g.pos[2] - m.z) > 2 * idealRange(primary, false)) inp.slot = 1;
+    else if (ars.slot === 1 && (!close || ars.mags[0] < primary.mag)) inp.slot = 0;
     else if (mag < w.mag * 0.4 && !ars.reload) keys |= KEY.RELOAD;
     if (g) {
       const s = follow(bot.nav, bot.route, m, g.pos, bot.tick, budget);
