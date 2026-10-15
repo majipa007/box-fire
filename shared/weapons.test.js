@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createArsenal, stepWeapon, traceShot, spreadDegrees, shotDirs, aimDir, damageAt, freshLife, shotHeat } from './weapons.js';
 import { KEY } from './movement.js';
 import { prepareMap } from './collision.js';
+import { DT } from './constants.js';
 import { shotRng } from './rng.js';
 
 const mover = (speed, extra = {}) => ({ x: 0, y: 0, z: 0, vx: speed, vy: 0, vz: 0, grounded: true, crouch: false, ...extra });
@@ -241,12 +242,15 @@ test('prediction parity: two arsenals stepped with the same inputs stay identica
   assert.deepEqual(client, server);
 });
 
-test('switching weapons clears the heat', () => {
+test('a switch keeps the heat, which cools at 4 a second whatever is held, so a quick switch back is no cold tap', () => {
   const a = createArsenal('rifle');
   sprayHeats(a, 30);
-  assert.ok(a.heat > 2);
-  stepWeapon(a, pistol(false));
-  assert.equal(a.heat, 0);
+  const hot = a.heat;
+  assert.ok(hot > 2);
+  for (let i = 0; i < 15; i++) stepWeapon(a, pistol(false)); // 0.25 s on the pistol
+  assert.ok(close(a.heat, hot - 15 * DT * 4, 1e-9), `heat ${a.heat} after 0.25 s on the pistol`);
+  for (let i = 0; i < 15; i++) stepWeapon(a, { fire: false, reload: false, slot: 0 }); // and 0.25 s back on the rifle
+  assert.ok(close(a.heat, hot - 30 * DT * 4, 1e-9), 'still warm: only time cools a spray');
 });
 
 test('heat blooms the rifle cone by 0.25° each, standing, crouched, running or airborne', () => {

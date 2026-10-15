@@ -2,7 +2,7 @@
 // predicts shots, ammo and reloads and the server agrees.
 import {
   DT, WEAPONS, SWITCH_SECONDS, SHOT_RANGE, MAX_HP, SPREAD_AIR_FACTOR, SPREAD_CROUCH_FACTOR, EYE_STAND, EYE_CROUCH, STAND_HEIGHT, CROUCH_HEIGHT, PLAYER_WIDTH, HEAD_SIZE, RUN_SPEED,
-} from './constants.js';
+HEAT_COOL, } from './constants.js';
 import { KEY, createMover } from './movement.js';
 import { rayBox } from './collision.js';
 
@@ -107,11 +107,10 @@ export function stepWeapon(a, input) {
   if (input.slot !== a.slot) {
     a.slot = input.slot;
     a.switching = SWITCH_SECONDS; // can't fire until the new gun is up
-    a.reload = 0; // switching cancels a reload
-    a.heat = 0; // and a spray
+    a.reload = 0; // switching cancels a reload (a spray's heat stays, so a quick switch back is no cold tap)
   }
   const w = WEAPONS[weaponOf(a)];
-  a.heat = Math.max(0, a.heat - DT * (w.cool ?? 0));
+  a.heat = Math.max(0, a.heat - DT * HEAT_COOL); // only time cools a spray, whatever is held
   if (a.reload > 0) {
     a.reload -= DT;
     if (a.reload <= 1e-9) {
