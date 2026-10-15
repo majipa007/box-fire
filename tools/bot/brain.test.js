@@ -103,3 +103,29 @@ test('a shotgun bot fights a far foe with its pistol and a near one with the sho
   assert.equal(slotFor([10, 0, 3]), 1, '20 m: pistol');
   assert.equal(slotFor([10, 0, -12]), 0, '5 m: shotgun');
 });
+
+test('a bot follows a map switch, which spawns it before the lobby names the map, and ignores unlisted maps', () => {
+  const { bot } = situation({ at: [-17, 0, -17], yaw: yawTo(1, 1) });
+  think(bot, budget());
+  const a2 = navFor('arena_02').map, at = a2.spawns[0];
+  const onA2 = (pos) => [...a2.spawns, ...a2.pads.map((p) => p.pos)].some((q) => q.every((v, i) => v === pos[i]));
+  const snap = (t) => ({
+    t: 'snapshot', tick: t, ack: 0,
+    me: { mover: { ...createMover(...at), grounded: true }, arsenal: createArsenal('rifle'), hp: 100, alive: true, pw: createPowers() },
+    ps: [[1, ...at, 0, 0, ALIVE, 100, 0]], pu: { pd: a2.pads.map(() => [0, 0, 0]), en: [] },
+  });
+  onMessage(bot, { t: 'event', e: 'spawn', id: 1, x: at[0], y: at[1], z: at[2], yaw: 0, primary: 'rifle' });
+  onMessage(bot, { t: 'lobby', phase: 'playing', map: 'arena_02', players: [] });
+  onMessage(bot, snap(2000));
+  const input = think(bot, budget());
+  assert.ok(input.keys & 15, 'still spawned: it moves');
+  assert.ok(onA2(bot.goal.pos), `goal ${bot.goal.pos} is on arena_02`);
+  onMessage(bot, { t: 'lobby', phase: 'playing', map: 'arena_99', players: [] });
+  let moving = 0;
+  for (let t = 2001; t < 2200; t++) {
+    onMessage(bot, snap(t));
+    moving += think(bot, budget()).keys & 15 ? 1 : 0;
+    if (bot.goal) assert.ok(onA2(bot.goal.pos), `goal ${bot.goal.pos} is on arena_02`);
+  }
+  assert.ok(moving > 150, 'still playing arena_02');
+});
