@@ -16,7 +16,7 @@ The arena is a working limestone quarry at about 4 pm.
 - Chalky concrete and drifted sand sit under a cobalt sky.
 - A 40° sun gives a warm sunlit face and cool blue-grey shade. Stepped cut faces open toward the sun. A rust crusher tower stands backlit in the gap, and voxel clouds drift overhead.
 - Only people and power-ups are saturated. Players read by value (dark kit and a dark outline) and are identified by hue (their slot colour).
-- Power-ups are Blur's colour-coded glowing pickups. Their beams rise 6 m over the walls.
+- Power-ups are Blur's colour-coded glowing pickups. Their beams rise 6 m over the walls from pads that are up; a refilling pad shows its clock instead.
 - Every shot slaps back off the cut faces.
 
 | Reference | What we take |
@@ -55,7 +55,7 @@ The arena is a working limestone quarry at about 4 pm.
 | Sky drawn first (perf, on mesa) | Sky drawn last: `renderOrder` 1000 and z = w | 2.3 |
 | No gun lockout (design) | 0.25 s per use, 0.55 s for Bolt, through `arsenal.switching` | 4.1 |
 | Shunt can't be shot (design) | One bullet against a rewound 0.5 m cube makes it fizzle | 4.2 |
-| Pickup rate ignores player count (design) | Respawn time × max(1, 6/n) | 4.3 |
+| Pickup rate ignores player count (design) | Respawn time × min(3, max(1, 6/n)) | 4.3 |
 | No kill-share target (design) | Power-up kills ≤ 25%; PWR column and a match-end log line | 4.6 |
 | Mines invisible to rejoining tabs (art, on mesa) | Persistent `pu` state in every snapshot | 4.5 |
 | Neon's Nitro jump reaches 2.4 m pillar tops (perf) | Nitro changes speed only. Knock lift applies only to grounded players. Named tests | 4.4 |
@@ -1272,7 +1272,7 @@ Merge order:
    - `audio.kill()` when you are the killer, plus `ui.killConfirm`;
    - `ui.showDeath(killer, 3, { color, weapon: m.w, killerHp })` when you are the victim.
 8. **`pick`, `use`, `boom`:** queue them until `renderTick ≥ m.tick`, except your own. Then:
-   - `pick`: `effects.pickupBurst`, `audio.power(k, 'pick')`, and `ui.powerToast` if it is yours;
+   - `pick`: yours plays `effects.pickupBurst`, `audio.power(k, 'pick')` and `ui.powerToast`; someone else's plays only `audio.power('pad', 'taken')` at the pad;
    - `use`: `audio.power(k, 'use')`;
    - `boom`: `effects.blast(k, pos, r)`, `audio.power(k, r ? 'boom' : 'fizzle')`, `feel.addTrauma` within 8 m. Skip your own Barge boom.
 9. **`fixedStep`:**
