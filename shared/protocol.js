@@ -1,6 +1,7 @@
 // Wire format: JSON objects tagged by `t`. Client messages are validated
 // here because they arrive from the network; server messages are trusted.
 import { NAME_MAX, PRIMARIES, PITCH_LIMIT, MAPS } from './constants.js';
+import { GUN_IDS } from './guns/index.js'; // arsenal
 
 export const encode = (msg) => JSON.stringify(msg);
 
@@ -10,7 +11,7 @@ export const encode = (msg) => JSON.stringify(msg);
 // protection; BUBBLE (a power-up Shield), NITRO and SLOWED are power-up
 // effects.
 export const PLAYER_FLAGS = { CROUCH: 1, ALIVE: 2, SHIELDED: 4, BUBBLE: 8, NITRO: 16, SLOWED: 32 };
-export const WEAPON_IDS = ['rifle', 'pistol', 'shotgun'];
+export const WEAPON_IDS = GUN_IDS; // arsenal: the registry order (shared/guns/index.js)
 
 // POWER-UPS: ids on the wire (never part of WEAPON_IDS), and entity types.
 export const POWER_IDS = ['shunt', 'bolt', 'barge', 'shock', 'mine', 'nitro', 'shield'];
