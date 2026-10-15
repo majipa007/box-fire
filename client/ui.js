@@ -236,6 +236,9 @@ const last = { hp: -1, weapon: '', mag: -1, maxMag: -1, reload: -1, reloading: n
 const tagLast = { nitro: -1, slowed: -1, shield: -1 }; // tenths of a second shown, -1 hidden
 const NONE = {};
 
+// arsenal: the fire mode the ammo panel names: a burst gun's burst, else nothing.
+export const fireMode = (id) => (WEAPONS[id]?.mode === 'burst' ? `BURST ×${WEAPONS[id].burst.count}` : '');
+
 // extra: { maxMag, reloadFrac (0 → 1), shield (hp), shieldSeconds, nitro and slowed (seconds left) }
 export function updateHud(hp, weapon, mag, reloading, extra = NONE) {
   if (!live()) return;
@@ -268,12 +271,16 @@ export function updateHud(hp, weapon, mag, reloading, extra = NONE) {
   if (weapon !== last.weapon) {
     $('wname').textContent = WEAPONS[weapon]?.name ?? weapon; // arsenal: the gun's own name
     setIcon($('wicon'), weapon);
+    const mode = fireMode(weapon); // arsenal
+    $('wmode').textContent = mode;
+    $('wmode').hidden = !mode;
     last.weapon = weapon;
     const ring = weapon === 'shotgun';
     if (ring !== last.ring) $('crosshair').classList.toggle('ring', (last.ring = ring));
   }
   if (mag !== last.mag || maxMag !== last.maxMag || reloading !== last.reloading) {
     $('mag').textContent = mag;
+    if (maxMag !== last.maxMag) $('ammo').style.setProperty('--digits', String(maxMag).length); // arsenal: the Piledriver's 75 counts down without the panel twitching
     $('ammo').classList.toggle('reloading', reloading);
     $('ammo').classList.toggle('low', !reloading && mag <= Math.ceil(maxMag / 4));
     last.mag = mag;
@@ -807,7 +814,8 @@ function startDemo() {
       showDeath('bot4', 3, { color: PLAYER_COLORS[3], weapon: 'rifle', killerHp: 64 });
       showPicker(true);
     }
-    updateHud(64, 'rifle', 17, false, { maxMag: 25, shield: 30, shieldSeconds: 5.2, nitro: 2.6 });
+    const [gun, mag] = { feed: ['burst', 14], picker: ['lmg', 68], scope: ['sniper', 4] }[DEMO] ?? ['rifle', 17]; // arsenal: a burst's mode, the belt, the scope
+    updateHud(64, gun, mag, false, { maxMag: WEAPONS[gun].mag, shield: 30, shieldSeconds: 5.2, nitro: 2.6 });
     updatePowers({ inv: ['shunt', 'bolt', 'shield'], sel: 1, cd: 24, bolts: 0 });
     updateMatchInfo(287, { name: 'bot4', kills: 17, slot: 3 }, { rank: 3, of: 8 });
     renderNameTags([

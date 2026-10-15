@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { migrate, DEFAULTS, ICONS, bearing } from './ui.js';
+import { migrate, DEFAULTS, ICONS, bearing, fireMode } from './ui.js';
 import { POWER_IDS } from '../shared/protocol.js';
 import { PRIMARIES, SECONDARIES } from '../shared/constants.js';
 import { GUNS, GUN_IDS } from '../shared/guns/index.js'; // arsenal
@@ -56,4 +56,11 @@ test('threat bearings run clockwise from straight ahead', () => {
   near(bearing([5, 0, 0], eye, 0), Math.PI / 2); // right
   near(Math.abs(bearing([0, 0, 5], eye, 0)), Math.PI); // behind
   near(bearing([-5, 0, 0], eye, Math.PI / 2), 0); // turned left, it is ahead
+});
+
+// arsenal: the ammo panel names the fire mode where it changes how you shoot.
+test('the ammo panel labels a burst gun with its burst, and no other gun', () => {
+  assert.equal(fireMode('burst'), 'BURST ×3');
+  for (const id of GUN_IDS.filter((g) => g !== 'burst')) assert.equal(fireMode(id), '', id);
+  assert.equal(fireMode('bolt'), '', 'a power-up id is no gun');
 });

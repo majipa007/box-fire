@@ -226,7 +226,9 @@
   #wname { font: 700 calc(13 * var(--u)) var(--font); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
   #wicon { height: calc(16 * var(--u)); color: var(--text); }
   #ammo-line { display: flex; align-items: baseline; justify-content: flex-end; gap: calc(6 * var(--u)); }
-  #mag { font: 700 calc(44 * var(--u))/1 var(--font); font-variant-numeric: tabular-nums; }
+  #mag { font: 700 calc(44 * var(--u))/1 var(--font); font-variant-numeric: tabular-nums; min-width: calc(var(--digits, 2) * 1ch); text-align: right; }
+  /* arsenal: a burst gun's fire mode, a chip before its icon. */
+  #wmode { font: 700 calc(11 * var(--u))/1 var(--font); letter-spacing: 0.14em; color: var(--accent); padding: calc(3 * var(--u)) calc(6 * var(--u)); border: 1px solid rgba(217, 180, 90, 0.55); text-shadow: none; }
   #reserve { font: 600 calc(20 * var(--u)) var(--font); color: var(--dim); }
   #ammo.low #mag { color: var(--danger); }
   #ammo.reloading #mag { color: var(--dim); }
@@ -332,7 +334,7 @@
     <div id="bars"><div id="hpbar" class="bar"><i id="hp-ghost"></i><i id="hp-fill"></i></div><div id="shieldbar" class="bar" hidden><i></i></div></div>
   </div>
   <div id="ammo" class="panel">
-    <div id="wline"><span id="wicon" class="ico"></span><span id="wname"></span></div>
+    <div id="wline"><span id="wmode" hidden></span><span id="wicon" class="ico"></span><span id="wname"></span></div>
     <div id="ammo-line"><div id="reload"></div><span id="mag"></span><span id="reserve">/ ∞</span></div>
   </div>
   <div id="toast"></div>
