@@ -75,6 +75,12 @@ export function reconcile(snapshot, boxes) {
 const buffer = []; // { tick, ps }, oldest first
 let clockBase = null; // performance.now() of server tick 0, smoothed
 
+// A map switch: positions from the old map must not be drawn or shot at on
+// the new one, so others() is empty until the first new snapshot.
+export function resetSnapshots() {
+  buffer.length = 0;
+}
+
 export function bufferSnapshot(m, now) {
   buffer.push({ tick: m.tick, ps: m.ps });
   if (buffer.length > 60) buffer.shift();

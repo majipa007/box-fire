@@ -660,6 +660,13 @@ export function showRoom() {
   $('lobby-room').hidden = false;
 }
 
+// The host's map would not load: say so where the lobby status goes.
+let loadFailed = false;
+export function showLoadError(on) {
+  loadFailed = on;
+  if (on) $('lobby-status').textContent = 'Could not load the map from the host. Retrying…';
+}
+
 export function showDisconnected() {
   $('lobby').hidden = false;
   $('lobby-status').textContent = 'Disconnected from the host. Reload to rejoin.';
@@ -684,7 +691,7 @@ export function renderLobby(m, myId) {
   if (me) $('hud').style.setProperty('--me', PLAYER_COLORS[me.slot]);
   const isHost = m.host === myId;
   $('start').hidden = !(isHost && m.phase === 'lobby');
-  $('lobby-status').textContent = m.phase === 'lobby' ? (isHost ? '' : 'Waiting for host…') : 'Match in progress.';
+  if (!loadFailed) $('lobby-status').textContent = m.phase === 'lobby' ? (isHost ? '' : 'Waiting for host…') : 'Match in progress.';
   $('scoreboard').classList.toggle('over', m.phase === 'scoreboard');
   renderMaps(m, myId);
 }

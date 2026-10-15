@@ -1,5 +1,5 @@
 // Boot: connect to the host, drive the screens, run the game loop.
-import { connect, self, predict, reconcile, bufferSnapshot, syncClock, serverTick, renderTick, others } from './net.js';
+import { connect, self, predict, reconcile, bufferSnapshot, syncClock, serverTick, renderTick, others, resetSnapshots } from './net.js';
 import * as ui from './ui.js';
 import * as render from './render.js';
 import { setupWorld, setMap as setWorldMap, sun, setQuality } from './world.js'; // effects: sun, for puffs in shade; world: quality preset
@@ -51,7 +51,7 @@ const net = connect({
     seed = m.seed;
     ui.showRoom();
     if (ui.settings.primary !== 'rifle') net.send({ t: 'loadout', primary: ui.settings.primary });
-    stage ??= buildStage();
+    loadStage();
   },
   lobby(m) {
     // A vote switched the map: rebuild on it now, before this message opens
@@ -59,7 +59,7 @@ const net = connect({
     // (The host sends the spawns first and the snapshots from the next tick.)
     if (m.map !== mapId) {
       mapId = m.map;
-      if (world) applyMap();
+      if (world) switchMap();
     }
     syncClock(m.tick, performance.now());
     if (m.phase === 'playing' && lobby.phase !== 'playing') audio.ui('start'); // audio: a match begins
@@ -187,7 +187,7 @@ function applySettings() {
 // One fixed 60 Hz step: sample input, predict locally, send to the host.
 function fixedStep() {
   const me = self.mover;
-  if (!me || !world || !self.alive || lobby.phase !== 'playing') return;
+  if (!me || !world || worldId !== mapId || !self.alive || lobby.phase !== 'playing') return; // worldId: a switch's map still loading
   prev = { x: me.x, y: me.y, z: me.z };
   const inp = { ...input.sample(), rt: renderTick(performance.now()) };
   if (predict(inp, world.boxes)) {
@@ -307,10 +307,10 @@ function remoteShot(id, o, ends, weapon) { // effects: weapon
 // the materials and the shader compile, so a match starts without a hitch.
 // The lobby watches the arena from a slow orbit until we spawn.
 async function buildStage() {
+  while (!maps[mapId]) await loadMap(mapId); // the host's map first (a vote may change it mid-fetch)
+  for (const id of MAPS) loadMap(id).catch(() => {}); // the rest behind the lobby, ready for a vote's switch
   render.init();
   applySettings();
-  const files = await Promise.all(MAPS.map(async (id) => (await fetch(new URL(`../shared/maps/${id}.json`, import.meta.url))).json()));
-  MAPS.forEach((id, i) => { maps[id] = files[i]; });
   // From here on synchronous: mapId is read after any lobby message that came during the fetch.
   setQuality(ui.settings.quality); // world: 'low' halves the AO rays and stills the sky
   setupWorld(render.scene);
@@ -321,6 +321,48 @@ async function buildStage() {
   requestAnimationFrame(frame);
 }
 
+// A map file, checked and cached; a failed fetch retries with backoff, and a
+// request after the last failure starts over.
+const mapLoads = {}; // id → promise of its JSON
+function loadMap(id) {
+  return (mapLoads[id] ??= (async () => {
+    for (let tries = 1; ; tries++) {
+      try {
+        const res = await fetch(new URL(`../shared/maps/${id}.json`, import.meta.url));
+        if (!res.ok) throw new Error(`${id}: HTTP ${res.status}`);
+        return (maps[id] = await res.json());
+      } catch (err) {
+        if (tries >= 5) {
+          delete mapLoads[id];
+          throw err;
+        }
+        await new Promise((done) => setTimeout(done, 500 * tries));
+      }
+    }
+  })());
+}
+
+// The stage, once: true when built. A map that will not load says so in the
+// lobby, and the next lobby message tries again.
+function loadStage() {
+  return (stage ??= buildStage().then(() => {
+    ui.showLoadError(false);
+    return true;
+  }, (err) => {
+    console.error('Boxfire: could not load the map', err);
+    ui.showLoadError(true);
+    stage = null;
+    return false;
+  }));
+}
+
+// A vote switched maps: build the new one now if its file is here, else as
+// soon as it lands (fixedStep waits, rather than predict on the old boxes).
+function switchMap() {
+  if (maps[mapId]) return applyMap();
+  loadMap(mapId).then(() => { if (worldId !== mapId && maps[mapId]) applyMap(); }, () => ui.showLoadError(true));
+}
+
 // Build on the host's map, from the prefetched files: collision first, then
 // what is drawn and heard on it. Synchronous, so the lobby handler can switch
 // maps between two messages.
@@ -328,6 +370,7 @@ function applyMap() {
   const map = maps[mapId];
   world = prepareMap(map);
   worldId = mapId;
+  resetSnapshots(); // no old-map positions drawn, or shot at, on the new one
   // ponytail: a switch bakes the AO here, on the main thread: ~20 ms (LOOK.ao in world.js),
   // one hitch at match start, inside the 2 s spawn protection. Ceiling: a slow laptop CPU or
   // a much bigger map makes it a visible stall; then bake the leading map during the
@@ -344,7 +387,10 @@ function applyMap() {
 // The match view: input, menus and the fixed-step clock.
 async function enterGame() {
   inGame = true;
-  await stage;
+  if (!(await loadStage())) {
+    inGame = false; // the next lobby message tries again
+    return;
+  }
   ui.enterGame();
   const canvas = render.renderer.domElement;
   input.init(canvas, {
