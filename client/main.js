@@ -18,7 +18,7 @@ import { SUN_DIR } from './world.js'; // characters: for the shadows-off fallbac
 import { Vector3 } from 'three';
 import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf, hitboxes, shotHeat } from '../shared/weapons.js'; // effects: hitboxes; weapons: shotHeat
 import { shotRng } from '../shared/rng.js';
-import { WEAPONS } from '../shared/constants.js'; // hud: reload progress
+import { WEAPONS, PRIMARIES, SECONDARIES } from '../shared/constants.js'; // hud: reload progress; arsenal: the saved loadout
 import * as characters from './characters.js'; // hud: nameTags()
 
 const STEP_MS = 1000 / TICK_RATE;
@@ -50,7 +50,11 @@ const net = connect({
     mapId = m.map;
     seed = m.seed;
     ui.showRoom();
-    if (ui.settings.primary !== 'rifle') net.send({ t: 'loadout', primary: ui.settings.primary });
+    // arsenal: the saved loadout, each id only if this build still lists it.
+    const lo = { t: 'loadout' };
+    if (PRIMARIES.includes(ui.settings.primary)) lo.primary = ui.settings.primary;
+    if (SECONDARIES.includes(ui.settings.secondary)) lo.secondary = ui.settings.secondary;
+    if (lo.primary || lo.secondary) net.send(lo);
     loadStage();
   },
   lobby(m) {
@@ -164,12 +168,14 @@ addEventListener('keydown', (e) => {
   if (card && !e.repeat) vote(card.id);
 });
 
-// null toggles the picker; a primary is chosen for the next spawn.
-function pick(primary) {
-  if (!primary) return ui.showPicker(!ui.pickerOpen());
-  ui.settings.primary = primary;
+// null toggles the picker; a gun is chosen for the next spawn (arsenal: a
+// primary or a sidearm, by its registry slot).
+function pick(id) {
+  if (!id) return ui.showPicker(!ui.pickerOpen());
+  const slot = WEAPONS[id].slot;
+  ui.settings[slot] = id;
   ui.saveSettings();
-  net.send({ t: 'loadout', primary });
+  net.send({ t: 'loadout', [slot]: id });
   ui.showPicker(!self.alive); // stays up on the respawn screen
 }
 

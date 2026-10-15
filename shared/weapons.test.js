@@ -380,3 +380,63 @@ test('the sidearm fires at its own rate: a semi gun clicked every other step is 
   const expected = Math.floor(600 / (2 * Math.ceil(60 / GUNS.handcannon.rps / 2)));
   assert.ok(Math.abs(n - expected) <= 1, `${n} shots in 10 s, expected about ${expected}`);
 });
+
+// ---- arsenal: burst mode ----
+
+// Steps an arsenal through clicks (fire on one step, released the next) or a
+// held trigger; returns the steps each shot fired on.
+const shotSteps = (a, fireAt, steps, slot = 0) => {
+  const out = [];
+  for (let i = 0; i < steps; i++) if (stepWeapon(a, { keys: 0, fire: fireAt(i), slot })) out.push(i);
+  return out;
+};
+
+test('burst: one click fires burst.count shots at burst.rps, the cooldown carrying its remainder; holding fires one burst', () => {
+  const { count, rps } = GUNS.burst.burst;
+  // The cooldown runs down on the firing step too, so shot k comes on step ceil(60k / rps - 1).
+  const expected = Array.from({ length: count }, (_, k) => (k ? Math.ceil((k * 60) / rps - 1 - 1e-9) : 0));
+  assert.deepEqual(shotSteps(createArsenal('burst'), (i) => i === 0, 120), expected, 'a one-step click');
+  assert.deepEqual(shotSteps(createArsenal('burst'), () => true, 120), expected, 'a held trigger: one burst, no more');
+});
+
+test('burst: clicking as fast as possible starts a burst every count / burst.rps + delay seconds', () => {
+  const { count, rps, delay } = GUNS.burst.burst;
+  const a = createArsenal('burst');
+  a.mags[0] = 1000;
+  const fired = shotSteps(a, (i) => i % 2 === 0, 600);
+  const cycle = count / rps + delay;
+  const due = Math.ceil(cycle * 60 - 1 - 1e-9);
+  assert.equal(fired[count], due + (due % 2), 'the second burst starts on the first click (even steps) after the delay');
+  assert.ok(Math.abs(fired.length / 10 - GUNS.burst.rps) < 0.35, `${fired.length / 10} shots/s, rps says ${GUNS.burst.rps}`);
+  assert.ok(Math.abs(GUNS.burst.rps - count / cycle) < 0.01, 'rps is the sustained rate the burst numbers give');
+});
+
+test('burst: a switch or a power-up gun lock cancels the rest of a burst; a burst stops at an empty magazine', () => {
+  const a = createArsenal('burst');
+  assert.deepEqual(shotSteps(a, (i) => i === 0, 2).length, 1);
+  stepWeapon(a, { keys: 0, fire: false, slot: 1 }); // to the sidearm mid-burst
+  shotSteps(a, () => false, 30, 1);
+  assert.deepEqual(shotSteps(a, () => false, 60, 0).length, 0, 'switching back does not resume it');
+
+  const b = createArsenal('burst');
+  shotSteps(b, (i) => i === 0, 2);
+  b.switching = 0.25; // what stepPowers does on a use
+  assert.equal(shotSteps(b, () => false, 60).length, 0, 'the lock ended the burst');
+
+  const c = createArsenal('burst');
+  c.mags[0] = 2;
+  assert.equal(shotSteps(c, (i) => i === 0, 60).length, 2);
+  assert.equal(c.reload, 0, 'running dry mid-burst does not reload by itself');
+  shotSteps(c, (i) => i === 0, 1);
+  assert.ok(c.reload > 0, 'the next click reloads');
+});
+
+test('burst: R mid-burst reloads and drops the rest of the burst', () => {
+  const a = createArsenal('burst');
+  shotSteps(a, (i) => i === 0, 2);
+  stepWeapon(a, { keys: KEY.RELOAD, fire: false, slot: 0 });
+  assert.ok(a.reload > 0);
+  shotSteps(a, () => false, Math.round(GUNS.burst.reload * 60) + 2);
+  assert.equal(a.mags[0], GUNS.burst.mag);
+  assert.equal(shotSteps(a, () => false, 60).length, 0);
+});

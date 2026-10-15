@@ -17,6 +17,7 @@ export const createArsenal = (primary, secondary = 'pistol') => ({
   switching: 0, // seconds until a newly drawn weapon can fire
   trigger: false, // trigger state last step, for semi-auto edges
   heat: 0, // spray heat: +1 a shot, -cool a second; widens the cone by bloom
+  burst: 0, // arsenal: shots left in the burst under way
 });
 
 // The heat a shot fires with: the heat before it, so a first shot has none.
@@ -110,6 +111,7 @@ export function stepWeapon(a, input) {
     a.switching = SWITCH_SECONDS; // can't fire until the new gun is up
     a.reload = 0; // switching cancels a reload (a spray's heat stays, so a quick switch back is no cold tap)
   }
+  if (a.switching > 1e-9) a.burst = 0; // arsenal: a switch or a power-up's gun lock ends a burst
   const w = WEAPONS[weaponOf(a)];
   a.heat = Math.max(0, a.heat - DT * HEAT_COOL); // only time cools a spray, whatever is held
   if (a.reload > 0) {
@@ -122,15 +124,25 @@ export function stepWeapon(a, input) {
   }
   a.cooldown -= DT;
   let fired = false;
-  // Automatic weapons fire while held; semi-automatic ones once per click.
-  const pull = input.fire && (w.auto || !a.trigger);
+  // Automatic weapons fire while held; semi-automatic ones once per click;
+  // arsenal: a burst gun starts a burst per click and finishes it unheld.
+  const click = input.fire && !a.trigger;
+  const pull = w.mode === 'auto' ? input.fire : click;
+  const more = a.burst > 0; // arsenal: the burst under way fires on its own
   if (pull && w.perShell && a.reload > 0 && a.mags[a.slot] > 0) a.reload = 0; // a shot interrupts loading
-  if (pull && a.switching < 1e-9 && a.reload === 0 && a.cooldown <= 0) {
+  if ((pull || more) && a.switching < 1e-9 && a.reload === 0 && a.cooldown <= 0) {
     if (a.mags[a.slot] > 0) {
       a.mags[a.slot]--;
-      a.cooldown += 1 / w.rps; // += keeps the remainder: 9.75/s is 6.15 steps
+      if (w.mode === 'burst') {
+        a.burst = (more ? a.burst : w.burst.count) - 1;
+        a.cooldown += 1 / w.burst.rps + (a.burst ? 0 : w.burst.delay); // the delay follows a burst's last shot
+      } else {
+        a.cooldown += 1 / w.rps; // += keeps the remainder: 9.75/s is 6.15 steps
+      }
       if (w.bloom) a.heat = Math.min(w.bloomMax / w.bloom + 1, a.heat + 1); // +1: shots read heat - 1; capped, so cooling starts at once
       fired = true;
+    } else if (more) {
+      a.burst = 0; // arsenal: dry mid-burst; the next click reloads
     } else {
       a.reload = w.reload; // pulling on an empty magazine reloads it
     }
@@ -138,6 +150,7 @@ export function stepWeapon(a, input) {
   // Without this clamp a released trigger would bank shots for a burst.
   if (!fired) a.cooldown = Math.max(a.cooldown, 0);
   if (input.keys & KEY.RELOAD && a.reload === 0 && a.mags[a.slot] < w.mag) a.reload = w.reload;
+  if (a.reload > 0) a.burst = 0; // arsenal: a reload drops the rest of a burst
   a.trigger = input.fire;
   return fired;
 }

@@ -1,7 +1,9 @@
 // Pointer lock, mouse look and keys. The camera turns on every mouse event;
 // the fixed 60 Hz step only samples it.
 import { KEY } from '../shared/movement.js';
-import { PITCH_LIMIT, PRIMARIES } from '../shared/constants.js';
+import { PITCH_LIMIT, PRIMARIES, SECONDARIES } from '../shared/constants.js';
+
+const PICKS = [...PRIMARIES, ...SECONDARIES]; // arsenal: the picker's order (ui.js PICKS)
 
 export const look = { yaw: 0, pitch: 0 };
 
@@ -57,7 +59,7 @@ export function sample() {
 // onNeutral fires when the game loses the keyboard (blur, hidden tab, lost
 // pointer lock): keyup never arrives for a background tab, so keys are
 // cleared and the caller sends a no-keys packet at once.
-// While the primary picker is open, 1 and 2 choose a loadout instead of a slot.
+// While the loadout picker is open, the digits choose a gun instead of a slot.
 export function init(target, { onLockChange, onLockError, onNeutral, onPicker, pickerOpen, onScoreboard }) {
   const neutral = () => {
     clearKeys();
@@ -77,10 +79,14 @@ export function init(target, { onLockChange, onLockError, onNeutral, onPicker, p
       onScoreboard(true);
     }
     if (locked && e.code === bindings.picker && !e.repeat) onPicker(null);
-    for (const action in SLOTS) {
-      if (!locked || bindings[action] !== e.code) continue;
-      if (pickerOpen()) onPicker(PRIMARIES[SLOTS[action]]); // 1 → first primary, 2 → second
-      else slot = SLOTS[action];
+    // arsenal: while the picker is open the digits pick from it (1 → first
+    // primary, 2 → second, … sidearms after the primaries, 0 the tenth).
+    const digit = /^Digit(\d)$/.exec(e.code)?.[1];
+    if (locked && digit && pickerOpen()) {
+      const id = PICKS[(Number(digit) + 9) % 10];
+      if (id && !e.repeat) onPicker(id);
+    } else {
+      for (const action in SLOTS) if (locked && bindings[action] === e.code) slot = SLOTS[action];
     }
     const bit = locked && bitFor(e.code);
     if (!bit) return;

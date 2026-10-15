@@ -7,8 +7,9 @@ import pistol from './pistol.js';
 import rifle from './rifle.js';
 import shotgun from './shotgun.js';
 import handcannon from './handcannon.js';
+import burst from './burst.js';
 
-const LIST = [rifle, pistol, shotgun, handcannon];
+const LIST = [rifle, pistol, shotgun, handcannon, burst];
 
 export const GUN_IDS = LIST.map((g) => g.id);
 // auto is derived for readers older than `mode` (feel.js, the bots).
