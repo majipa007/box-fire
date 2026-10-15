@@ -220,11 +220,14 @@ test('a Shunt locks on the enemy nearest the crosshair, in range and in sight', 
   assert.equal(lockTarget(eye, dir, [near, ahead], wall), 1); // the nearer one is hidden
 });
 
-test('pads refill at the 6-player rate, slower in smaller games', () => {
+test('pads refill at the 6-player rate, slower in smaller games, but never more than 3x slower', () => {
   const pad = { respawn: 30 };
   assert.equal(padRespawnTicks(pad, 6), 30 * TICK_RATE);
   assert.equal(padRespawnTicks(pad, 10), 30 * TICK_RATE);
   assert.equal(padRespawnTicks(pad, 3), 60 * TICK_RATE);
-  assert.equal(padRespawnTicks(pad, 0), 180 * TICK_RATE);
+  // The user's call (spec, 15/10/2026): 60–90 s with 1 player, not 2–3 min.
+  assert.equal(padRespawnTicks(pad, 1), 90 * TICK_RATE);
+  assert.equal(padRespawnTicks({ respawn: 20 }, 1), 60 * TICK_RATE);
+  assert.equal(padRespawnTicks(pad, 0), 90 * TICK_RATE);
 });
 

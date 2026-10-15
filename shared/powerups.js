@@ -93,5 +93,6 @@ export function lockTarget(eye, dir, candidates, boxes) {
 }
 
 // Ticks until a pad refills: slower in small games, so the per-player rate
-// stays near the 6-player one.
-export const padRespawnTicks = (pad, n) => Math.round(pad.respawn * TICK_RATE * Math.max(1, POWER_RATE_PLAYERS / Math.max(1, n)));
+// stays near the 6-player one, but never more than 3x slower (the user's
+// call: 60–90 s with 1 player, not 2–3 min).
+export const padRespawnTicks = (pad, n) => Math.round(pad.respawn * TICK_RATE * Math.min(3, Math.max(1, POWER_RATE_PLAYERS / Math.max(1, n))));
