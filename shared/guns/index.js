@@ -3,14 +3,18 @@
 // the wire order (snapshots carry an index into it) and the picker order, so
 // new guns go on the end. A list, not a folder scan: the single executable
 // embeds files and cannot list them. How to add a gun: docs/guns.md.
-import pistol from './pistol.js';
 import rifle from './rifle.js';
+import pistol from './pistol.js';
 import shotgun from './shotgun.js';
 import handcannon from './handcannon.js';
+import machinepistol from './machinepistol.js';
+import smg from './smg.js';
 import burst from './burst.js';
+import lmg from './lmg.js';
+import marksman from './marksman.js';
 import sniper from './sniper.js';
 
-const LIST = [rifle, pistol, shotgun, handcannon, burst, sniper];
+const LIST = [rifle, pistol, shotgun, handcannon, machinepistol, smg, burst, lmg, marksman, sniper];
 
 export const GUN_IDS = LIST.map((g) => g.id);
 // auto is derived for readers older than `mode` (feel.js, the bots).
