@@ -2,16 +2,16 @@
 import { connect, self, predict, reconcile, bufferSnapshot, syncClock, serverTick, renderTick, others } from './net.js';
 import * as ui from './ui.js';
 import * as render from './render.js';
-import { buildWorld, sun, setQuality } from './world.js'; // effects: sun, for puffs in shade; world: quality preset
+import { setupWorld, setMap as setWorldMap, sun, setQuality } from './world.js'; // effects: sun, for puffs in shade; world: quality preset
 import { charactersGroup, syncPlayers, hitFlash, fireKick, shatter as breakRig } from './characters.js'; // characters: rig events
 import { setGun, gunKick, setSunShade, sunBlocked, muzzleWorld, setArmband } from './viewmodel.js'; // viewmodel: sun shade, drawn muzzle, armband
-import { effectsGroup, updateEffects, initEffects, shot, muzzle as muzzleFlash, casing, deathBurst as explode } from './effects.js'; // effects: shots, deaths, casings
+import { effectsGroup, updateEffects, initEffects, clearEffects, shot, muzzle as muzzleFlash, casing, deathBurst as explode } from './effects.js'; // effects: shots, deaths, casings
 import { addRecoil, correct, resetFeel, updateFeel, crosshair, spreadPixels, feelStats, view, blastShake, setBob, spraying } from './feel.js'; // feel:
 import * as input from './input.js';
 import * as audio from './audio.js';
 import * as powerups from './powerups.js'; // powerups: pads, entities, HUD
 import { cleanName, encodeInput, byScore } from '../shared/protocol.js';
-import { EYE_STAND, EYE_CROUCH, TICK_RATE, RESPAWN_SECONDS, WALK_SPEED, NEUTRAL_MS, PLAYER_COLORS } from '../shared/constants.js'; // effects: PLAYER_COLORS
+import { EYE_STAND, EYE_CROUCH, TICK_RATE, RESPAWN_SECONDS, WALK_SPEED, NEUTRAL_MS, PLAYER_COLORS, MAPS } from '../shared/constants.js'; // effects: PLAYER_COLORS
 import { prepareMap } from '../shared/collision.js';
 import { initCharacters, setShadows as rigShadows } from './characters.js'; // characters: map, sun and camera; the shadows setting
 import { SUN_DIR } from './world.js'; // characters: for the shadows-off fallback
@@ -25,10 +25,12 @@ const STEP_MS = 1000 / TICK_RATE;
 const lerp = (a, b, t) => a + (b - a) * t;
 
 let myId = null;
-let mapId = null;
+let mapId = null; // the map the host is on
 let seed = 0; // the host's spread seed
 let inGame = false;
-let world = null; // prepared map, once loaded
+const maps = {}; // id → map JSON, every playable map, fetched behind the lobby
+let world = null; // the prepared map we predict and draw on: null until every map is in
+let worldId = null; // ...and its id
 let roster = new Map(); // id → { name, slot, bot, kills, deaths } from the lobby list
 let lobby = { phase: 'lobby', end: 0, host: null, players: [] }; // the latest lobby message
 let winner = null; // name of the last match's winner, for the scoreboard
@@ -52,6 +54,13 @@ const net = connect({
     stage ??= buildStage();
   },
   lobby(m) {
+    // A vote switched the map: rebuild on it now, before this message opens
+    // the match, so no step is ever predicted against the old map's boxes.
+    // (The host sends the spawns first and the snapshots from the next tick.)
+    if (m.map !== mapId) {
+      mapId = m.map;
+      if (world) applyMap();
+    }
     syncClock(m.tick, performance.now());
     if (m.phase === 'playing' && lobby.phase !== 'playing') audio.ui('start'); // audio: a match begins
     roster = new Map(m.players.map((p) => [p.id, p]));
@@ -145,6 +154,15 @@ ui.onJoin((raw) => {
 });
 ui.onStart(() => net.send({ t: 'start' }));
 ui.onEndMatch(() => net.send({ t: 'end_match' }));
+// Map votes: click a card, or on the scoreboard (the mouse may still be
+// locked) press its number.
+const vote = (map) => net.send({ t: 'vote', map });
+ui.onVote(vote);
+addEventListener('keydown', (e) => {
+  const n = /^Digit([1-9])$/.exec(e.code)?.[1];
+  const card = n && lobby.phase === 'scoreboard' && lobby.maps?.[n - 1];
+  if (card && !e.repeat) vote(card.id);
+});
 
 // null toggles the picker; a primary is chosen for the next spawn.
 function pick(primary) {
@@ -285,24 +303,42 @@ function remoteShot(id, o, ends, weapon) { // effects: weapon
   casing(gun(0.2), right, weapon); // effects: within 15 m, Default preset only
 }
 
-// Everything heavy happens behind the lobby: the map fetch, the AO bake, the
-// materials and the shader compile, so a match starts without a hitch. The
-// lobby watches the arena from a slow orbit until we spawn.
+// Everything heavy happens behind the lobby: every map's fetch, the AO bake,
+// the materials and the shader compile, so a match starts without a hitch.
+// The lobby watches the arena from a slow orbit until we spawn.
 async function buildStage() {
   render.init();
   applySettings();
-  const map = await (await fetch(new URL(`../shared/maps/${mapId}.json`, import.meta.url))).json();
-  audio.setWorld(map, mapId); // audio: surfaces for impacts and footsteps, the engine's pads
+  const files = await Promise.all(MAPS.map(async (id) => (await fetch(new URL(`../shared/maps/${id}.json`, import.meta.url))).json()));
+  MAPS.forEach((id, i) => { maps[id] = files[i]; });
+  // From here on synchronous: mapId is read after any lobby message that came during the fetch.
   setQuality(ui.settings.quality); // world: 'low' halves the AO rays and stills the sky
-  buildWorld(render.scene, map);
+  setupWorld(render.scene);
   render.scene.add(charactersGroup, effectsGroup);
-  world = prepareMap(map);
-  powerups.initPowerups({ boxes: world.boxes, pads: map.pads }); // powerups: pads, entities, ghosts
+  powerups.initPowerups(); // powerups: pads, entities, ghosts (their map comes in applyMap)
   render.scene.add(powerups.powerupsGroup); // powerups:
+  applyMap();
+  requestAnimationFrame(frame);
+}
+
+// Build on the host's map, from the prefetched files: collision first, then
+// what is drawn and heard on it. Synchronous, so the lobby handler can switch
+// maps between two messages.
+function applyMap() {
+  const map = maps[mapId];
+  world = prepareMap(map);
+  worldId = mapId;
+  // ponytail: a switch bakes the AO here, on the main thread: ~20 ms (LOOK.ao in world.js),
+  // one hitch at match start, inside the 2 s spawn protection. Ceiling: a slow laptop CPU or
+  // a much bigger map makes it a visible stall; then bake the leading map during the
+  // scoreboard, or in a worker.
+  setWorldMap(map);
+  audio.setWorld(map, mapId); // audio: surfaces for impacts and footsteps, the engine's pads
+  powerups.setMap({ boxes: world.boxes, pads: map.pads }); // powerups: plinths on this map's pads, nothing left in play
+  clearEffects(); // effects: no holes or debris left floating from the last map
   initEffects({ boxes: world.boxes, map, quality: ui.settings.quality, sunDir: sun.position.clone().normalize().toArray() }); // effects: debris lands on the map; shots find the face they hit
   initCharacters({ boxes: world.boxes, sunDir: SUN_DIR, quality: ui.settings.quality, camera: render.camera }); // characters: before the compile, so its shaders build behind the lobby
-  render.renderer.compile(render.scene, render.camera); // build every shader now, not mid-fight
-  requestAnimationFrame(frame);
+  render.renderer.compile(render.scene, render.camera); // build every shader now, not mid-fight (a switch reuses them)
 }
 
 // The match view: input, menus and the fixed-step clock.
@@ -417,7 +453,7 @@ function frame(now) {
   if (debug && now - statsAt > 500) {
     const { calls, triangles } = render.renderer.info.render;
     const pos = me ? [me.x, me.y, me.z].map((v) => v.toFixed(2)).join(', ') : '-';
-    ui.showStats(`${Math.round((frames * 1000) / (now - statsAt))} fps · ${calls} draws · ${triangles} tris · scale ${render.scaleNow()} · ${pos} · pending ${self.pending.length} · ${feelStats()} · ${audio.stats().voices} voices`); // feel, audio: stats
+    ui.showStats(`${worldId} · ${Math.round((frames * 1000) / (now - statsAt))} fps · ${calls} draws · ${triangles} tris · scale ${render.scaleNow()} · ${pos} · pending ${self.pending.length} · ${feelStats()} · ${audio.stats().voices} voices`); // feel, audio: stats
     frames = 0;
     statsAt = now;
   }
