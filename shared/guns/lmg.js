@@ -3,7 +3,7 @@
 // Fields: docs/guns.md.
 export default {
   id: 'lmg', name: 'Piledriver', slot: 'primary', class: 'lmg',
-  dmg: 26, head: 2.5, rps: 10, mode: 'auto', mag: 75, reload: 4.5,
-  spreadStand: 0.3, spreadMove: 4.5, falloff: { from: 25, to: 45, min: 0.8 }, bloom: 0.35, bloomMax: 3, kick: [0.4, 0.15], speed: 0.88, fireSpeed: 0.6,
+  dmg: 25, head: 2.5, rps: 9.5, mode: 'auto', mag: 75, reload: 4.5,
+  spreadStand: 0.25, spreadMove: 4.5, falloff: { from: 20, to: 35, min: 0.7 }, bloom: 0.15, bloomMax: 1.5, kick: [0.4, 0.15], speed: 0.88, fireSpeed: 0.6,
   look: null, sound: null, icon: null,
 };

@@ -4,7 +4,7 @@
 export default {
   id: 'sniper', name: 'Surveyor', slot: 'primary', class: 'sniper',
   dmg: 150, head: 2, rps: 4 / 3, mode: 'semi', mag: 5, reload: 3,
-  spreadStand: 6, spreadMove: 10, kick: [4, 0], speed: 0.9, fireSpeed: 0.7,
-  scope: { fov: 30, inSeconds: 0.25, spread: 0.05, moveSpread: 4, speed: 0.55, sens: 0.4 },
+  spreadStand: 10, spreadMove: 15, kick: [4, 0], speed: 0.9, fireSpeed: 0.7,
+  scope: { fov: 30, inSeconds: 0.35, spread: 0.05, moveSpread: 8, speed: 0.55, sens: 0.4 },
   look: null, sound: null, icon: null,
 };

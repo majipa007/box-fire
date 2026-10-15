@@ -31,7 +31,7 @@ export const scopeShare = (a) => (WEAPONS[weaponOf(a)].scope ? Math.min(1, a.sco
 // after a shot (cooldown left) if it has a fireSpeed.
 export function moveFactor(a) {
   const w = WEAPONS[weaponOf(a)];
-  return (w.speed ?? 1) * (w.scope && a.scope > 0 ? w.scope.speed : 1) * (a.cooldown > 0 ? w.fireSpeed ?? 1 : 1);
+  return (w.speed ?? 1) * (w.scope && a.scope > 0 ? w.scope.speed : 1) * (a.cooldown > 1e-9 ? w.fireSpeed ?? 1 : 1);
 }
 
 // The heat a shot fires with: the heat before it, so a first shot has none.
@@ -152,7 +152,7 @@ export function stepWeapon(a, input) {
   const pull = w.mode === 'auto' ? input.fire : click;
   const more = a.burst > 0; // arsenal: the burst under way fires on its own
   if (pull && w.perShell && a.reload > 0 && a.mags[a.slot] > 0) a.reload = 0; // a shot interrupts loading
-  if ((pull || more) && a.switching < 1e-9 && a.reload === 0 && a.cooldown <= 0) {
+  if ((pull || more) && a.switching < 1e-9 && a.reload === 0 && a.cooldown <= 1e-9) { // arsenal: 1e-9, so float dust never costs a tick (20/s is exactly 3 steps)
     if (a.mags[a.slot] > 0) {
       a.mags[a.slot]--;
       if (w.mode === 'burst') {
