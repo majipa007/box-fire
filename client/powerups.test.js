@@ -125,3 +125,26 @@ test('a Shock ring lies on the floor under a dome cast at a jumping target', () 
   assert.equal(rings.length, 1);
   assert.ok(Math.abs(rings[0] - 0.01) < 1e-6, `ring at y ${rings[0]}`);
 });
+
+// ---- Pads: what the server says, never the client's clock (spec §2). ----
+const CAM = { position: { x: 0, y: 1.6, z: 3 } };
+const padSnapshot = (ready) => ({ tick: 2e5, pu: { pd: PADS.map((p, i) => [0, ready[i] ?? 0, 0]), en: [] } });
+
+// Beam quads standing on pad i, from the beam mesh as drawn this frame.
+function beamsOn(i) {
+  const beams = pu.powerupsGroup.children[4];
+  const a = beams.instanceMatrix.array;
+  const [x, , z] = PADS[i].pos;
+  let n = 0;
+  for (let b = 0; b < (beams.visible ? beams.count : 0); b++) if (Math.hypot(a[b * 16 + 12] - x, a[b * 16 + 14] - z) < 0.1) n++;
+  return n;
+}
+
+test('a pad the server still calls refilling has no beam, though our clock says its time is up', () => {
+  pu.setMap({ boxes: [], pads: PADS });
+  pu.onSnapshot(padSnapshot([1])); // pad 0 refilling, due at tick 1: long past
+  pu.updatePowerups(clock, 2e5, CAM);
+  assert.equal(pu.padStates()[0].up, false);
+  assert.equal(beamsOn(0), 0);
+  assert.equal(beamsOn(1), 2); // an up pad keeps its two crossed quads
+});

@@ -1,5 +1,6 @@
 // Power-ups on the client (docs/bible.md §4.4, §4.7): the pads (plinth, pool,
-// spinning voxel glyph, beam, countdown and the next item's hologram), the
+// spinning voxel glyph and beam while an item is up; a refill clock while
+// one is not), the
 // entities from the `pu` snapshot (Shunt rockets with ribbon trails, Mines
 // with their trigger rings, Shock telegraphs), the own-use ghosts, and the
 // glue that times pick, use and boom events and hands them to effects,
@@ -32,13 +33,24 @@ const LOOK = {
   // alpha 0.85, held to half the radius, with a light core, not the bible's
   // 0.35: at 0.35 over the dark plinth a pool reads as a tinted hole, not a
   // glow (a deviation).
-  pool: { radius: 0.7, alpha: 0.85, respawning: 0.4, lift: 0.005 },
+  pool: { radius: 0.7, alpha: 0.85, lift: 0.005 },
   glyph: { voxel: 0.08, hover: 1.0, spin: Math.PI / 2, bob: 0.08, bobHz: 0.5, core: '#ffffff', hull: '#15171c', hullScale: 1.25 },
-  // base: rises from just over the glyph. refilling: a dim beam with no
-  // white line while a pad refills, so it stays a landmark (a deviation).
-  beam: { width: 0.15, top: 6, base: 1.4, flickerHz: 6, flickerLast: 3, refilling: 0.55 },
-  countdown: { cubes: 24, size: 0.06, radius: 0.7, lift: 0.05, empty: '#45474c' },
-  hologram: { scale: 0.6, toward: '#d9d4ca', mix: 0.6, pulseHz: 1, low: 0.85 },
+  // base: rises from just over the glyph. A beam and a full glyph mean an
+  // item is on the pad; anything else means it is empty (spec §2, 15/10/2026:
+  // the beam marks an item, not a pad, a deviation from bible §1).
+  beam: { width: 0.15, top: 6, base: 1.4 },
+  // Refilling: no glyph, no beam. A standing clock where the glyph floats,
+  // facing the camera: a band filled clockwise in the next item's hue, and
+  // the whole seconds left in voxel digits (a numeric timer, new to §4.7).
+  // radius grows from `near` m out to `grow`x; in the last `hot` s the digits
+  // take the hue and the clock pulses. A floor clock replaces the pool and
+  // the plinth dims to plinthOff.
+  clock: { radius: 0.4, near: 18, grow: 1.6, hot: 3, pulseHz: 2, pulse: 0.08, floorBand: 0.22 },
+  // Up again (visual only): the beam shoots up over beamMs at `flare`x width,
+  // settling over flareMs; the glyph springs 0 → 1.2 → 1 over glyphMs; a
+  // ringR floor ring flashes. Taken: the glyph collapses over takenMs.
+  pop: { beamMs: 220, glyphMs: 300, flare: 2, flareMs: 400, ringR: 1.6, takenMs: 150 },
+  plinthOff: '#8c919e',
   shunt: { body: [0.25, 0.25, 0.6], nose: 0.12, trail: [0.3, 2.5] },
   mine: { puck: [0.5, 0.12], top: 0.4, inner: 0.28, led: 0.06, ledColor: '#ff2a1a', armedHz: 1, fusedHz: 8, ringRange: 12 },
   shock: { pulseFrom: 2, pulseTo: 8, marker: [0.05, 6] },
@@ -78,11 +90,8 @@ const WHITE = col('#ffffff');
 const LED = col(LOOK.mine.ledColor);
 const DARK = col(LOOK.glyph.hull);
 const PUCK = col('#45474c');
-const EMPTY = col(LOOK.countdown.empty);
 const FIZZLE = col(LOOK.burst.fizzle);
-// The hologram's colours: 60% of the way to pale concrete.
-const HOLO = Object.fromEntries(POWER_IDS.map((k) => [k, HUE[k].clone().lerp(col(LOOK.hologram.toward), LOOK.hologram.mix)]));
-const HOLO_CORE = WHITE.clone().lerp(col(LOOK.hologram.toward), LOOK.hologram.mix);
+const PLINTH_OFF = col(LOOK.plinthOff);
 // Each glyph as voxel offsets from its centre: [x, y, core].
 const VOXELS = Object.fromEntries(Object.entries(GLYPHS).map(([k, rows]) => [k, rows.flatMap((row, r) => [...row].flatMap((c, i) => (c === '.' ? [] : [[(i - 3) * LOOK.glyph.voxel, (3 - r) * LOOK.glyph.voxel, c === 'o']])))]));
 
@@ -100,7 +109,8 @@ void main() {
 }`;
 // aData: alpha, mode, p1, p2. Modes: 0 pool (radial fade), 1 dashed ring
 // (p1 band width, p2 dashes), 2 pulsing ring (p1 band, p2 pulse 0..1),
-// 3 blast ring (p1 band).
+// 3 blast ring (p1 band), 4 floor clock (p1 band, p2 progress 0..1),
+// 5 standing clock (p1 progress, p2 seconds, + 1000 in the last seconds).
 const FLAT_FRAGMENT = /* glsl */ `
 varying vec2 vUv;
 varying vec3 vColor;
@@ -115,6 +125,41 @@ void main() {
   if (mode == 0) {
     c = mix(c, vec3(1.0), 0.3 * (1.0 - smoothstep(0.0, 0.6, r))); // a light core glows without additive blending
     a = alpha * (1.0 - smoothstep(0.5, 1.0, r)); // a held centre, so the hue reads from afar
+  } else if (mode == 4 || mode == 5) {
+    vec3 dark = vec3(0.0083, 0.0091, 0.0123);
+    vec3 empty = vec3(0.0595, 0.0648, 0.0723);
+    float prog = mode == 4 ? vData.w : vData.z;
+    float band = mode == 4 ? vData.z : 0.24;
+    float ang = fract(atan(vUv.x, vUv.y) / 6.2831853 + 1.0); // clockwise from 12
+    bool done = ang < prog;
+    if (r > 0.94) { c = dark; a = 0.8; }
+    else if (r > 1.0 - band) { c = done ? c : empty; a = done ? 1.0 : (mode == 4 ? 0.6 : 0.9); }
+    else if (r > 0.96 - band) { c = dark; a = 0.8; }
+    else if (mode == 4) { a = 0.0; }
+    else {
+      // The plate, and the seconds in a 3 x 5 voxel font, centred.
+      c = dark; a = 0.78;
+      bool hot = vData.w > 999.5;
+      int n = int(mod(vData.w, 1000.0) + 0.5);
+      int nd = n >= 100 ? 3 : (n >= 10 ? 2 : 1);
+      float cell = nd == 3 ? 0.12 : 0.16;
+      float w = float(nd * 4 - 1) * cell;
+      float fx = (vUv.x + w * 0.5) / cell;
+      float fy = (2.5 * cell - vUv.y) / cell;
+      if (fx >= 0.0 && fy >= 0.0 && fx < float(nd * 4 - 1) && fy < 5.0) {
+        int gx = int(fx);
+        int gy = int(fy);
+        int col = gx - (gx / 4) * 4;
+        if (col < 3) {
+          int d = n;
+          for (int k = 0; k < 2; k++) if (k < nd - 1 - gx / 4) d /= 10;
+          d -= (d / 10) * 10;
+          int masks[10] = int[10](31599, 11415, 29671, 29647, 23497, 31183, 31215, 29257, 31727, 31695);
+          if (((masks[d] >> (14 - (gy * 3 + col))) & 1) == 1) { c = hot ? vColor : vec3(0.888, 0.863, 0.807); a = 1.0; }
+        }
+      }
+    }
+    a *= alpha;
   } else {
     float band = vData.z;
     float inner = 1.0 - band;
@@ -241,7 +286,7 @@ let padView = []; // padStates()
 
 // The map's pads ({ pos, pool, respawn }), each up at its pool's first item.
 export function setPads(list) {
-  pads = list.map(({ pos: [x, y, z], pool }, i) => ({ x, y, z, kind: pool[0], ready: 0, span: 0, phase: i * 1.7 }));
+  pads = list.map(({ pos: [x, y, z], pool }, i) => ({ x, y, z, kind: pool[0], ready: 0, span: 0, phase: i * 1.7, popT0: -1e9, takenT0: -1e9, ringAt: 0, lit: -1 }));
   padView = pads.map((p) => ({ pos: [p.x, p.y, p.z], kind: p.kind, up: true }));
   if (!plinths) return;
   pads.forEach((p, i) => plinths.setMatrixAt(i, m4.makeTranslation(p.x, p.y, p.z)));
@@ -255,12 +300,14 @@ export function setPads(list) {
 export function setMap({ boxes: mapBoxes = [], pads: list = [] } = {}) {
   setPads(list);
   boxes = mapBoxes;
+  seenSnap = false; // the new map's first snapshot is no pad's edge
   snaps.length = 0;
   pending.length = 0;
   ghosts.length = 0;
   shownDir.clear();
   grounds.clear();
 }
+let seenSnap = false;
 const snaps = []; // { tick, en } from the last few snapshots, oldest first
 const shownDir = new Map(); // eid → [x, y, z] heading, kept when a Shunt stops moving between snapshots
 const pending = []; // others' events, waiting for the render tick
@@ -288,6 +335,7 @@ export function initPowerups({ boxes: mapBoxes = [], pads: list = [] } = {}) {
   if (plinths) return;
   boxes = mapBoxes; // quality: one look for both presets, 6 draws either way
   plinths = new THREE.InstancedMesh(plinthGeometry(), new THREE.MeshLambertMaterial({ vertexColors: true }), MAX_PADS);
+  for (let i = 0; i < MAX_PADS; i++) plinths.setColorAt(i, WHITE); // the instance-colour shader exists before compileAsync
   setPads(list);
   plinths.receiveShadow = true;
   plinths.castShadow = false;
@@ -313,9 +361,16 @@ export function onSnapshot(m) {
     const p = pads[i];
     if (!p) return;
     p.kind = POWER_IDS[k];
+    // The pop and the collapse, on the server's edges. The server steps
+    // before it snapshots, so a grab on the refill tick never shows a 0.
+    if (seenSnap && !DEMO) {
+      if (p.ready && !ready) p.popT0 = performance.now();
+      else if (!p.ready && ready) p.takenT0 = performance.now();
+    }
     p.ready = ready;
     p.span = span;
   });
+  seenSnap = true;
   snaps.push({ tick: m.tick, en: m.pu.en });
   if (snaps.length > 10) snaps.shift();
 }
@@ -455,7 +510,7 @@ export function updatePowerups(now, renderTick, cam) {
   if (pending.length > 64) pending.splice(0, pending.length - 64); // a stalled clock: drop, don't flood
   const s = now / 1000;
   const tick = serverTick(now);
-  drawPads(s, tick);
+  drawPads(s, tick, now);
   flyGhosts(now);
   drawEntities(s, renderTick, tick);
   drawGhosts(now);
@@ -484,33 +539,49 @@ function flush(attr, n, size) {
   attr.needsUpdate = true;
 }
 
-function drawPads(s, tick) {
+const backOut = (k) => 1 + 2.7 * (k - 1) ** 3 + 1.7 * (k - 1) ** 2; // 0 → 1.1 → 1
+
+function drawPads(s, tick, now) {
   const G = LOOK.glyph;
-  for (const p of pads) {
+  const C = LOOK.clock;
+  const P = LOOK.pop;
+  for (let i = 0; i < pads.length; i++) {
+    const p = pads[i];
     const hue = HUE[p.kind];
-    const left = p.ready ? Math.max(0, (p.ready - tick) / TICK_RATE) : 0;
-    const up = left <= 0;
-    flat(p.x, p.y + LOOK.plinth.height + LOOK.pool.lift, p.z, LOOK.pool.radius, hue, LOOK.pool.alpha * (up ? 1 : LOOK.pool.respawning), 0, 0, 0);
+    const up = !p.ready; // the server's word (pd ready 0), never the client clock's guess
+    if (p.lit !== +up) {
+      p.lit = +up;
+      plinths.setColorAt(i, up ? WHITE : PLINTH_OFF);
+      plinths.instanceColor.needsUpdate = true;
+    }
     const yaw = G.spin * s + p.phase;
     const y = p.y + G.hover + Math.sin(TAU * G.bobHz * s + p.phase) * G.bob;
     if (up) {
-      glyph(p.kind, p.x, y, p.z, yaw, 1, hue, WHITE, true);
-      beam(p.x, p.y, p.z, hue, 1, true);
+      const age = now - p.popT0;
+      const size = age >= P.glyphMs ? 1 : backOut(Math.max(0, age / P.glyphMs));
+      const rise = Math.min(1, age / P.beamMs);
+      const flare = age < P.flareMs ? 1 + (P.flare - 1) * (1 - age / P.flareMs) : 1;
+      flat(p.x, p.y + LOOK.plinth.height + LOOK.pool.lift, p.z, LOOK.pool.radius, hue, LOOK.pool.alpha, 0, 0, 0);
+      if (size > 0.02) glyph(p.kind, p.x, y, p.z, yaw, size, hue, WHITE, true);
+      beam(p.x, p.y, p.z, hue, 1, true, 1 - (1 - rise) ** 3, flare);
+      if (p.ringAt !== p.popT0 && age < P.flareMs) {
+        p.ringAt = p.popT0;
+        burst([p.x, p.y + 0.05, p.z], hue, P.ringR, 0, 0);
+      }
       continue;
     }
-    // Refilling: the next item as a pulsing hologram, a ring of countdown
-    // cubes, and a dim beam that flickers to full over the last few seconds.
-    const pulse = LOOK.hologram.low + (1 - LOOK.hologram.low) * (0.5 + 0.5 * Math.sin(TAU * LOOK.hologram.pulseHz * s));
-    // No hull: with the 24 countdown cubes, 9 hulled holograms pass the 9k triangles.
-    glyph(p.kind, p.x, y, p.z, yaw, LOOK.hologram.scale, tint.copy(HOLO[p.kind]).multiplyScalar(pulse), HOLO_CORE, false);
-    const C = LOOK.countdown;
-    const filled = Math.floor(C.cubes * Math.min(1, 1 - (left * TICK_RATE) / (p.span || 1)));
-    for (let i = 0; i < C.cubes; i++) {
-      const a = (i / C.cubes) * TAU;
-      cube(p.x + Math.sin(a) * C.radius, p.y + LOOK.plinth.height + C.lift, p.z - Math.cos(a) * C.radius, C.size, C.size, C.size, -a, i < filled ? hue : EMPTY, false);
-    }
-    const full = left < LOOK.beam.flickerLast && Math.sin(TAU * LOOK.beam.flickerHz * s) > 0;
-    beam(p.x, p.y, p.z, hue, full ? 1 : LOOK.beam.refilling, full);
+    const taken = (now - p.takenT0) / P.takenMs;
+    if (taken < 1) glyph(p.kind, p.x, y, p.z, yaw, (1 - taken) ** 2, hue, WHITE, false); // the item just taken collapses
+    const left = Math.max(0, (p.ready - tick) / TICK_RATE);
+    const prog = Math.min(1, 1 - (left * TICK_RATE) / (p.span || 1));
+    const hot = left < C.hot;
+    flat(p.x, p.y + LOOK.plinth.height + LOOK.pool.lift, p.z, LOOK.pool.radius, hue, 1, 4, C.floorBand, prog);
+    if (taken < 1) continue;
+    let r = C.radius;
+    if (camera) r *= Math.min(C.grow, Math.max(1, Math.hypot(camera.position.x - p.x, camera.position.z - p.z) / C.near));
+    if (hot) r *= 1 + C.pulse * (0.5 + 0.5 * Math.sin(TAU * C.pulseHz * s));
+    // Never 0: the server's snapshot, not our clock, says when it is up.
+    stand(p.x, p.y + G.hover, p.z, r, hue, 1, prog, Math.max(1, Math.ceil(left)) + (hot ? 1000 : 0));
   }
 }
 
@@ -715,13 +786,31 @@ function draw(g, x, y, z, fade) {
 // shots from ?debug&cam=-4,2.4,-4,-2.6,-0.2 ----
 const DEMO = typeof location !== 'undefined' && /[?&]debug\b/.test(location.search) && /[?&]pu=demo\b/.test(location.search);
 let demoBoom = 0;
+let demoUp2 = true;
+// Stills: ?popat=ms freezes pad 2's pop at that age; negative: refilling, that many ms left.
+const FREEZE = DEMO && /[?&]popat=(-?\d+)/.exec(location.search);
 function demo(now, rt) {
   const tick = serverTick(now);
   const left = (secs) => tick + secs * TICK_RATE;
-  pads[3].ready = left(8 + 4 * Math.sin(now / 4000)); // refilling, the hologram up
+  pads[3].ready = left(14 + 4 * Math.sin(now / 4000)); // refilling, early on
   pads[3].span = 20 * TICK_RATE;
-  pads[4].ready = left(2.5 - ((now / 1000) % 2.5)); // the last seconds: the beam flickers
+  pads[4].ready = left(2.5 - ((now / 1000) % 2.5)); // the last seconds: hued digits, a pulse
   pads[4].span = 20 * TICK_RATE;
+  const ph = (now / 1000) % 6; // pad 2: 3 s refilling, 3 s up, round and round
+  const r2 = ph < 3 ? left(3 - ph) : 0;
+  if (!r2 && !demoUp2) pads[2].popT0 = now;
+  if (r2 && demoUp2) pads[2].takenT0 = now;
+  demoUp2 = !r2;
+  pads[2].ready = r2;
+  pads[2].span = 40 * TICK_RATE;
+  if (FREEZE) {
+    const ms = +FREEZE[1];
+    pads[2].ready = ms < 0 ? left(-ms / 1000) : 0;
+    pads[2].popT0 = now - ms;
+    pads[2].takenT0 = -1e9;
+  }
+  pads[7].ready = left(110); // 3 digits, as a 1-player Shock pad shows (40 s x 3)
+  pads[7].span = 120 * TICK_RATE;
   const a = now / 600;
   const strike = 72 - Math.floor((now / 1000) * TICK_RATE) % 72;
   snaps.length = 0;
@@ -824,10 +913,35 @@ function flat(x, y, z, r, color, alpha, mode, p1, p2) {
   nFlat++;
 }
 
-// A pad's beam: two crossed quads, with the white centre line when `lit`.
-function beam(x, y, z, color, alpha, lit) {
+// A pad's beam: two crossed quads, with the white centre line when `lit`,
+// at h of its height and w times its width.
+function beam(x, y, z, color, alpha, lit, h = 1, w = 1) {
   const B = LOOK.beam;
-  for (let i = 0; i < 2; i++) beamQuad(x, y + B.base, z, Math.PI / 4 + i * (Math.PI / 2), B.width, B.top - B.base, color, alpha, lit ? 0.04 / B.width : 0, 0.04 / B.width, 0.6);
+  if (h <= 0) return;
+  const width = B.width * w;
+  for (let i = 0; i < 2; i++) beamQuad(x, y + B.base, z, Math.PI / 4 + i * (Math.PI / 2), width, (B.top - B.base) * h, color, alpha, lit ? 0.04 / width : 0, 0.04 / width, 0.6);
+}
+
+// A floor quad of radius r stood up and turned to face the camera, by yaw
+// only: the standing clock (mode 5).
+function stand(x, y, z, r, color, alpha, p1, p2) {
+  if (nFlat >= MAX_FLAT || !camera) return;
+  const yaw = Math.atan2(camera.position.x - x, camera.position.z - z);
+  const c = Math.cos(yaw);
+  const sn = Math.sin(yaw);
+  const a = flats.instanceMatrix.array;
+  const o = nFlat * 16;
+  a[o] = c * 2 * r; a[o + 1] = 0; a[o + 2] = -sn * 2 * r; a[o + 3] = 0;
+  a[o + 4] = sn; a[o + 5] = 0; a[o + 6] = c; a[o + 7] = 0;
+  a[o + 8] = 0; a[o + 9] = -2 * r; a[o + 10] = 0; a[o + 11] = 0;
+  a[o + 12] = x; a[o + 13] = y; a[o + 14] = z; a[o + 15] = 1;
+  color.toArray(flats.instanceColor.array, nFlat * 3);
+  const d = flats.geometry.attributes.aData.array;
+  d[nFlat * 4] = alpha;
+  d[nFlat * 4 + 1] = 5;
+  d[nFlat * 4 + 2] = p1;
+  d[nFlat * 4 + 3] = p2;
+  nFlat++;
 }
 
 function beamQuad(x, y, z, yaw, w, h, color, alpha, centre, fringe, power) {
