@@ -16,6 +16,7 @@ export class Player {
   protectedUntil = 0; // tick spawn protection ends
   kills = 0;
   deaths = 0;
+  vote = null; // the map id this player wants next, until the next match starts
   ack = 0; // seq of the last input simulated
   yaw = 0;
   pitch = 0;

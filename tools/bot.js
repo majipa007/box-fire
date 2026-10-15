@@ -30,8 +30,8 @@ function startBot(n) {
   ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name: `bot${n}`, bot: true }));
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
-    if (m.t === 'welcome') {
-      bot.id = m.id;
+    if (m.t === 'welcome' || m.t === 'lobby') { // lobby messages name the map after a vote switches it
+      if (m.t === 'welcome') bot.id = m.id;
       ({ boxes: bot.boxes, pads: bot.pads } = mapOf(m.map));
     } else if (m.t === 'snapshot') {
       bot.tick = m.tick;

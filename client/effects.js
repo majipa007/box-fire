@@ -178,6 +178,15 @@ export function initEffects({ boxes: prepared, map, quality: q = 'default', sunD
 // Kept for main.js: the map alone, default quality.
 export const setMap = (map) => initEffects({ map });
 
+// A map switch: every pool empties, so no hole, scorch or debris is left
+// floating where the old map's boxes were.
+export function clearEffects() {
+  cube.n = cube.next = 0;
+  for (const pool of [sparks, dust, streak, glow]) pool.n = pool.next = 0;
+  decals.count = decalNext = 0;
+  debug.targets = null; // ?debug&fx picks its boxes again
+}
+
 // Sizes in pixels need the drawing buffer's height, which follows render scale.
 const halfHeight = { value: 540 };
 function trackViewport(renderer) {
