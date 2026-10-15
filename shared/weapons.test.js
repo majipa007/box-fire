@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createArsenal, stepWeapon, traceShot, spreadDegrees, shotDirs, aimDir, damageAt, freshLife } from './weapons.js';
+import { createArsenal, stepWeapon, traceShot, spreadDegrees, shotDirs, aimDir, damageAt, freshLife, shotHeat } from './weapons.js';
 import { KEY } from './movement.js';
 import { prepareMap } from './collision.js';
 import { shotRng } from './rng.js';
@@ -199,6 +199,70 @@ test('a rifle body hit does 30 out to 20 m, falling to 24 from 30 m on', () => {
   assert.equal(damageAt('rifle', false, 20), 30);
   assert.ok(close(damageAt('rifle', false, 25), 27));
   assert.ok(close(damageAt('rifle', false, 35), 24));
+});
+
+// The heat each shot of a held rifle spray fires with.
+const sprayHeats = (a, steps) => {
+  const out = [];
+  for (let i = 0; i < steps; i++) if (stepWeapon(a, hold)) out.push(shotHeat(a));
+  return out;
+};
+
+test('a rifle spray heats up: the first shot fires cold, the second 6 steps later with 1 - 6 × 4/60 = 0.6', () => {
+  const [first, second] = sprayHeats(createArsenal('rifle'), 7);
+  assert.equal(first, 0);
+  assert.ok(close(second, 0.6), `second shot heat ${second}`);
+});
+
+test('a long spray tops out at heat 8, a 2.15° cone, and cools from there at once', () => {
+  const a = createArsenal('rifle');
+  const heats = sprayHeats(a, 150);
+  assert.equal(heats.length, 25, 'the whole magazine');
+  assert.ok(close(Math.max(...heats), 8), `hottest shot ${Math.max(...heats)}`);
+  assert.ok(close(spreadDegrees('rifle', mover(0), Math.max(...heats)), 2.15));
+  const before = a.heat;
+  stepWeapon(a, idle);
+  assert.ok(close(before - a.heat, 4 / 60), 'one idle step cools 4/60');
+});
+
+test('prediction parity: two arsenals stepped with the same inputs stay identical, heat included, across a snapshot copy', () => {
+  const server = createArsenal('rifle');
+  const client = createArsenal('rifle');
+  const inputs = Array.from({ length: 400 }, (_, i) => ({
+    keys: i % 97 === 50 ? KEY.RELOAD : 0,
+    fire: i % 11 < 7,
+    slot: i > 250 && i < 320 ? 1 : 0,
+  }));
+  inputs.forEach((inp, i) => {
+    stepWeapon(server, inp);
+    stepWeapon(client, inp);
+    if (i === 40) Object.assign(client, JSON.parse(JSON.stringify(server))); // a reconcile mid-spray
+  });
+  assert.deepEqual(client, server);
+});
+
+test('switching weapons clears the heat', () => {
+  const a = createArsenal('rifle');
+  sprayHeats(a, 30);
+  assert.ok(a.heat > 2);
+  stepWeapon(a, pistol(false));
+  assert.equal(a.heat, 0);
+});
+
+test('heat blooms the rifle cone by 0.25° each, standing, crouched, running or airborne', () => {
+  assert.ok(close(spreadDegrees('rifle', mover(0), 4), 1.15));
+  assert.ok(close(spreadDegrees('rifle', mover(0, { crouch: true }), 4), 1.12));
+  assert.ok(close(spreadDegrees('rifle', mover(5.5), 4), 3.5));
+  assert.ok(close(spreadDegrees('rifle', mover(0, { grounded: false }), 4), 6));
+  assert.ok(close(spreadDegrees('shotgun', mover(0), 4), 3.5), 'no bloom on the shotgun');
+  const m = mover(0);
+  const aim = aimDir(0, 0);
+  let widest = 0;
+  for (let shot = 1; shot <= 200; shot++) {
+    const [d] = shotDirs(0, 0, 'rifle', m, shotRng(42, 1, shot), 4);
+    widest = Math.max(widest, (Math.acos(Math.min(1, d[0] * aim[0] + d[1] * aim[1] + d[2] * aim[2])) * 180) / Math.PI);
+  }
+  assert.ok(widest <= 1.15 + 1e-9 && widest > 1, `the shot cone follows the heat: widest ${widest}°`);
 });
 
 test('a fresh life starts grounded at the spawn with full HP, magazines and the primary drawn', () => {

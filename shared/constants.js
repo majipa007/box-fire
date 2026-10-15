@@ -50,10 +50,14 @@ export const PITCH_LIMIT = (89 * Math.PI) / 180; // look no further up or down t
 // spray, climbing for 8 shots.
 // weapons: falloff scales damage from full at `from` m down to `min` at `to`
 // m and beyond. headDmg, when set, replaces head × dmg: every headshot does
-// it flat, at any range, mid-spray too.
+// it flat, at any range, mid-spray too. bloom: degrees of extra spread per
+// unit of spray heat (+1 a shot, -cool a second, capped at bloomMax / bloom).
 export const WEAPONS = {
   pistol: { dmg: 26, head: 3, rps: 6.75, auto: false, mag: 12, reload: 1.75, spreadStand: 0.3, spreadMove: 1.5, kick: [0.9, 0], falloff: { from: 25, to: 40, min: 0.75 } },
-  rifle: { dmg: 30, head: 3, headDmg: 160, rps: 9.75, auto: true, mag: 25, reload: 2.5, spreadStand: 0.15, spreadMove: 2.5, kick: [0.3, 0.12], falloff: { from: 20, to: 30, min: 0.8 } },
+  rifle: {
+    dmg: 30, head: 3, headDmg: 160, rps: 9.75, auto: true, mag: 25, reload: 2.5, spreadStand: 0.15, spreadMove: 2.5, kick: [0.3, 0.12], falloff: { from: 20, to: 30, min: 0.8 },
+    bloom: 0.25, cool: 4, bloomMax: 2,
+  },
   // 12 × 10 = 120: a full blast kills 100 HP, not a Shield's 160 (weapons:).
   // Pellet damage falls from full at 8 m to a fifth at 18 m and beyond.
   shotgun: {
