@@ -6,7 +6,7 @@ import { prepareMap } from '../../shared/collision.js';
 import { PLAYER_WIDTH, MAPS } from '../../shared/constants.js';
 
 const CELL = 0.5;
-export const STEP_MAX = 0.9; // step() climbs 0.99 m with a jump and fails at 1.00 m
+const STEP_MAX = 0.9; // step() climbs 0.99 m with a jump and fails at 1.00 m
 // A centre this close to a box is on it or against it. The 5 cm skin keeps
 // routes off corners a walker would snag on (one arena_02 trip deadlocks
 // against a box without it).
@@ -30,7 +30,7 @@ function buildGrid(boxes) {
   return { x0, z0, w, d, h, gs: new Float64Array(n), came: new Int32Array(n), stamp: new Int32Array(n), gen: 0, hk: new Float64Array(8 * n + 1), hv: new Int32Array(8 * n + 1) };
 }
 
-export const cellOf = (g, x, z) => {
+const cellOf = (g, x, z) => {
   const i = Math.floor((x - g.x0) / CELL), j = Math.floor((z - g.z0) / CELL);
   return i < 0 || j < 0 || i >= g.w || j >= g.d ? -1 : j * g.w + i;
 };
@@ -38,7 +38,7 @@ const cx = (g, c) => g.x0 + ((c % g.w) + 0.5) * CELL;
 const cz = (g, c) => g.z0 + (Math.floor(c / g.w) + 0.5) * CELL;
 
 // Every 0.25 m along the segment, no cell rises more than a step above the last.
-export function lineWalkable(g, x, y, z, tx, tz) {
+function lineWalkable(g, x, y, z, tx, tz) {
   const n = Math.ceil(Math.hypot(tx - x, tz - z) / 0.25);
   let h = y;
   for (let s = 1; s <= n; s++) {
@@ -102,6 +102,13 @@ function along(g, r, x, gy, z) {
   r.ajump = false;
   for (let k = at + 1; k < Math.min(cells.length, at + 4); k++) if (g.h[cells[k]] - gy > 0.25) r.ajump = true;
   r.ax = cx(g, to); r.az = cz(g, to); r.aoff = bd; r.aleft = (cells.length - 1 - at) * CELL;
+}
+
+// The floor height at (x, z) when a walker at (x0, y0, z0) can walk straight
+// there, else null.
+export function floorReachable(nav, x0, y0, z0, x, z) {
+  const g = nav.g, c = cellOf(g, x, z);
+  return c >= 0 && g.h[c] - y0 <= STEP_MAX && lineWalkable(g, x0, y0, z0, x, z) ? g.h[c] : null;
 }
 
 // One nav per listed map id, built on first use. Anything not in MAPS is
