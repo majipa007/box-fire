@@ -217,6 +217,7 @@ for (const order of ['pick, then snapshot', 'snapshot, then pick']) {
     standOn(0);
     pu.updatePowerups(clock, 2e5, CAM);
     assert.equal(pu.padCue().state, 'refill');
+    assert.equal(pu.padCue().secs, 1); // overdue by our clock: the chip reads 1s, never 0 or less
     const { empty, own } = pu.cues;
     const pick = () => pu.onEvent({ t: 'event', e: 'pick', id: ME, pad: 0, k: PADS[0].pool[0], tick: 2e5 }, ME);
     const refilled = () => pu.onSnapshot(padSnapshot([3e5])); // the next refill, never a 0 between

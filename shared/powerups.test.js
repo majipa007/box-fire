@@ -242,7 +242,7 @@ test('padUnder finds the pad the server would let you pick from, on every map', 
     const pads = list.map(({ pos: [x, y, z] }) => ({ x, y, z }));
     const boxes = pads.map((p) => ({ min: [p.x - W / 2, p.y, p.z - D / 2], max: [p.x + W / 2, p.y + H, p.z + D / 2] }));
     let on = 0;
-    for (const p of pads) for (let dx = -1.4; dx <= 1.4; dx += 0.0725) for (let dz = -1.4; dz <= 1.4; dz += 0.0725) for (const dy of [-1.9, 0, 0.5, 1.99]) for (const crouch of [false, true]) {
+    for (const p of pads) for (let dx = -1.4; dx <= 1.4; dx += 0.0725) for (let dz = -1.4; dz <= 1.4; dz += 0.0725) for (const dy of [-1.9, -1.5, 0, 0.5, 1.99]) for (const crouch of [false, true]) {
       if (Math.min(Math.abs(Math.abs(dx) - 1.1), Math.abs(Math.abs(dz) - 1.1)) < 1e-3) continue;
       const m = { x: p.x + dx, y: p.y + dy, z: p.z + dz, crouch };
       const want = boxes.findIndex((b) => overlaps(m, PLAYER_WIDTH / 2, crouch ? CROUCH_HEIGHT : STAND_HEIGHT, [b]));
