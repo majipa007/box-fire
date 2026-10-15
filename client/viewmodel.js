@@ -19,6 +19,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WEAPONS, SWITCH_SECONDS, RUN_SPEED } from '../shared/constants.js';
 import { rayBox } from '../shared/collision.js';
 import { self } from './net.js';
+import { baseGun } from '../shared/guns/index.js'; // arsenal: guns without their own model or sound borrow a launch gun's
 
 const DEG = Math.PI / 180;
 
@@ -676,6 +677,7 @@ const vmState = { mover: { vx: 0, vy: 0, vz: 0, grounded: true, crouch: false },
 
 // ---- State.
 let wanted = 'rifle'; // the weapon the arsenal holds
+let heldGun = 'rifle'; // arsenal: the registry gun behind it
 let shown = null; // the weapon on screen; lags `wanted` until a switch is down
 let raise = false; // just became visible: come up from below
 let shots = 0; // own shots since the last frame
@@ -714,7 +716,8 @@ const clamp = (v, max) => Math.max(-max, Math.min(max, v));
 const SNAP = 0.5; // rad in one frame: a respawn or a teleport, not a turn
 
 export function setGun(weapon, visible) {
-  wanted = MODELS[weapon] ? weapon : 'rifle';
+  heldGun = weapon; // arsenal: its own timings drive the borrowed model's reload and cycle
+  wanted = MODELS[weapon] ? weapon : MODELS[baseGun(weapon)] ? baseGun(weapon) : 'rifle';
   if (visible && !pose.visible) raise = true;
   pose.visible = visible;
 }
@@ -821,7 +824,7 @@ export function updateViewmodel(now, camera, scene, renderer) {
   if (VM?.pose === 'switch') switchT = VM.t * SWITCH_SECONDS;
   if (shown !== wanted && (!shown || switchT >= LOOK.switchPose.out)) show(wanted);
   const m = MODELS[shown];
-  const w = WEAPONS[shown];
+  const w = WEAPONS[baseGun(heldGun) === shown ? heldGun : shown]; // arsenal: the held gun's timings
 
   // Sway trails the turn, per pixel of mouse in a 60 Hz frame. A recoil kick
   // turns the camera too, but the gun leads that rather than trailing it, so

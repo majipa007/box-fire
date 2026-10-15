@@ -97,8 +97,10 @@ const ACTION_NAMES = {
   jump: 'Jump', walk: 'Walk', crouch: 'Crouch', reload: 'Reload',
   primary: 'Primary weapon', pistol: 'Pistol', picker: 'Pick primary', scoreboard: 'Scoreboard',
   usePowerup: 'Use power-up', cyclePowerup: 'Next power-up', use: 'Use power-up', cycle: 'Next power-up',
+  aim: 'Aim / scope', // arsenal
 };
-const keyName = (code = '') => code.replace(/^Key|^Digit/, '').replace(/^(.+?)(Left|Right)$/, '$2 $1'); // ShiftLeft → Left Shift
+const MOUSE = ['Left mouse', 'Middle mouse', 'Right mouse', 'Mouse 4', 'Mouse 5']; // arsenal: Mouse<n> bindings
+const keyName = (code = '') => MOUSE[/^Mouse(\d)$/.exec(code)?.[1]] ?? code.replace(/^Key|^Digit/, '').replace(/^(.+?)(Left|Right)$/, '$2 $1'); // ShiftLeft → Left Shift
 let keys = {}; // the live bindings, for the power-up key labels
 
 export function initKeys(bindings) {
@@ -121,6 +123,13 @@ export function initKeys(bindings) {
     }));
   };
   // Capture phase, so the game never sees the key being bound.
+  // arsenal: a mouse button other than the left (fire) binds as Mouse<n>.
+  addEventListener('mousedown', (e) => {
+    if (!listening || e.button === 0) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    dispatchEvent(new KeyboardEvent('keydown', { code: `Mouse${e.button}` }));
+  }, true);
   addEventListener('keydown', (e) => {
     if (!listening) return;
     e.preventDefault();

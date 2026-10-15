@@ -8,7 +8,7 @@ import {
 import { encode, byScore, PLAYER_FLAGS, WEAPON_IDS, POWER_IDS } from '../shared/protocol.js';
 import { step } from '../shared/movement.js';
 import { prepareMap } from '../shared/collision.js';
-import { freshLife, stepWeapon, weaponOf, eyeOf, shotDirs, traceShot, damageAt, shotHeat } from '../shared/weapons.js'; // weapons: shotHeat
+import { freshLife, stepWeapon, weaponOf, eyeOf, shotDirs, traceShot, damageAt, shotHeat, scopedIn, moveFactor } from '../shared/weapons.js'; // weapons: shotHeat; arsenal: scope, pace
 import { shotRng } from '../shared/rng.js';
 import { Player } from './player.js';
 import { History } from './history.js';
@@ -225,7 +225,7 @@ export class Game {
           continue;
         }
         for (const input of inputs) {
-          step(p.mover, input, this.map.boxes);
+          step(p.mover, input, this.map.boxes, moveFactor(p.arsenal)); // arsenal: the held gun's pace, before its step, as predicted
           if (stepWeapon(p.arsenal, input)) {
             p.protectedUntil = 0; // firing ends spawn protection
             this.fire(p, input);
@@ -258,7 +258,7 @@ export class Game {
     // render tick their input carries, as long as they are still alive now.
     const targets = this.history.at(input.rt, this.tick).filter((q) => q.id !== p.id && this.players.get(q.id)?.alive);
     // The shot number seeds the spread exactly as the client rolled it.
-    const dirs = shotDirs(input.yaw, input.pitch, weapon, p.mover, shotRng(this.seed, p.id, input.shot), shotHeat(p.arsenal)); // weapons: bloom, as predicted
+    const dirs = shotDirs(input.yaw, input.pitch, weapon, p.mover, shotRng(this.seed, p.id, input.shot), shotHeat(p.arsenal), scopedIn(p.arsenal)); // weapons: bloom, as predicted; arsenal: the scoped cone
     const hits = new Map(); // victim id → { dmg, heads, n }, summed over landed pellets
     const ends = dirs.map((dir) => {
       const hit = traceShot(origin, dir, this.map.boxes, targets);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createArsenal, stepWeapon, traceShot, spreadDegrees, shotDirs, aimDir, damageAt, freshLife, shotHeat, weaponOf } from './weapons.js';
+import { createArsenal, stepWeapon, traceShot, spreadDegrees, shotDirs, aimDir, damageAt, freshLife, shotHeat, weaponOf, scopedIn, scopeShare, moveFactor } from './weapons.js';
 import { GUNS } from './guns/index.js'; // arsenal
 import { KEY } from './movement.js';
 import { prepareMap } from './collision.js';
@@ -439,4 +439,145 @@ test('burst: R mid-burst reloads and drops the rest of the burst', () => {
   shotSteps(a, () => false, Math.round(GUNS.burst.reload * 60) + 2);
   assert.equal(a.mags[0], GUNS.burst.mag);
   assert.equal(shotSteps(a, () => false, 60).length, 0);
+});
+
+// ---- arsenal: scopes ----
+
+const aimHeld = (slot = 0, fire = false) => ({ keys: KEY.AIM, fire, slot });
+
+test('scope: holding AIM scopes the sniper in after scope.inSeconds, its cone narrowing to the scoped spread; letting go drops it at once', () => {
+  const { scope, spreadStand } = GUNS.sniper;
+  const a = createArsenal('sniper');
+  const steps = Math.ceil(scope.inSeconds * 60 - 1e-9);
+  for (let i = 1; i < steps; i++) stepWeapon(a, aimHeld());
+  assert.equal(scopedIn(a), false, 'not yet');
+  assert.ok(scopeShare(a) > 0.8 && scopeShare(a) < 1, `share ${scopeShare(a)} on the way in`);
+  stepWeapon(a, aimHeld());
+  assert.equal(scopedIn(a), true, `in after ${steps} steps`);
+  assert.equal(scopeShare(a), 1);
+  assert.ok(close(spreadDegrees('sniper', mover(0), 0, true), scope.spread));
+  assert.ok(close(spreadDegrees('sniper', mover(5.5), 0, true), scope.moveSpread));
+  assert.ok(close(spreadDegrees('sniper', mover(0), 0, false), spreadStand), 'unscoped: the wide hip cone');
+  assert.ok(spreadStand > 5 * scope.spread, 'inaccurate unscoped');
+  stepWeapon(a, idle);
+  assert.deepEqual([scopedIn(a), scopeShare(a)], [false, 0]);
+});
+
+test('scope: guns without one ignore AIM; a switch or a reload drops the scope, and it cannot come in while reloading', () => {
+  const r = createArsenal('rifle');
+  for (let i = 0; i < 60; i++) stepWeapon(r, aimHeld());
+  assert.deepEqual([scopedIn(r), scopeShare(r)], [false, 0]);
+  assert.ok(close(spreadDegrees('rifle', mover(0), 0, true), 0.15), 'a scoped flag on an unscoped gun changes nothing');
+
+  const a = createArsenal('sniper');
+  for (let i = 0; i < 30; i++) stepWeapon(a, aimHeld());
+  assert.equal(scopedIn(a), true);
+  stepWeapon(a, aimHeld(1));
+  assert.equal(scopeShare(a), 0, 'switching to the sidearm');
+  for (let i = 0; i < 60; i++) stepWeapon(a, aimHeld(0));
+  assert.equal(scopedIn(a), true, 'back on the sniper, still holding AIM: in again');
+  stepWeapon(a, aimHeld(0, true)); // fire one
+  stepWeapon(a, { keys: KEY.AIM | KEY.RELOAD, fire: false, slot: 0 });
+  stepWeapon(a, aimHeld());
+  assert.equal(scopeShare(a), 0, 'reloading');
+  for (let i = 0; i < 30; i++) stepWeapon(a, aimHeld());
+  assert.equal(scopeShare(a), 0, 'still reloading');
+});
+
+test('scope: the sniper bolts every 0.75 s and a scoped body hit does 150, a kill from 100 HP but not through a Shield', () => {
+  const a = createArsenal('sniper');
+  a.mags[0] = 1000;
+  for (let i = 0; i < 30; i++) stepWeapon(a, aimHeld());
+  const fired = shotSteps(a, (i) => i % 2 === 0, 600);
+  assert.ok(Math.abs(1 / GUNS.sniper.rps - 0.75) < 0.01, 'about 0.75 s a bolt');
+  assert.equal(fired.length, Math.ceil(600 / (2 * Math.ceil((60 / GUNS.sniper.rps - 1) / 2 - 1e-9))), `${fired.length} bolts in 10 s`);
+  assert.deepEqual([GUNS.sniper.mag, damageAt('sniper', false, 40)], [5, 150]);
+  assert.ok(damageAt('sniper', false, 40) >= 100 && damageAt('sniper', false, 40) < 160);
+});
+
+test('scope: a scoped shot rolls the scoped cone on both sides', () => {
+  const m = mover(0);
+  const aim = aimDir(0, 0);
+  let widest = 0;
+  for (let shot = 1; shot <= 200; shot++) {
+    const [d] = shotDirs(0, 0, 'sniper', m, shotRng(5, 1, shot), 0, true);
+    widest = Math.max(widest, (Math.acos(Math.min(1, d[0] * aim[0] + d[1] * aim[1] + d[2] * aim[2])) * 180) / Math.PI);
+  }
+  assert.ok(widest <= GUNS.sniper.scope.spread + 1e-9, `widest ${widest}°`);
+});
+
+test('moveFactor: the held gun sets the pace, a scope slows it more, and a gun with fireSpeed slows while it cycles', () => {
+  const a = createArsenal('rifle', 'pistol');
+  assert.equal(moveFactor(a), 1, 'the launch guns run at full speed');
+  const s = createArsenal('sniper');
+  assert.equal(moveFactor(s), GUNS.sniper.speed);
+  for (let i = 0; i < 30; i++) stepWeapon(s, aimHeld());
+  assert.ok(close(moveFactor(s), GUNS.sniper.speed * GUNS.sniper.scope.speed));
+  stepWeapon(s, aimHeld(0, true));
+  assert.ok(close(moveFactor(s), GUNS.sniper.speed * GUNS.sniper.scope.speed * GUNS.sniper.fireSpeed), 'the bolt cycling');
+  for (let i = 0; i < 50; i++) stepWeapon(s, idle);
+  assert.equal(moveFactor(s), GUNS.sniper.speed, 'cycled and unscoped');
+});
+
+// arsenal: scope and pace through a real Game, as the client predicts them.
+test('server: a scoped Surveyor body shot at 40 m kills from 100 HP; from the hip it mostly misses', async () => {
+  const { game, a, b } = await duel('sniper', 40);
+  let s = 0;
+  const send = (keys, fire, y = 1.0) => {
+    s++;
+    game.handle(a.conn, { t: 'input', s, rt: game.tick, keys, yaw: 0, pitch: Math.atan2(y - 1.6, 40), fire, shot: s, slot: 0 });
+    game.step();
+  };
+  b.hp = 100;
+  for (let i = 0; i < 20; i++) send(KEY.AIM, false); // scope in (with a tick of buffer)
+  send(KEY.AIM, true);
+  send(KEY.AIM, false);
+  assert.equal(b.alive, false, 'one scoped body shot');
+
+  const hip = await duel('sniper', 40);
+  let hits = 0;
+  for (let k = 0; k < 20; k++) {
+    for (let i = 0; i < 50; i++) {
+      s = (hip.s ?? 0) + 1;
+      hip.s = s;
+      hip.game.handle(hip.a.conn, { t: 'input', s, rt: hip.game.tick, keys: 0, yaw: 0, pitch: Math.atan2(1.0 - 1.6, 40), fire: i === 0, shot: s, slot: 0 });
+      const before = hip.b.hp;
+      hip.game.step();
+      if (hip.b.hp < before) hits++;
+    }
+  }
+  assert.ok(hits <= 6, `${hits} of 20 hip shots landed at 40 m`);
+});
+
+test('server: the held gun sets the pace: a scoped Surveyor walks at speed × scope.speed of 5.5 m/s', async () => {
+  const { game, a } = await duel('sniper', 10);
+  let s = 0;
+  const z0 = [];
+  for (let i = 0; i < 120; i++) {
+    s++;
+    game.handle(a.conn, { t: 'input', s, rt: game.tick, keys: KEY.BACK | KEY.AIM, yaw: 0, pitch: 0, fire: false, shot: s, slot: 0 });
+    game.step();
+    if (i === 59) z0.push(a.mover.z);
+  }
+  const speed = a.mover.z - z0[0];
+  assert.ok(Math.abs(speed - 5.5 * GUNS.sniper.speed * GUNS.sniper.scope.speed) < 0.05, `${speed} m in the second second`);
+});
+
+test('prediction parity: mover and arsenal stepped together (pace, scope, bursts) stay identical across a snapshot copy', async () => {
+  const { step } = await import('./movement.js');
+  const boxes = prepareMap({ boxes: [{ pos: [0, -0.5, 0], size: [100, 1, 100] }], spawns: [] }).boxes;
+  for (const [primary, secondary] of [['sniper', 'handcannon'], ['burst', 'pistol']]) {
+    const server = freshLife(0, 0, 0, primary, secondary);
+    const client = freshLife(0, 0, 0, primary, secondary);
+    const rand = shotRng(9, 9, 9);
+    for (let i = 0; i < 600; i++) {
+      const inp = { keys: (rand() < 0.6 ? KEY.FORWARD : 0) | (rand() < 0.5 ? KEY.AIM : 0) | (rand() < 0.02 ? KEY.RELOAD : 0), yaw: i * 0.01, pitch: 0, fire: rand() < 0.3, slot: i % 200 < 170 ? 0 : 1 };
+      for (const life of [server, client]) {
+        step(life.mover, inp, boxes, moveFactor(life.arsenal));
+        stepWeapon(life.arsenal, inp);
+      }
+      if (i === 300) Object.assign(client, JSON.parse(JSON.stringify(server)));
+    }
+    assert.deepEqual(client, server, primary);
+  }
 });

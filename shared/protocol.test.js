@@ -85,3 +85,9 @@ test('loadout carries a primary, a sidearm or both, each from its own slot of th
     assert.equal(decodeClient(JSON.stringify({ t: 'loadout', ...bad })), null, JSON.stringify(bad));
   }
 });
+
+test('arsenal: the aim (scope) key is its own held bit inside the 16-bit check', () => {
+  assert.equal(decodeClient(JSON.stringify({ ...input, k: KEY.AIM | KEY.FORWARD })).keys, KEY.AIM | KEY.FORWARD);
+  assert.ok(KEY.AIM <= 0xffff);
+  for (const [name, bit] of Object.entries(KEY)) if (name !== 'AIM') assert.equal(bit & KEY.AIM, 0, name);
+});

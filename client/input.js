@@ -13,12 +13,14 @@ export const bindings = {
   jump: 'Space', walk: 'ShiftLeft', crouch: 'KeyC', reload: 'KeyR',
   primary: 'Digit1', pistol: 'Digit2', picker: 'KeyB', scoreboard: 'Tab',
   use: 'KeyQ', cycle: 'KeyE', // POWER-UPS: use the selected item, select the next
+  aim: 'Mouse2', // arsenal: held to scope; a mouse button binds as Mouse<n>
 };
 const SLOTS = { primary: 0, pistol: 1 };
 const BITS = {
   forward: KEY.FORWARD, back: KEY.BACK, left: KEY.LEFT, right: KEY.RIGHT,
   jump: KEY.JUMP, walk: KEY.WALK, crouch: KEY.CROUCH, reload: KEY.RELOAD,
   use: KEY.USE, cycle: KEY.CYCLE, // POWER-UPS: press-once bits
+  aim: KEY.AIM, // arsenal: held
 };
 // Press-once actions are latched until the next sample, so a tap shorter
 // than one step still counts.
@@ -100,11 +102,16 @@ export function init(target, { onLockChange, onLockError, onNeutral, onPicker, p
     if (e.code === bindings.scoreboard) onScoreboard(false);
   });
   addEventListener('mousedown', (e) => {
-    if (!locked || e.button !== 0) return;
+    if (!locked) return;
+    if (e.button !== 0) { held |= bitFor(`Mouse${e.button}`); return; } // arsenal: a bound mouse button (aim)
     fireHeld = true;
     fireLatched = true;
   });
-  addEventListener('mouseup', (e) => { if (e.button === 0) fireHeld = false; });
+  addEventListener('mouseup', (e) => {
+    if (e.button === 0) fireHeld = false;
+    else held &= ~bitFor(`Mouse${e.button}`); // arsenal
+  });
+  addEventListener('contextmenu', (e) => { if (locked) e.preventDefault(); }); // arsenal: right mouse aims
   addEventListener('wheel', (e) => { if (locked && e.deltaY) slot = 1 - slot; });
   addEventListener('blur', neutral);
   document.addEventListener('visibilitychange', () => { if (document.hidden) neutral(); });

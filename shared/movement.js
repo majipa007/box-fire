@@ -11,7 +11,8 @@ const JUMP_VELOCITY = Math.sqrt(2 * GRAVITY * JUMP_HEIGHT);
 
 // POWER-UPS: USE uses the selected item and CYCLE selects the next; both are
 // press-once bits, like JUMP.
-export const KEY = { FORWARD: 1, BACK: 2, LEFT: 4, RIGHT: 8, JUMP: 16, WALK: 32, CROUCH: 64, RELOAD: 128, USE: 256, CYCLE: 512 };
+// arsenal: AIM is held (right mouse): a scoped gun scopes in while it is down.
+export const KEY = { FORWARD: 1, BACK: 2, LEFT: 4, RIGHT: 8, JUMP: 16, WALK: 32, CROUCH: 64, RELOAD: 128, USE: 256, CYCLE: 512, AIM: 1024 };
 
 // POWER-UPS: boost (Nitro) and slow (Shock) are ticks left. FEEL: coyote and
 // jumpBuf are ticks left in the coyote-time and jump-buffer windows. All
@@ -30,7 +31,9 @@ function wishVelocity(keys, yaw, speed) {
   return len ? [(x / len) * speed, (z / len) * speed] : [0, 0];
 }
 
-export function step(s, input, boxes) {
+// arsenal: factor is the held gun's move multiplier (weapons.js moveFactor),
+// read from the arsenal before its own step, the same on both sides.
+export function step(s, input, boxes, factor = 1) {
   const half = PLAYER_WIDTH / 2;
   const keys = input.keys;
   // Crouch shrinks the box from the top, in the air too, so the feet never
@@ -39,7 +42,8 @@ export function step(s, input, boxes) {
   else if (s.crouch && !overlaps(s, half, STAND_HEIGHT, boxes)) s.crouch = false;
   const height = s.crouch ? CROUCH_HEIGHT : STAND_HEIGHT;
   const speed = (s.crouch ? CROUCH_SPEED : keys & KEY.WALK ? WALK_SPEED : RUN_SPEED)
-    * (s.boost > 0 ? POWERS.nitro.speed : 1) * (s.slow > 0 ? POWERS.shock.slow : 1); // POWER-UPS: Nitro, Shock
+    * (s.boost > 0 ? POWERS.nitro.speed : 1) * (s.slow > 0 ? POWERS.shock.slow : 1) // POWER-UPS: Nitro, Shock
+    * factor; // arsenal
   const [wx, wz] = wishVelocity(keys, input.yaw, speed);
 
   // Velocity moves straight toward the wish velocity, so speed can never

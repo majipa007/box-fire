@@ -18,7 +18,21 @@ export const createArsenal = (primary, secondary = 'pistol') => ({
   trigger: false, // trigger state last step, for semi-auto edges
   heat: 0, // spray heat: +1 a shot, -cool a second; widens the cone by bloom
   burst: 0, // arsenal: shots left in the burst under way
+  scope: 0, // arsenal: seconds scoped in, up to the held gun's scope.inSeconds
 });
+
+// arsenal: fully scoped in (only then does the scoped cone apply), and how
+// far in, 0..1, for the client's fov and sensitivity.
+export const scopedIn = (a) => !!WEAPONS[weaponOf(a)].scope && a.scope >= WEAPONS[weaponOf(a)].scope.inSeconds;
+export const scopeShare = (a) => (WEAPONS[weaponOf(a)].scope ? Math.min(1, a.scope / WEAPONS[weaponOf(a)].scope.inSeconds) : 0);
+
+// arsenal: the held gun's move multiplier for step(): its own pace, slower
+// on the way into and inside a scope, and slower again while it cycles
+// after a shot (cooldown left) if it has a fireSpeed.
+export function moveFactor(a) {
+  const w = WEAPONS[weaponOf(a)];
+  return (w.speed ?? 1) * (w.scope && a.scope > 0 ? w.scope.speed : 1) * (a.cooldown > 0 ? w.fireSpeed ?? 1 : 1);
+}
 
 // The heat a shot fires with: the heat before it, so a first shot has none.
 export const shotHeat = (a) => Math.max(0, a.heat - 1);
@@ -40,23 +54,27 @@ export const aimDir = (yaw, pitch) => [-Math.sin(yaw) * Math.cos(pitch), Math.si
 
 // Spread cone half-angle in degrees: blended from standing to moving by
 // ground speed, doubled in the air, tightened when crouched; plus the
-// spray's bloom for the heat the shot fires with.
-export function spreadDegrees(weapon, m, heat = 0) {
+// spray's bloom for the heat the shot fires with. arsenal: scoped (scopedIn)
+// swaps in a scoped gun's scope.spread and scope.moveSpread.
+export function spreadDegrees(weapon, m, heat = 0, scoped = false) {
   const w = WEAPONS[weapon];
+  const sc = scoped && w.scope;
+  const stand = sc ? sc.spread : w.spreadStand;
+  const move = sc ? sc.moveSpread : w.spreadMove;
   const bloom = Math.min(w.bloomMax ?? 0, (w.bloom ?? 0) * heat);
-  if (!m.grounded) return SPREAD_AIR_FACTOR * w.spreadMove + bloom;
-  if (m.crouch) return SPREAD_CROUCH_FACTOR * w.spreadStand + bloom;
+  if (!m.grounded) return SPREAD_AIR_FACTOR * move + bloom;
+  if (m.crouch) return SPREAD_CROUCH_FACTOR * stand + bloom;
   const t = Math.min(1, Math.hypot(m.vx, m.vz) / RUN_SPEED);
-  return w.spreadStand + (w.spreadMove - w.spreadStand) * t + bloom;
+  return stand + (move - stand) * t + bloom;
 }
 
 // The direction of each pellet (one for the rifle and pistol), spread
 // uniformly over the cone by the shot's seeded generator.
-export function shotDirs(yaw, pitch, weapon, m, rand, heat = 0) {
+export function shotDirs(yaw, pitch, weapon, m, rand, heat = 0, scoped = false) { // arsenal: scoped
   const fwd = aimDir(yaw, pitch);
   const right = [Math.cos(yaw), 0, -Math.sin(yaw)];
   const up = [right[1] * fwd[2] - right[2] * fwd[1], right[2] * fwd[0] - right[0] * fwd[2], right[0] * fwd[1] - right[1] * fwd[0]];
-  const cone = Math.tan((spreadDegrees(weapon, m, heat) * Math.PI) / 180);
+  const cone = Math.tan((spreadDegrees(weapon, m, heat, scoped) * Math.PI) / 180);
   return Array.from({ length: WEAPONS[weapon].pellets ?? 1 }, () => {
     const r = Math.sqrt(rand()) * cone;
     const a = 2 * Math.PI * rand();
@@ -122,6 +140,10 @@ export function stepWeapon(a, input) {
       a.reload = w.perShell && a.mags[a.slot] < w.mag ? w.reload : 0;
     }
   }
+  // arsenal: a scoped gun scopes in while AIM is held, not while switching
+  // or reloading; anything else drops the scope at once.
+  const aimed = w.scope && input.keys & KEY.AIM && a.switching < 1e-9 && a.reload === 0;
+  a.scope = aimed ? (a.scope + DT >= w.scope.inSeconds - 1e-9 ? w.scope.inSeconds : a.scope + DT) : 0; // snaps in, no float dust
   a.cooldown -= DT;
   let fired = false;
   // Automatic weapons fire while held; semi-automatic ones once per click;
