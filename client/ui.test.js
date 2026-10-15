@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { migrate, DEFAULTS, ICONS, bearing } from './ui.js';
 import { POWER_IDS } from '../shared/protocol.js';
 import { PRIMARIES, SECONDARIES } from '../shared/constants.js';
-import { baseGun } from '../shared/guns/index.js'; // arsenal
+import { GUNS, GUN_IDS } from '../shared/guns/index.js'; // arsenal
 
 test('a v1 settings object migrates to v2 with shadows on, keeping keys, aim and crosshair', () => {
   const v1 = { sens: 3.2, fov: 104, scale: 50, shadows: false, xsize: 7, xcolor: '#00ff00', primary: 'shotgun', keys: { jump: 'KeyF' } };
@@ -23,8 +23,30 @@ test('v2 settings are left alone, and junk storage falls back to the defaults', 
 });
 
 test('every power-up, weapon and the headshot has an icon', () => {
-  // arsenal: a gun without an icon of its own yet shows its class's launch gun (shared/guns baseGun).
-  for (const id of [...POWER_IDS, ...PRIMARIES, ...SECONDARIES, 'head']) assert.match(ICONS[id] ?? ICONS[baseGun(id)] ?? '', /^<svg viewBox/, id);
+  for (const id of [...POWER_IDS, ...PRIMARIES, ...SECONDARIES, 'head']) assert.match(ICONS[id] ?? '', /^<svg viewBox/, id);
+});
+
+// arsenal: each gun file carries its own silhouette, { w, h, d }, facing right.
+// d is written into the HUD with innerHTML, so it may hold only absolute
+// straight-line path commands and numbers, and every point stays in its box.
+test('every gun draws its own silhouette from its file, inside its viewBox', () => {
+  const seen = new Set();
+  for (const id of GUN_IDS) {
+    const ic = GUNS[id].icon;
+    assert.ok(ic && ic.w > 0 && ic.h > 0, `${id}: icon { w, h, d }`);
+    assert.match(ic.d, /^M[MLHVZ0-9 .-]+$/, `${id}: straight-line commands only`);
+    assert.ok(ICONS[id].startsWith(`<svg viewBox="0 0 ${ic.w} ${ic.h}"`) && ICONS[id].includes(ic.d), `${id}: the HUD draws the file's path`);
+    assert.ok(!seen.has(ic.d), `${id}: a silhouette of its own`);
+    seen.add(ic.d);
+    for (const [, cmd, args] of ic.d.matchAll(/([MLHVZ])([^MLHVZ]*)/g)) {
+      const n = args.trim() ? args.trim().split(/[ ,]+/).map(Number) : [];
+      const xs = cmd === 'V' ? [] : cmd === 'H' ? n : n.filter((_, i) => i % 2 === 0);
+      const ys = cmd === 'H' ? [] : cmd === 'V' ? n : n.filter((_, i) => i % 2 === 1);
+      for (const x of xs) assert.ok(x >= 0 && x <= ic.w, `${id}: x ${x} outside 0..${ic.w}`);
+      for (const y of ys) assert.ok(y >= 0 && y <= ic.h, `${id}: y ${y} outside 0..${ic.h}`);
+      if (cmd === 'M' || cmd === 'L') assert.equal(n.length % 2, 0, `${id}: ${cmd} takes x y pairs`);
+    }
+  }
 });
 
 test('threat bearings run clockwise from straight ahead', () => {

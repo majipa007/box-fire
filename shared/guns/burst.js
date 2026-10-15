@@ -7,5 +7,5 @@ export default {
   spreadStand: 0.08, spreadMove: 3, falloff: { from: 22, to: 40, min: 0.7 }, bloom: 0.1, bloomMax: 0.8, kick: [0.35, 0.1],
   look: null, // models workstream: the box model (docs/guns.md)
   sound: null, // sound workstream: the recipe
-  icon: null, // hud workstream: the SVG path
+  icon: { w: 48, h: 16, d: 'M1 4 H12 V2 H26 V4 H38 V5.5 H47 V7.5 H38 V9 H30 V10 H22 L21 15 H17.5 L18 10 H11 V14 H6.5 V10 H1 Z' }, // hud workstream: the kill-feed silhouette, facing right
 };

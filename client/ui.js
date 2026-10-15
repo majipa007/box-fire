@@ -4,7 +4,7 @@
 // DOM when a value changes.
 import { PLAYER_COLORS, NAME_MAX, PRIMARIES, SECONDARIES, POWER_COLORS, WEAPONS, KILL_TARGET } from '../shared/constants.js'; // arsenal: SECONDARIES
 import { byScore } from '../shared/protocol.js';
-import { baseGun } from '../shared/guns/index.js'; // arsenal: icon fallback
+import { GUNS, GUN_IDS } from '../shared/guns/index.js'; // arsenal: each gun file's icon
 
 // ---- Look: timings and the few colours CSS can't own. ----
 const LOOK = {
@@ -196,18 +196,17 @@ export const ICONS = {
   nitro: svg('0 0 24 24', path('M1.5 3 H6.5 L13 12 L6.5 21 H1.5 L8 12 Z M10.5 3 H15.5 L22 12 L15.5 21 H10.5 L17 12 Z')),
   shield: svg('0 0 24 24', `${path('M12 1.5 L21.1 6.75 V17.25 L12 22.5 L2.9 17.25 V6.75 Z')}<path d="M12 6 L17 8.9 V12 L12 9.1 L7 12 V8.9 Z" fill="#ffffff" fill-opacity="0.55" stroke="none"/>`),
   repair: svg('0 0 24 24', path('M9 2 H15 V9 H22 V15 H15 V22 H9 V15 H2 V9 H9 Z')),
-  rifle: svg('0 0 48 16', path('M1 4 H10 V3 H13 V1.5 H18 V3 H28 V5 H40 V6 H47 V8 H40 V9 H28 V10 H23 L24.5 15 H20 L18.5 10 H15.5 L16 14 H12.5 L12 10 H10 V12 H1 Z')),
-  pistol: svg('0 0 24 16', path('M2 3 H22.5 V8 H10.5 L10 9.5 H9.5 L8 15 H3 L4.5 8 H2 Z')),
-  shotgun: svg('0 0 48 16', path('M1 5 L10 4 H47 V7 H37 V10 H27 V9 H16 L16.5 13.5 H12.5 L12 9 H10 L1 12 Z')),
+  // arsenal: every gun's silhouette comes from its own file (shared/guns, icon: { w, h, d }).
+  ...Object.fromEntries(GUN_IDS.map((id) => { const { w, h, d } = GUNS[id].icon; return [id, svg(`0 0 ${w} ${h}`, path(d))]; })),
   // A helmet in profile, facing right, with a crack through the shell.
   head: svg('0 0 22 18', `${path('M2 16 V9.5 C2 4.5 5.5 1.5 10.5 1.5 C15.5 1.5 18.5 4.5 19 9 L21 11.5 V13.5 H14 V16 Z')}<path d="M9.5 2 L7.6 6 L10.4 8.2 L8.6 12.5" fill="none" style="stroke-width:1.8px;paint-order:normal"/>`),
 };
 const CROWN = svg('0 0 20 14', '<path d="M1 3.5 L6 8 L10 1 L14 8 L19 3.5 L17 13 H3 Z" fill="#d9b45a"/>');
 const CHEVRON = svg('0 0 18 18', '<path d="M9 1.5 L16.5 15 L9 11 L1.5 15 Z" fill="#ff2a1a" stroke="#15171c" stroke-width="1.5" paint-order="stroke"/>');
-const ASPECT = { rifle: '3', shotgun: '3', pistol: '1.5', head: '1.22' }; // width / height of the viewBox; the rest are square
+// width / height of the viewBox; power-up glyphs are square.
+const ASPECT = { head: '1.22', ...Object.fromEntries(GUN_IDS.map((id) => [id, String(GUNS[id].icon.w / GUNS[id].icon.h)])) };
 
 function setIcon(el, kind, color) {
-  if (!ICONS[kind]) kind = baseGun(kind); // arsenal: a gun with no icon yet shows its class's launch gun
   el.innerHTML = ICONS[kind] ?? '';
   el.style.aspectRatio = ASPECT[kind] ?? '1';
   el.style.color = ITEM_COLORS[kind] ?? color ?? '';
@@ -818,9 +817,13 @@ function startDemo() {
     ]);
     if (DEMO !== 'death') threat({ shock: 1.2, shunts: [1.35, -0.9] }); // keeps the death card clear
     renderScoreboard(DEMO_BOARD, 3, null);
-    const feed = [
-      ['bot1', 'bot4', 'rifle', true, false, 0, 3], ['Tester', 'bot2', 'shunt', false, true, 2, 1], ['bot6', 'bot5', 'shotgun', false, false, 5, 4],
-      ['bot5', 'Tester', 'mine', false, true, 4, 2], ['bot2', 'bot1', 'pistol', true, false, 1, 0],
+    // arsenal: ?debug&hud=feed shows the five guns the demo feed leaves out.
+    const feed = DEMO === 'feed' ? [
+      ['bot1', 'bot4', 'marksman', true, false, 0, 3], ['Tester', 'bot2', 'burst', false, true, 2, 1], ['bot6', 'bot5', 'machinepistol', false, false, 5, 4],
+      ['bot5', 'Tester', 'rifle', false, true, 4, 2], ['bot2', 'bot1', 'smg', false, false, 1, 0],
+    ] : [
+      ['bot1', 'bot4', 'sniper', true, false, 0, 3], ['Tester', 'bot2', 'shunt', false, true, 2, 1], ['bot6', 'bot5', 'lmg', false, false, 5, 4],
+      ['bot5', 'Tester', 'handcannon', true, true, 4, 2], ['bot2', 'bot1', 'shotgun', false, false, 1, 0],
     ];
     $('killfeed').classList.add('demo'); // rows stay
     for (const [k, v, w, h, mine, kc, vc] of feed) addKill(k, v, w, h, mine, { killer: PLAYER_COLORS[kc], victim: PLAYER_COLORS[vc] });
