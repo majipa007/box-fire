@@ -99,7 +99,8 @@ function perceive(bot, eye) {
     let mem = bot.mem.get(id);
     if (!mem) bot.mem.set(id, (mem = { x, y, z, tick: -1e9, prot: false, bubble: false, hp: 0, crouch }));
     if (bot.tick - mem.tick > 30) bot.fresh = true; // newly in sight
-    Object.assign(mem, { x, y, z, tick: bot.tick, prot: !!(flags & SHIELDED), bubble: !!(flags & BUBBLE), hp: p[7], crouch });
+    mem.x = x; mem.y = y; mem.z = z; mem.tick = bot.tick; mem.hp = p[7]; mem.crouch = crouch;
+    mem.prot = !!(flags & SHIELDED); mem.bubble = !!(flags & BUBBLE);
     let h = bot.hist.get(id);
     if (!h) bot.hist.set(id, (h = { n: 0, buf: new Float64Array(HIST * 4) }));
     const k = (h.n++ % HIST) * 4;
@@ -114,8 +115,8 @@ function perceive(bot, eye) {
 // led by a share of the velocity it saw, at the head or chest.
 function seenPoint(bot, id, mem) {
   const sk = bot.sk, h = bot.hist.get(id), lagT = Math.round(sk.lag * TICK_RATE);
-  const at = (back) => (Math.max(h.n - 1 - back, Math.max(0, h.n - HIST)) % HIST) * 4;
-  const a = at(lagT), b = at(lagT + 6), buf = h.buf;
+  const oldest = Math.max(0, h.n - HIST), buf = h.buf;
+  const a = (Math.max(h.n - 1 - lagT, oldest) % HIST) * 4, b = (Math.max(h.n - 7 - lagT, oldest) % HIST) * 4;
   const dt = Math.max(1, buf[a] - buf[b]) * DT, lead = sk.lead * sk.lag;
   SEEN[0] = buf[a + 1] + ((buf[a + 1] - buf[b + 1]) / dt) * lead;
   SEEN[1] = buf[a + 2] + (mem.crouch ? (bot.aim.head ? 1.05 : 0.7) : bot.aim.head ? 1.65 : 1.0);

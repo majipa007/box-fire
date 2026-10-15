@@ -18,7 +18,7 @@ export const idealRange = (w, sidearm) => (sidearm ? 12 : w.falloff ? 0.6 * w.fa
 export const SKILLS = {
   easy: { react: 0.45, lag: 0.22, lead: 0.2, flick: 6, settle: 0.4, wobble: 0.8, turn: 260, head: 0.03, stopToShoot: 0, tapRate: 4, duty: 0.6, hear: 18, fov: 100, notice: 3, memory: 3 },
   normal: { react: 0.3, lag: 0.17, lead: 0.4, flick: 4.5, settle: 0.3, wobble: 0.55, turn: 420, head: 0.12, stopToShoot: 0.2, tapRate: 5, duty: 0.8, hear: 25, fov: 120, notice: 5, memory: 6 },
-  hard: { react: 0.2, lag: 0.14, lead: 0.6, flick: 3, settle: 0.22, wobble: 0.45, turn: 720, head: 0.2, stopToShoot: 0.9, tapRate: 6, duty: 1.0, hear: 32, fov: 140, notice: 7, memory: 9 },
+  hard: { react: 0.2, lag: 0.14, lead: 0.6, flick: 3, settle: 0.22, wobble: 0.45, turn: 720, head: 0.15, stopToShoot: 0.9, tapRate: 6, duty: 1.0, hear: 32, fov: 140, notice: 7, memory: 9 },
 };
 
 const D2R = Math.PI / 180;
