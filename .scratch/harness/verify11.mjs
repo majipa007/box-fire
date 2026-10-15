@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { Game } from '/home/sukuna/personal_projects/game/server/game.js';
 import { KEY } from '/home/sukuna/personal_projects/game/shared/movement.js';
-import { shotDirs, eyeOf, traceShot } from '/home/sukuna/personal_projects/game/shared/weapons.js';
+import { shotDirs, eyeOf, traceShot, shotHeat } from '/home/sukuna/personal_projects/game/shared/weapons.js';
 import { shotRng } from '/home/sukuna/personal_projects/game/shared/rng.js';
 import { prepareMap } from '/home/sukuna/personal_projects/game/shared/collision.js';
 
@@ -33,7 +33,7 @@ for (let k = 1; k <= 12; k++) {
   send(KEY.FORWARD, true, k);
   game.step();
   const ev = cb.out.filter((m) => m.t === 'event' && m.e === 'shot').at(-1);
-  const [dir] = shotDirs(2.2, 0.02, 'rifle', A.mover, shotRng(seed, A.id, k));
+  const [dir] = shotDirs(2.2, 0.02, 'rifle', A.mover, shotRng(seed, A.id, k), shotHeat(A.arsenal)); // weapons: the client predicts the same heat
   const origin = eyeOf(A.mover);
   const { t } = traceShot(origin, dir, boxes, []);
   const mine = origin.map((o, i) => Math.round((o + dir[i] * t) * 1000) / 1000);

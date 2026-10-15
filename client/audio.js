@@ -293,6 +293,22 @@ export const POWER_SOUNDS = {
     whoosh: { src: 'noise', mode: 'bp', f: 250, f1: 3000, glide: 0.15, q: 1.2, a: 0.08, d: 0.1 },
     air: { src: 'noise', mode: 'lp', f: 500, a: 0.05, d: 0.12, g: 0.3 },
   } },
+  // powerups: the pad cues (spec §2). Yours: an empty pad's falling two-note
+  // "not yet", and a full inventory's double tick over a thud. Others' pick:
+  // a soft "taken" where it happened, well under your own chime (-12 dB).
+  'pad.empty': { level: -17, dry: true, vary: 0, layers: {
+    hi: { src: 'sine', f: 494, a: 0.002, dur: 0.07, partials: TRI },
+    lo: { src: 'sine', f: 370, at: 0.075, a: 0.002, dur: 0.09, partials: TRI },
+  } },
+  'pad.full': { level: -15, dry: true, vary: 0, layers: {
+    t0: { src: 'sine', f: 880, a: 0.001, dur: 0.025, partials: SQUARE },
+    t1: { src: 'sine', f: 880, at: 0.06, a: 0.001, dur: 0.025, partials: SQUARE },
+    thud: { src: 'sine', f: 140, a: 0.002, dur: 0.05 },
+  } },
+  'pad.taken': { level: -20, layers: {
+    tone: { src: 'sine', f: 262, a: 0.002, dur: 0.12 },
+    tick: { src: 'noise', mode: 'hp', f: 3000, a: 0.0005, dur: 0.06, g: 0.4 },
+  } },
   hum: { level: -32, vary: 0, loop: 1, layers: { // a pad's 110 Hz hum
     hum: { src: 'sine', f: 110, partials: [[1, 1, 1], [2, 0.25, 1]], am: [1, 0.15] },
   } },
@@ -1279,6 +1295,8 @@ export const BOARD = [
   ['mine boom', BOARD_STEP * 2, once(() => power('mine', 'boom', 3))],
   ['shield break', BOARD_STEP, once(() => power('shield', 'break'))],
   ['fizzle', BOARD_STEP, once(() => power('shunt', 'fizzle', 6))],
+  ...['empty', 'full'].map((c) => [`pad ${c}`, BOARD_STEP, once(() => power('pad', c))]), // powerups:
+  ['pad taken (others, 4 m)', BOARD_STEP, once(() => power('pad', 'taken', 4, 0.4))], // powerups:
   ['pad hums', BOARD_STEP * 3, (k) => k % 2 === 0 && padHums([{ distance: 1 + k / 10, pan: -0.5 }, { distance: 4, pan: 0.6 }])],
 ];
 export const BOARD_SECONDS = BOARD.reduce((s, b) => s + b[1], 0);

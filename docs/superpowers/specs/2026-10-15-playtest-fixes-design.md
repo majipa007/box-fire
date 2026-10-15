@@ -34,7 +34,7 @@ The designs come from an evidence workflow. For each area, an investigator measu
 | Pistol | adds falloff 25 m → 40 m down to 0.75; unchanged up close |
 
 **Spray heat (a new mechanic, shared and predicted).**
-- The arsenal gains `heat`. Each shot adds 1, capped so bloom tops out at bloomMax. Heat cools at `cool` per second and clears on a weapon switch.
+- The arsenal gains `heat`. Each shot adds 1, capped so bloom tops out at bloomMax. Heat cools at 4 per second (`HEAT_COOL`) whatever is held, and survives a weapon switch (changed at integration: clearing it let a spray, a quick switch away and back, then a cold one-tap head shot skip about 1.5 s of cooling).
 - `shotHeat(a)` is the heat before the current shot, so the first shot fires with zero bloom.
 - Spread adds `bloom × heat`. Server and client both pass `shotHeat` into `shotDirs`, so the seeded spread still matches.
 - Heat travels in the existing `me.arsenal` snapshot, so there is no protocol change.

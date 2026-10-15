@@ -104,9 +104,9 @@ Scores are keyed by name for the length of the match: if a tab dies, reopening t
 
 | Weapon | Body dmg | Head mult | Fire rate | Mag | Reload (s) | Spread stand / move (°) | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Pistol | 26 | 3× | 6.75/s semi | 12 | 1.75 | 0.3 / 1.5 | Always carried |
-| Rifle | 40 | 4× (one-tap head) | 9.75/s auto | 25 | 2.5 | 0.4 / 2.5, camera kick climbs over 8 shots | Default primary |
-| Shotgun | 8 × 12 pellets | 2× | 1.1/s pump | 5 | 0.5 per shell | 4.0 cone | Falloff beyond 8 m |
+| Pistol | 26 | 3× | 6.75/s semi | 12 | 1.75 | 0.3 / 1.5 | Always carried. Falloff 25 → 40 m down to 0.75 |
+| Rifle | 30 | 160 flat (one-tap head at any range, every bullet) | 9.75/s auto | 25 | 2.5 | 0.15 / 2.5, plus spray bloom 0.25° per heat up to +2°; camera kick climbs over 8 shots | Default primary. Falloff 20 → 30 m down to 0.8 (24), so 4 body hits to about 29 m, then 5 |
+| Shotgun | 10 × 12 pellets | 2× | 1.1/s pump | 5 | 0.5 per shell | 3.5 cone | Falloff 8 → 18 m down to 0.2. A full body blast (120) kills from 100 HP, not through a Shield |
 
 All weapons are hitscan, so there is no projectile simulation. Infinite reserve ammo, finite magazine. Weapon state (fire cooldown, magazines, reload and switch timers) is predicted on the client and corrected from snapshots exactly like movement, so the muzzle flash, ammo counter and empty click are instant and right.
 
@@ -116,7 +116,8 @@ Handling rules, every number in `constants.js`:
 - Pressing fire on an empty magazine starts a reload.
 - Firing interrupts the shotgun's shell-by-shell reload.
 - The cooldown is a seconds counter that carries its remainder between shots (`cooldown += 1/rps`, never reset to full): 9.75 shots/s is 6.15 ticks at 60 Hz, and rounding to whole ticks would change the fire rate. Whenever the player is not firing it is clamped with `cooldown = max(cooldown, 0)`; otherwise a released trigger banks shots and the next press fires about 10 in a row.
-- Spread blends from the stand value to the move value by horizontal speed ÷ run speed, so stopping before you shoot matters. Airborne it is 2× the move value; crouched, 0.8× the stand value. Spread is random but seeded, so client and server roll the same numbers.
+- Spread blends from the stand value to the move value by horizontal speed ÷ run speed, so stopping before you shoot matters. Airborne it is 2× the move value; crouched, 0.8× the stand value. Spread is random but seeded, so client and server roll the same numbers. A weapon with `bloom` (the rifle) adds bloom × heat: each shot adds 1 heat, heat cools at 4 a second (`HEAT_COOL`) whatever is held, and is capped so the bloom tops out at `bloomMax`. A switch keeps the heat, so switching away and back is no shortcut to a cold first shot. Heat is part of the predicted weapon state, and a shot fires with the heat it had before it fired, so the first shot of a spray has no bloom.
+- Damage is summed per victim per shot and rounded, so HP is always a whole number. A shotgun blast counts as a headshot only when most of its landed pellets hit the head.
 - Recoil is a camera kick you pull down to control: client-side only, with no server code, because the input already carries the resulting pitch.
 
 Hitboxes are two boxes per player: a 0.3 m head cube on a 0.6 × 1.5 × 0.6 m body standing, or a 0.6 × 0.9 × 0.6 m body crouched; the server tests the head first, against rewound positions.
@@ -161,7 +162,7 @@ One npm dependency on the server (`ws`), zero on the client, no bundler.
 - Server: Node.js 22 or newer, 24 LTS preferred (Node 20 reached end of life on 30/04/2026). Built-in `node:http` serves static files: `client/` at `/` and `shared/` at `/shared/`, because the browser imports the shared modules and the map too. A MIME map covers html, js and json, and a resolved-path check rejects any request that lands outside those two folders. `ws` attaches to the same server. `package.json` sets `"type": "module"` so Node loads the shared ES modules.
 - Client: vanilla ES modules. Three.js is copied into `client/vendor/`, never loaded from a CDN: `three.module.js`, `three.core.js` and `addons/utils/BufferGeometryUtils.js`. Recent releases split the build, so check the first line of `three.module.js` when copying and copy whatever it imports. The import map maps both `three` and `three/addons/`.
 - Shared: plain JS modules imported by both sides.
-- Tests: `node --test` on `shared/` (movement, collision, ray-vs-box, rng.js gives the same pellets for the same seed, weapons.js cooldown and reload, including no banked shots after a released trigger) plus the server's history.js rewind lookup at fractional ticks. Netcode is tested by playing, against `tools/bot.js` when nobody else is around: a Node ws client that joins as a bot, strafes and jumps, and takes a `--count` flag to add several for a load test. It only sends inputs and the server moves it, so it exercises the real pipeline.
+- Tests: `node --test` on `shared/` (movement, collision, ray-vs-box, rng.js gives the same pellets for the same seed, weapons.js cooldown and reload, including no banked shots after a released trigger) plus the server's history.js rewind lookup at fractional ticks. Netcode is tested by playing, against `tools/bot.js` when nobody else is around: a Node ws client that joins bots as players and takes a `--count` flag to add several for a load test. They are armed opponents (`tools/bot/`: height-grid A\* navigation, human-like aim, a utility brain that only sees what is in view) with `--skill easy|normal|hard|mixed` (mixed by default: each bot rolls its own); `--passive` keeps the old harmless target that wanders, collects pads and never shoots. They only send inputs and the server moves them, so they exercise the real pipeline; `node --test` covers their navigation, aim and choices.
 
 ```
 boxfire/
@@ -204,7 +205,8 @@ boxfire/
 │     ├─ three.core.js
 │     └─ addons/utils/BufferGeometryUtils.js
 └─ tools/
-   └─ bot.js               # ws test client: strafes, jumps, --count N
+   ├─ bot.js               # ws bot client: armed opponents, --count N, --skill, --passive
+   └─ bot/                 # nav.js, aim.js, brain.js: pure bot AI, with tests
 ```
 
 Later, package the host as one file with Node's single executable applications or `bun build --compile`, so even the host installs nothing.
@@ -215,7 +217,7 @@ Six milestones, each playable on its own; finish and feel-test one before starti
 
 - [ ] **M0 — Skeleton (1 evening).** Repo layout, `npm start` serves `client/` and `shared/`, prints the LAN URL, WebSocket connects with the heartbeat running. Lobby page: enter a name (validated, inserted with `textContent`), player list with ping updates live, the loopback connection is marked host and sees Start. Done when two laptops on the same WiFi see each other's names.
 - [ ] **M1 — FPS controller, single player (2–3 evenings).** Pointer lock with `unadjustedMovement` (falling back to the plain call), mouse look, WASD / jump / crouch / walk with a latched jump, swept AABB collision against `arena_01.json`, gravity, fixed-timestep `shared/movement.js`. Esc menu, opened on pointer-lock loss, with sensitivity and FOV saved to localStorage. Done when running around the arena feels tight with no clipping at a steady 60 fps.
-- [ ] **M2 — See each other (3–4 evenings).** Input packets, server tick, snapshots, prediction and reconciliation for self from full own state, interpolation for others with freeze on starvation, name tags, tools/bot.js as a strafing target, tick-interval log on the host, first tuning of `INPUT_BUFFER` and `INTERP_DELAY_TICKS`. Done when two players move with no rubber-banding and the other player's motion is smooth.
+- [ ] **M2 — See each other (3–4 evenings).** Input packets, server tick, snapshots, prediction and reconciliation for self from full own state, interpolation for others with freeze on starvation, name tags, tools/bot.js as a strafing target (today `--passive`; armed bots came later), tick-interval log on the host, first tuning of `INPUT_BUFFER` and `INTERP_DELAY_TICKS`. Done when two players move with no rubber-banding and the other player's motion is smooth.
 - [ ] **M3 — Shooting (2–3 evenings).** Rifle only. Server hitscan with 1 s rewind at fractional ticks against head and body boxes, seeded spread, tracer from the packet's angles, shared weapons.js with predicted cooldown (clamped, no banking) and magazine, fire carry-forward for dropped inputs, HP, death, 3 s respawn at the far spawn, kill feed, hit marker. Done when a 1v1 is fun for five minutes.
 - [ ] **M4 — Full deathmatch (3–4 evenings).** Pistol and shotgun, weapon switch with the 0.4 s switch time, reload (cancelled by switching, automatic on empty, shell reload interrupted by firing), speed-blended spread and recoil, scoreboard, match timer, win condition, restart, spawn protection and recent-spawn skip, drop-in join, rejoin by name with heartbeat takeover, B weapon picker, phase edge cases, host End match. Done when four or more players finish a full match with no desyncs.
 - [ ] **M5 — Polish (ongoing).** Synth audio, key rebinding, crosshair options, low-end render mode, second map, host as a single executable.

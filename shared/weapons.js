@@ -2,7 +2,7 @@
 // predicts shots, ammo and reloads and the server agrees.
 import {
   DT, WEAPONS, SWITCH_SECONDS, SHOT_RANGE, MAX_HP, SPREAD_AIR_FACTOR, SPREAD_CROUCH_FACTOR, EYE_STAND, EYE_CROUCH, STAND_HEIGHT, CROUCH_HEIGHT, PLAYER_WIDTH, HEAD_SIZE, RUN_SPEED,
-} from './constants.js';
+HEAT_COOL, } from './constants.js';
 import { KEY, createMover } from './movement.js';
 import { rayBox } from './collision.js';
 
@@ -15,7 +15,11 @@ export const createArsenal = (primary) => ({
   reload: 0, // seconds of reload left, 0 when not reloading
   switching: 0, // seconds until a newly drawn weapon can fire
   trigger: false, // trigger state last step, for semi-auto edges
+  heat: 0, // spray heat: +1 a shot, -cool a second; widens the cone by bloom
 });
+
+// The heat a shot fires with: the heat before it, so a first shot has none.
+export const shotHeat = (a) => Math.max(0, a.heat - 1);
 
 export const weaponOf = (a) => (a.slot === 0 ? a.primary : 'pistol');
 
@@ -33,22 +37,24 @@ export const eyeOf = (m) => [m.x, m.y + (m.crouch ? EYE_CROUCH : EYE_STAND), m.z
 export const aimDir = (yaw, pitch) => [-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)];
 
 // Spread cone half-angle in degrees: blended from standing to moving by
-// ground speed, doubled in the air, tightened when crouched.
-export function spreadDegrees(weapon, m) {
+// ground speed, doubled in the air, tightened when crouched; plus the
+// spray's bloom for the heat the shot fires with.
+export function spreadDegrees(weapon, m, heat = 0) {
   const w = WEAPONS[weapon];
-  if (!m.grounded) return SPREAD_AIR_FACTOR * w.spreadMove;
-  if (m.crouch) return SPREAD_CROUCH_FACTOR * w.spreadStand;
+  const bloom = Math.min(w.bloomMax ?? 0, (w.bloom ?? 0) * heat);
+  if (!m.grounded) return SPREAD_AIR_FACTOR * w.spreadMove + bloom;
+  if (m.crouch) return SPREAD_CROUCH_FACTOR * w.spreadStand + bloom;
   const t = Math.min(1, Math.hypot(m.vx, m.vz) / RUN_SPEED);
-  return w.spreadStand + (w.spreadMove - w.spreadStand) * t;
+  return w.spreadStand + (w.spreadMove - w.spreadStand) * t + bloom;
 }
 
 // The direction of each pellet (one for the rifle and pistol), spread
 // uniformly over the cone by the shot's seeded generator.
-export function shotDirs(yaw, pitch, weapon, m, rand) {
+export function shotDirs(yaw, pitch, weapon, m, rand, heat = 0) {
   const fwd = aimDir(yaw, pitch);
   const right = [Math.cos(yaw), 0, -Math.sin(yaw)];
   const up = [right[1] * fwd[2] - right[2] * fwd[1], right[2] * fwd[0] - right[0] * fwd[2], right[0] * fwd[1] - right[1] * fwd[0]];
-  const cone = Math.tan((spreadDegrees(weapon, m) * Math.PI) / 180);
+  const cone = Math.tan((spreadDegrees(weapon, m, heat) * Math.PI) / 180);
   return Array.from({ length: WEAPONS[weapon].pellets ?? 1 }, () => {
     const r = Math.sqrt(rand()) * cone;
     const a = 2 * Math.PI * rand();
@@ -61,6 +67,7 @@ export function shotDirs(yaw, pitch, weapon, m, rand) {
 // Damage of one hit (one pellet for the shotgun) at a distance in metres.
 export function damageAt(weapon, head, dist) {
   const w = WEAPONS[weapon];
+  if (head && w.headDmg) return w.headDmg; // flat at any range, on every bullet
   const f = w.falloff;
   const scale = !f || dist <= f.from ? 1 : Math.max(f.min, 1 - ((1 - f.min) * (dist - f.from)) / (f.to - f.from));
   return w.dmg * (head ? w.head : 1) * scale;
@@ -100,9 +107,10 @@ export function stepWeapon(a, input) {
   if (input.slot !== a.slot) {
     a.slot = input.slot;
     a.switching = SWITCH_SECONDS; // can't fire until the new gun is up
-    a.reload = 0; // switching cancels a reload
+    a.reload = 0; // switching cancels a reload (a spray's heat stays, so a quick switch back is no cold tap)
   }
   const w = WEAPONS[weaponOf(a)];
+  a.heat = Math.max(0, a.heat - DT * HEAT_COOL); // only time cools a spray, whatever is held
   if (a.reload > 0) {
     a.reload -= DT;
     if (a.reload <= 1e-9) {
@@ -120,6 +128,7 @@ export function stepWeapon(a, input) {
     if (a.mags[a.slot] > 0) {
       a.mags[a.slot]--;
       a.cooldown += 1 / w.rps; // += keeps the remainder: 9.75/s is 6.15 steps
+      if (w.bloom) a.heat = Math.min(w.bloomMax / w.bloom + 1, a.heat + 1); // +1: shots read heat - 1; capped, so cooling starts at once
       fired = true;
     } else {
       a.reload = w.reload; // pulling on an empty magazine reloads it

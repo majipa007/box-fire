@@ -8,7 +8,7 @@ import {
 import { encode, byScore, PLAYER_FLAGS, WEAPON_IDS, POWER_IDS } from '../shared/protocol.js';
 import { step } from '../shared/movement.js';
 import { prepareMap } from '../shared/collision.js';
-import { freshLife, stepWeapon, weaponOf, eyeOf, shotDirs, traceShot, damageAt } from '../shared/weapons.js';
+import { freshLife, stepWeapon, weaponOf, eyeOf, shotDirs, traceShot, damageAt, shotHeat } from '../shared/weapons.js'; // weapons: shotHeat
 import { shotRng } from '../shared/rng.js';
 import { Player } from './player.js';
 import { History } from './history.js';
@@ -256,21 +256,23 @@ export class Game {
     // render tick their input carries, as long as they are still alive now.
     const targets = this.history.at(input.rt, this.tick).filter((q) => q.id !== p.id && this.players.get(q.id)?.alive);
     // The shot number seeds the spread exactly as the client rolled it.
-    const dirs = shotDirs(input.yaw, input.pitch, weapon, p.mover, shotRng(this.seed, p.id, input.shot));
-    const hits = new Map(); // victim id → { dmg, head }, summed over pellets
+    const dirs = shotDirs(input.yaw, input.pitch, weapon, p.mover, shotRng(this.seed, p.id, input.shot), shotHeat(p.arsenal)); // weapons: bloom, as predicted
+    const hits = new Map(); // victim id → { dmg, heads, n }, summed over landed pellets
     const ends = dirs.map((dir) => {
       const hit = traceShot(origin, dir, this.map.boxes, targets);
       this.powers.shot(p, origin, dir, hit.t, input.rt); // POWER-UPS: bullets fizzle Shunts and set off Mines
       if (hit.id !== null) {
-        const h = hits.get(hit.id) ?? { dmg: 0, head: false };
+        const h = hits.get(hit.id) ?? { dmg: 0, heads: 0, n: 0 };
         h.dmg += damageAt(weapon, hit.head, hit.t);
-        h.head ||= hit.head;
+        h.heads += hit.head;
+        h.n++;
         hits.set(hit.id, h);
       }
       return origin.map((o, i) => r3(o + dir[i] * hit.t));
     });
     this.broadcast({ t: 'event', e: 'shot', id: p.id, w: weapon, o: origin.map(r3), h: ends }, p);
-    for (const [id, { dmg, head }] of hits) this.damage(p, this.players.get(id), dmg, head, weapon);
+    // weapons: whole HP; a blast is a headshot when most of its landed pellets were.
+    for (const [id, { dmg, heads, n }] of hits) this.damage(p, this.players.get(id), Math.round(dmg), heads * 2 > n, weapon);
   }
 
   // POWER-UPS: sx, sz are a power-up blast's source, for the damage arc.

@@ -4,6 +4,7 @@
 // POWERS in constants.js; Nitro and Shock's slow live in the mover.
 import {
   TICK_RATE, POWERS, POWER_USE_SECONDS, POWER_GUN_LOCK, POWER_BOLT_GUN_LOCK, POWER_RATE_PLAYERS,
+  POWER_PAD_BOX, PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, // powerups: padUnder
 } from './constants.js';
 import { KEY } from './movement.js';
 import { rayBox } from './collision.js';
@@ -93,5 +94,20 @@ export function lockTarget(eye, dir, candidates, boxes) {
 }
 
 // Ticks until a pad refills: slower in small games, so the per-player rate
-// stays near the 6-player one.
-export const padRespawnTicks = (pad, n) => Math.round(pad.respawn * TICK_RATE * Math.max(1, POWER_RATE_PLAYERS / Math.max(1, n)));
+// stays near the 6-player one, but never more than 3x slower (the user's
+// call: 60–90 s with 1 player, not 2–3 min).
+export const padRespawnTicks = (pad, n) => Math.round(pad.respawn * TICK_RATE * Math.min(3, Math.max(1, POWER_RATE_PLAYERS / Math.max(1, n))));
+
+// powerups: the index of the pad whose pickup box a mover ({ x, y, z, crouch })
+// stands in, else -1. The server's overlaps() rule without its allocations,
+// for the client's per-frame pad cue.
+const PAD_REACH_X = POWER_PAD_BOX[0] / 2 + PLAYER_WIDTH / 2;
+const PAD_REACH_Z = POWER_PAD_BOX[2] / 2 + PLAYER_WIDTH / 2;
+export function padUnder(m, pads) {
+  const h = m.crouch ? CROUCH_HEIGHT : STAND_HEIGHT;
+  for (let i = 0; i < pads.length; i++) {
+    const p = pads[i];
+    if (Math.abs(m.x - p.x) < PAD_REACH_X && Math.abs(m.z - p.z) < PAD_REACH_Z && m.y < p.y + POWER_PAD_BOX[1] && m.y + h > p.y) return i;
+  }
+  return -1;
+}

@@ -4,14 +4,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
-  createPowers, stepPowers, falloff, pushScale, domeCentres, lockTarget, padRespawnTicks, NITRO_TICKS, ARENA_LIMIT,
+  createPowers, stepPowers, falloff, pushScale, domeCentres, lockTarget, padRespawnTicks, padUnder, NITRO_TICKS, ARENA_LIMIT,
 } from './powerups.js';
 import { createMover, step, knock, KEY } from './movement.js';
-import { prepareMap } from './collision.js';
+import { prepareMap, overlaps } from './collision.js';
 import { decodeClient } from './protocol.js';
 import { createArsenal } from './weapons.js';
 import { shotRng } from './rng.js';
-import { DT, POWERS, TICK_RATE } from './constants.js';
+import { DT, POWERS, TICK_RATE, MAPS, POWER_PAD_BOX, PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT } from './constants.js';
 
 const FLOOR = { pos: [0, -0.5, 0], size: [100, 1, 100] };
 const world = (...boxes) => prepareMap({ boxes: [FLOOR, ...boxes], spawns: [] }).boxes;
@@ -220,11 +220,36 @@ test('a Shunt locks on the enemy nearest the crosshair, in range and in sight', 
   assert.equal(lockTarget(eye, dir, [near, ahead], wall), 1); // the nearer one is hidden
 });
 
-test('pads refill at the 6-player rate, slower in smaller games', () => {
+test('pads refill at the 6-player rate, slower in smaller games, but never more than 3x slower', () => {
   const pad = { respawn: 30 };
   assert.equal(padRespawnTicks(pad, 6), 30 * TICK_RATE);
   assert.equal(padRespawnTicks(pad, 10), 30 * TICK_RATE);
   assert.equal(padRespawnTicks(pad, 3), 60 * TICK_RATE);
-  assert.equal(padRespawnTicks(pad, 0), 180 * TICK_RATE);
+  // The user's call (spec, 15/10/2026): 60–90 s with 1 player, not 2–3 min.
+  assert.equal(padRespawnTicks(pad, 1), 90 * TICK_RATE);
+  assert.equal(padRespawnTicks({ respawn: 20 }, 1), 60 * TICK_RATE);
+  assert.equal(padRespawnTicks(pad, 0), 90 * TICK_RATE);
 });
 
+
+// The pad cue's helper runs every frame on the client, so it must agree with
+// the server's pickup rule (overlaps() against each pad's trigger box,
+// server/powerups.js) everywhere but a 1 mm band at the box's sides.
+test('padUnder finds the pad the server would let you pick from, on every map', async () => {
+  const [W, H, D] = POWER_PAD_BOX;
+  for (const id of MAPS) {
+    const { pads: list } = JSON.parse(await readFile(new URL(`./maps/${id}.json`, import.meta.url)));
+    const pads = list.map(({ pos: [x, y, z] }) => ({ x, y, z }));
+    const boxes = pads.map((p) => ({ min: [p.x - W / 2, p.y, p.z - D / 2], max: [p.x + W / 2, p.y + H, p.z + D / 2] }));
+    let on = 0;
+    for (const p of pads) for (let dx = -1.4; dx <= 1.4; dx += 0.0725) for (let dz = -1.4; dz <= 1.4; dz += 0.0725) for (const dy of [-1.9, -1.5, 0, 0.5, 1.99]) for (const crouch of [false, true]) {
+      if (Math.min(Math.abs(Math.abs(dx) - 1.1), Math.abs(Math.abs(dz) - 1.1)) < 1e-3) continue;
+      const m = { x: p.x + dx, y: p.y + dy, z: p.z + dz, crouch };
+      const want = boxes.findIndex((b) => overlaps(m, PLAYER_WIDTH / 2, crouch ? CROUCH_HEIGHT : STAND_HEIGHT, [b]));
+      assert.equal(padUnder(m, pads), want, `${id} ${JSON.stringify(m)}`);
+      if (want >= 0) on++;
+    }
+    assert.ok(on > 1000, `${id}: only ${on} points on a pad`);
+  }
+  assert.equal(padUnder({ x: 0, y: 0, z: 0, crouch: false }, []), -1);
+});

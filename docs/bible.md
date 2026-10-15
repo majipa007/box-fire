@@ -16,7 +16,7 @@ The arena is a working limestone quarry at about 4 pm.
 - Chalky concrete and drifted sand sit under a cobalt sky.
 - A 40° sun gives a warm sunlit face and cool blue-grey shade. Stepped cut faces open toward the sun. A rust crusher tower stands backlit in the gap, and voxel clouds drift overhead.
 - Only people and power-ups are saturated. Players read by value (dark kit and a dark outline) and are identified by hue (their slot colour).
-- Power-ups are Blur's colour-coded glowing pickups. Their beams rise 6 m over the walls.
+- Power-ups are Blur's colour-coded glowing pickups. Their beams rise 6 m over the walls from pads that are up; a refilling pad shows its clock instead.
 - Every shot slaps back off the cut faces.
 
 | Reference | What we take |
@@ -55,7 +55,7 @@ The arena is a working limestone quarry at about 4 pm.
 | Sky drawn first (perf, on mesa) | Sky drawn last: `renderOrder` 1000 and z = w | 2.3 |
 | No gun lockout (design) | 0.25 s per use, 0.55 s for Bolt, through `arsenal.switching` | 4.1 |
 | Shunt can't be shot (design) | One bullet against a rewound 0.5 m cube makes it fizzle | 4.2 |
-| Pickup rate ignores player count (design) | Respawn time × max(1, 6/n) | 4.3 |
+| Pickup rate ignores player count (design) | Respawn time × min(3, max(1, 6/n)) | 4.3 |
 | No kill-share target (design) | Power-up kills ≤ 25%; PWR column and a match-end log line | 4.6 |
 | Mines invisible to rejoining tabs (art, on mesa) | Persistent `pu` state in every snapshot | 4.5 |
 | Neon's Nitro jump reaches 2.4 m pillar tops (perf) | Nitro changes speed only. Knock lift applies only to grounded players. Named tests | 4.4 |
@@ -565,7 +565,7 @@ The numbers live in `POWERS` in `shared/constants.js`.
 | **Shock** #ffb300 | Dome | **Target:** the highest-ranked living enemy by `byScore`, skipping the user. **Domes:** 3, centred at target position + target velocity × (1.2, 1.6, 2.0) s, clamped to abs(x) and abs(z) ≤ 19.4, at the target's y when cast. They strike at 1.2, 1.6 and 2.0 s. **Strike:** hits everyone except the owner within 2.5 m horizontally and −1/+2.5 m vertically: 30 damage, once per player per cast; slowed ×0.6 for 2 s; Nitro removed. **No target:** the domes land 15 m ahead along the aim | Change course: 5.5 m/s for 1.2 s covers 6.6 m. A Shield blocks the damage and the slow |
 | **Mine** #ffffff, LED #ff2a1a | Spiked disc | **Placement:** dropped at the feet (rayBox down to the surface below). Arms after 0.8 s. Lives 40 s. At most 2 per owner; dropping a third removes the oldest. **Trigger:** an enemy within 1.2 m horizontally (abs(dy) < 1.5 m) starts a 0.25 s fuse. **Blast:** 2.5 m, 60 → 15, knock 5 m/s with lift 6, × (1 − 0.4·d/r), line of sight from the blast. **Shootable:** a static 0.5 × 0.3 × 0.5 m box with 1 HP; any player's shot detonates it, credited to that shooter | The trigger ring is drawn for everyone within 12 m. Running through at 5.5 m/s carries you 1.375 m past the trigger during the fuse, so reverse to escape. Or shoot it |
 | **Nitro** #3dff8f | Double chevron | 4 s at ×1.4 run speed (7.7 m/s). Jump height unchanged at 1.0 m. Spread unchanged, because `spreadDegrees` caps the speed term at 1. Own FOV +6° | Shock removes it |
-| **Shield** #66fff0 | Hexagon | 60 hp overshield for 8 s, absorbed before HP | Two rifle body hits (80) break it. A 160 rifle headshot still kills from 100 HP + 60 |
+| **Shield** #66fff0 | Hexagon | 60 hp overshield for 8 s, absorbed before HP | Two rifle body hits (60) break it. A 160 rifle headshot still kills from 100 HP + 60 |
 
 ### 4.3 Pads on arena_01
 
@@ -586,8 +586,8 @@ Pads live in `POWER_PADS` in `shared/constants.js`, not in the map JSON, because
 | 8 | (−16, 0, −8) | Mine | 30 s | 3.40 m | 8.25 m |
 
 - **Rate with 6 or more players:** 21.5 items/min (per minute: Shunt 2, Shield 2, Shock 1.5, Barge 3, Bolt 3, Nitro 6, Mine 4). With 10 players that is 2.15 per player per minute.
-- **Scaling:** respawn ticks = base × 60 × max(1, `POWER_RATE_PLAYERS` (6) / n), where n is the number of players with a mover. This caps the rate at about 3.6 per player per minute in small games.
-- **Rotation:** after a pickup, the pad shows the next item in its pool as a hologram until it respawns. Match start resets every pad to "up" at pool index 0.
+- **Scaling:** respawn ticks = base × 60 × min(3, max(1, `POWER_RATE_PLAYERS` (6) / n)), where n is the number of players with a mover. The stretch is capped at 3× (the user's call, 15/10/2026): a 20–30 s pad refills in 60–90 s with 1 player, not 2–3 min, and the Shock pad in 120 s.
+- **Rotation:** after a pickup, the pad's refill clock fills in the next item's hue until it respawns (§4.7; the hologram is gone). Match start resets every pad to "up" at pool index 0.
 - **Ties:** when two players overlap a pad in the same tick, the first in `players` map order gets the item.
 
 ### 4.4 Authority, prediction and movement
@@ -737,13 +737,13 @@ export function knock(s, vx, vz, lift) { // horizontal impulse adds; lift only w
 | Lobby | `players[].pk` (power-up kills) |
 
 ### 4.6 Balance
-- **Gunplay unchanged:** rifle time to kill stays 205 ms (3 body hits). No single use kills from 100 HP. The maximums are Shunt direct 60, Mine centre 60, Bolt 75 (all three hits), Shock 30 and Barge 20.
+- **Gunplay:** rifle time to kill is 300 ms (4 body hits) out to about 29 m, 400 ms (5) beyond; every rifle headshot (160) kills at any range. No single use kills from 100 HP. The maximums are Shunt direct 60, Mine centre 60, Bolt 75 (all three hits), Shock 30 and Barge 20.
 - **Combos:**
-  - Shunt or Mine plus 1 rifle body hit = 100, a kill.
-  - Bolt plus 1 body hit = 115.
-  - Barge plus 2 body hits = 100, and the victim is airborne with doubled spread.
+  - Shunt or Mine plus 1 rifle body hit = 90, no kill; plus 2 = 120.
+  - Bolt plus 1 body hit = 105.
+  - Barge plus 3 body hits = 110 (2 make 80), and the victim is airborne with doubled spread.
 - **Each use costs the gun:** 0.25 s (Bolt 0.55 s), about 2.4 or 5.4 rifle rounds.
-- **Shield:** 160 effective HP. 4 body hits, or 1 headshot (160), kill.
+- **Shield:** 160 effective HP. 6 rifle body hits, or 1 headshot (160), kill.
 - **Kill-share target:** power-up kills ≤ 25%. The server logs `power-up kill share: N%` at match end, and the scoreboard shows PWR.
 - **Tuning order if over target:** respawns × 1.5, then cut Shock, then cut Bolt.
 
@@ -752,10 +752,12 @@ export function knock(s, vx, vz, lift) { // horizontal impulse adds; lift only w
 | Element | Spec | Owner |
 |---|---|---|
 | Plinth | 1.6 m disc, 0.03 m tall, #45474c with a 0.08 m #ad9862 rim; lit, instanced | powerups |
-| Pool | 1.4 m radial decal in the item hue, α 0.35 → 0, 0.005 m above the surface; 40% while respawning | powerups |
+| Pool | 1.4 m radial decal in the item hue with a light core, α 0.85 held to half the radius, 0.005 m above the surface. Only while an item is up | powerups |
 | Glyph | 0.08 m voxels on a 7 × 7 grid (0.56 m). Item hue outside, #ffffff core voxels, #15171c hull at ×1.25. Floats 1.0 m above the pad, spins 90°/s, bobs ±0.08 m at 0.5 Hz. Unlit, `toneMapped:false` | powerups |
-| Beam | Two crossed quads 0.15 m × 6 m (clear of the 3 m lane walls by 3 m). Normal blending: item-hue core at α 0.75 → 0 at the top, 0.04 m white centre line at α 0.8, 0.02 m #15171c fringes at α 0.35 | powerups |
-| Countdown | 24 cubes of 0.06 m on a 0.7 m ring, 0.05 m up; filled cubes in the item hue, empty #45474c. The beam flickers at 6 Hz for the last 3 s. Hologram of the next item: glyph at 0.6 scale, colour 60% toward #d9d4ca, pulsing at 1 Hz | powerups |
+| Rule | **A beam and a full glyph mean an item is on the pad; anything else means it is empty.** The pad's state is the server's (`pd` ready 0), never the client clock. Deviation from §1, logged 15/10/2026: the beam marks an item, not a pad | powerups |
+| Beam | Only while an item is up. Two crossed quads 0.15 m × 6 m (clear of the 3 m lane walls by 3 m). Normal blending: item-hue core at α 0.75 → 0 at the top, 0.04 m white centre line at α 0.8, 0.02 m #15171c fringes at α 0.35 | powerups |
+| Refill clock | While a pad refills: no glyph, no beam. A standing clock at glyph height (1.0 m), facing the camera by yaw: radius 0.4 m × clamp(distance / 18, 1, 1.6), a #15171c fringe, a 0.24 r band filled clockwise from 12 o'clock in the next item's hue (#45474c unfilled), and a #15171c plate at α 0.78 with the whole seconds left in a 3 × 5 voxel font, #f2efe8, never 0. It fades out from 1.6 to 0.9 m away (on the pad, the HUD chip has the number). A floor clock (band 0.22, clear centre) replaces the pool; the plinth dims to #8c919e. Last 3 s: the digits take the hue and the clock pulses ±8% at 2 Hz. A numeric timer is new to this table (deviation, 15/10/2026) | powerups |
+| Taken, up again | Taken: the glyph collapses to (1 − k)² over 150 ms, then the clock shows. Up again (visual only, on the server's edge): the beam rises 0 → 6 m over 220 ms at 2× width settling over 400 ms, the glyph springs 0 → 1.2 → 1 over 300 ms, and a 1.6 m floor ring flashes | powerups |
 | Shunt rocket | 0.25 × 0.25 × 0.6 m in the item hue with a white nose voxel and outline. Ribbon trail 0.3 m × 2.5 m in the item hue, α 0.6 → 0, with a dark fringe. Oriented along its interpolated velocity | powerups |
 | Mine | 0.5 m × 0.12 m puck #45474c with a white top ring. LED 0.06 m #ff2a1a: 1 Hz when armed, 8 Hz when fused. Trigger ring 1.2 m, dashed white at α 0.5, visible within 12 m | powerups |
 | Shock telegraph | 2.5 m floor ring #ffb300 at α 0.6, pulse rising from 2 to 8 Hz over 1.2 s, with a 0.05 × 6 m centre marker | powerups |
@@ -767,7 +769,10 @@ export function knock(s, vx, vz, lift) { // horizontal impulse adds; lift only w
 
 | Sound | Synthesis |
 |---|---|
-| Pickup | 3 sines at 0 / 40 / 80 ms with 250 ms decay. Root by item: Shunt 523 Hz, Bolt 587, Barge 659, Shock 698, Mine 784, Nitro 880, Shield 988; then a major third and a fifth above |
+| Pickup | Your own only, at your ear. 3 sines at 0 / 40 / 80 ms with 250 ms decay. Root by item: Shunt 523 Hz, Bolt 587, Barge 659, Shock 698, Mine 784, Nitro 880, Shield 988; then a major third and a fifth above |
+| Pad taken (others' pick) | Spatial at the pad, −20 dB: sine 262 Hz for 0.12 s plus noise high-passed at 3 kHz for 0.06 s at gain 0.4. Others' picks get no chime and no burst (15/10/2026) |
+| Pad empty (yours) | Dry, −17 dB: triangle 494 Hz for 0.07 s, then 370 Hz at 0.075 s for 0.09 s. Plays as you step onto a refilling pad, or when someone else takes the pad you stand on |
+| Pad full (yours) | Dry, −15 dB: two square ticks at 880 Hz, 25 ms, at 0 and 0.06 s, over a 140 Hz thud of 0.05 s. Plays as you step onto an up pad with 3 items |
 | Shunt launch | Noise band-pass sweeping 900 → 2200 Hz over 0.4 s; the flight hiss loops spatially |
 | Shunt lock (target only) | 1.6 kHz beeps, 30 ms long, 3 → 9 per second as distance closes from 40 to 0 m |
 | Bolt | Square wave 1.9 kHz → 350 Hz over 140 ms plus a noise crackle |
@@ -791,7 +796,7 @@ export function knock(s, vx, vz, lift) { // horizontal impulse adds; lift only w
 | Recoil recovery | Kick per shot as today (`WEAPONS.kick`). 120 ms after the last shot, return 70% of the kick the player has not already pulled down, with a 90 ms halflife. Acceptance: a 10-round rifle spray with no mouse input settles at 30% ± 3% of the total kick after 500 ms | feel |
 | Shake | Blasts within 8 m add trauma (1 − d/8) × 0.8, decaying 1.5 per s. Roll 1.5° × trauma² plus translation ±6 cm × trauma², with no pitch or yaw, so the aim ray never moves | feel |
 | Nitro FOV | +6°, eased in over 150 ms and out over 300 ms | feel → `render.setFovKick` |
-| Dynamic crosshair | Gap = 3 + (H/2) × tan(spread)/tan(vfov/2) px, using `spreadDegrees` on the predicted mover and the camera's vertical FOV, eased over 40 ms. At 1080p and 90° hfov: rifle 9.7 px standing, 44.9 running, 87 airborne. A shot adds a +3 px pulse for 80 ms (not spread). The shotgun adds a ring at the gap radius | hud + integrator |
+| Dynamic crosshair | Gap = 3 + (H/2) × tan(spread)/tan(vfov/2) px, using `spreadDegrees` on the predicted mover and the camera's vertical FOV, eased over 40 ms. At 1080p and 90° hfov: rifle 5.5 px standing (about 39 at full spray bloom), 44.9 running, 87 airborne. A shot adds a +3 px pulse for 80 ms (not spread). The shotgun adds a ring at the gap radius | hud + integrator |
 | Jumping | 5-tick coyote time and 6-tick jump buffer (§4.4) | powerups (shared) |
 | Viewmodel springs | §3.2 | viewmodel |
 | Gunshots | 8 ms transient at 4 kHz (band-passed noise; skipped beyond 25 m), over today's body (rifle 2200 Hz for 0.13 s, pistol 3200 Hz for 0.08 s, shotgun 900 Hz for 0.3 s). Sine thump 90 → 45 Hz over 120 ms (shotgun 70 → 35 Hz over 180 ms). Quarry slapback: one shared `DelayNode` at 180 ms, −14 dB, low-passed at 1.5 kHz | audio |
@@ -819,7 +824,7 @@ export function knock(s, vx, vz, lift) { // horizontal impulse adds; lift only w
 | Panels and text | Panel rgba(21,23,28,0.62) with a 1 px rgba(242,239,232,0.12) border. Text #f2efe8 with shadow 0 1px 2px rgba(0,0,0,0.8). Accent #d9b45a |
 | Health (bottom-left, 24 px margin) | 44 px 700 number over a 220 × 8 px bar of 10 segments with 2 px gaps in #f2efe8. At ≤ 30 HP: #ff5a4f with a 1.2 Hz pulse. Lost HP shows as a #ff5a4f ghost draining over 600 ms. A Shield adds up to 6 segments in #66fff0 (10 hp each). Status tags: NITRO #3dff8f, SLOWED #ffb300, SHIELD #66fff0, each with seconds left |
 | Ammo (bottom-right) | 44 px magazine count, 20 px dim "/ ∞", 13 px caps weapon name (letter-spacing 0.12em), 28 px conic reload ring |
-| Power-ups (bottom-centre, 24 px up) | Three 56 × 56 px slots with 8 px gaps and 32 px icons. Selected: raised 6 px with a 2 px border in the item hue, "Q" under it and "E" to the right (11 px). Empty: dashed 1 px rgba(242,239,232,0.2). Cooldown: conic wipe rgba(0,0,0,0.55) over 1 s. Bolt firing: 3 pips. Pickup toast "+ SHUNT", 16 px in the item hue, for 1 s |
+| Power-ups (bottom-centre, 24 px up) | Three 56 × 56 px slots with 8 px gaps and 32 px icons. Selected: raised 6 px with a 2 px border in the item hue, "Q" under it and "E" to the right (11 px). Empty: dashed 1 px rgba(242,239,232,0.2). Cooldown: conic wipe rgba(0,0,0,0.55) over 1 s. Bolt firing: 3 pips. Pickup toast "+ SHUNT", 16 px in the item hue, for 1 s, your own picks only. Pad cue chip (`#padcue`, 108 px up, panel with a 3 px bar in the hue): on a refilling pad, the next item's 16 px icon and "REFILLING 12s" (m:ss from a minute); on an up pad with a full inventory, "INVENTORY FULL · Q TO USE" in the accent while the slots shake for 220 ms; hidden otherwise |
 | Crosshair | 4 lines of 2 × 7 px (× xsize/4) in `xcolor`, default #f2efe8, with a 1 px #15171c outline and a 2 px centre dot. Gap from §5 |
 | Hit marker | 4 diagonal 2 × 8 px strokes, 5 px from centre. Body #ffffff, head #ff4d4d, shield #66fff0. Pops from 1.3 to 1 over 90 ms and shows for 150 ms. Kill: a 26 px #ff4d4d X for 400 ms plus "ELIMINATED [name]" (18 px 700, victim's slot colour, 60 px below centre) for 1.2 s |
 | Damage | Vignette radial-gradient(transparent 55%, #b3141f) at opacity 0.15 + 0.5 × dmg/100 (max 0.6), fading over 400 ms. Below 30 HP: 1.2 Hz pulse between 0.15 and 0.3. Damage arc: 600 ms, pointing at `sx`/`sz` for power hits |
@@ -1267,7 +1272,7 @@ Merge order:
    - `audio.kill()` when you are the killer, plus `ui.killConfirm`;
    - `ui.showDeath(killer, 3, { color, weapon: m.w, killerHp })` when you are the victim.
 8. **`pick`, `use`, `boom`:** queue them until `renderTick ≥ m.tick`, except your own. Then:
-   - `pick`: `effects.pickupBurst`, `audio.power(k, 'pick')`, and `ui.powerToast` if it is yours;
+   - `pick`: yours plays `effects.pickupBurst`, `audio.power(k, 'pick')` and `ui.powerToast`; someone else's plays only `audio.power('pad', 'taken')` at the pad;
    - `use`: `audio.power(k, 'use')`;
    - `boom`: `effects.blast(k, pos, r)`, `audio.power(k, r ? 'boom' : 'fizzle')`, `feel.addTrauma` within 8 m. Skip your own Barge boom.
 9. **`fixedStep`:**

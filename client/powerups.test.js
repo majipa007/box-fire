@@ -125,3 +125,124 @@ test('a Shock ring lies on the floor under a dome cast at a jumping target', () 
   assert.equal(rings.length, 1);
   assert.ok(Math.abs(rings[0] - 0.01) < 1e-6, `ring at y ${rings[0]}`);
 });
+
+// ---- Pads: what the server says, never the client's clock (spec §2). ----
+const CAM = { position: { x: 0, y: 1.6, z: 3 } };
+const padSnapshot = (ready) => ({ tick: 2e5, pu: { pd: PADS.map((p, i) => [0, ready[i] ?? 0, 0]), en: [] } });
+
+// Beam quads standing on pad i, from the beam mesh as drawn this frame.
+function beamsOn(i) {
+  const beams = pu.powerupsGroup.children[4];
+  const a = beams.instanceMatrix.array;
+  const [x, , z] = PADS[i].pos;
+  let n = 0;
+  for (let b = 0; b < (beams.visible ? beams.count : 0); b++) if (Math.hypot(a[b * 16 + 12] - x, a[b * 16 + 14] - z) < 0.1) n++;
+  return n;
+}
+
+test('a pad the server still calls refilling has no beam, though our clock says its time is up', () => {
+  pu.setMap({ boxes: [], pads: PADS });
+  pu.onSnapshot(padSnapshot([1])); // pad 0 refilling, due at tick 1: long past
+  pu.updatePowerups(clock, 2e5, CAM);
+  assert.equal(pu.padStates()[0].up, false);
+  assert.equal(beamsOn(0), 0);
+  assert.equal(beamsOn(1), 2); // an up pad keeps its two crossed quads
+});
+
+// ---- Picks: yours chime and toast; someone else's is a quiet "taken". ----
+const toastEl = { textContent: '', style: {}, getAnimations: () => [], animate: () => ({}) };
+globalThis.document.getElementById = (id) => (id === 'toast' ? toastEl : null);
+const ME = 101;
+
+test('another player\'s pick plays the quiet taken sound, never your chime or toast', () => {
+  pu.setMap({ boxes: [], pads: PADS });
+  pu.onSnapshot(padSnapshot([]));
+  const { own, other } = pu.cues;
+  pu.onEvent({ t: 'event', e: 'pick', id: 202, pad: 1, k: 'shield', tick: 2e5 }, ME);
+  pu.updatePowerups(clock, 2e5, CAM); // others' picks wait for the render tick
+  assert.equal(pu.cues.other, other + 1);
+  assert.equal(pu.cues.own, own);
+  assert.equal(toastEl.textContent, '');
+});
+
+test('your own pick plays the chime and the toast at once', () => {
+  const { own, other } = pu.cues;
+  pu.onEvent({ t: 'event', e: 'pick', id: ME, pad: 0, k: 'shunt', tick: 2e5 }, ME);
+  assert.equal(pu.cues.own, own + 1);
+  assert.equal(pu.cues.other, other);
+  assert.equal(toastEl.textContent, '+ SHUNT');
+});
+
+// ---- The pad cue: every pickup attempt gets an answer (spec §2). ----
+const { createPowers } = await import('../shared/powerups.js');
+function standOn(i, inv = []) {
+  const [x, y, z] = PADS[i].pos;
+  Object.assign(net.self, { alive: true, mover: { x, y, z, crouch: false }, pw: { ...createPowers(), inv } });
+}
+
+test('standing on a refilling pad gives "refill", with the next item and its sound once', () => {
+  pu.setMap({ boxes: [], pads: PADS });
+  pu.onSnapshot(padSnapshot([3e5])); // pad 0 refilling
+  standOn(0);
+  const { empty } = pu.cues;
+  pu.updatePowerups(clock, 2e5, CAM);
+  pu.updatePowerups(clock + STEP, 2e5, CAM);
+  assert.equal(pu.padCue().state, 'refill');
+  assert.equal(pu.padCue().kind, PADS[0].pool[0]);
+  assert.equal(pu.cues.empty, empty + 1);
+  standOn(1); // an up pad, room in the inventory: the server hands it over, no cue
+  pu.updatePowerups(clock + 2 * STEP, 2e5, CAM);
+  assert.equal(pu.padCue().state, '');
+});
+
+test('standing on an up pad with a full inventory gives "full", its sound once', () => {
+  pu.onSnapshot(padSnapshot([]));
+  standOn(1, ['shunt', 'bolt', 'mine']);
+  const { full } = pu.cues;
+  pu.updatePowerups(clock, 2e5, CAM);
+  pu.updatePowerups(clock + STEP, 2e5, CAM);
+  assert.equal(pu.padCue().state, 'full');
+  assert.equal(pu.cues.full, full + 1);
+  net.self.pw.inv.pop(); // used one: there is room, so the server hands it over
+  pu.updatePowerups(clock + 2 * STEP, 2e5, CAM);
+  assert.equal(pu.padCue().state, '');
+});
+
+// The server grabs for you on the tick the pad refills, so its snapshots
+// never say "up": the pad goes from refilling straight to refilling again.
+for (const order of ['pick, then snapshot', 'snapshot, then pick']) {
+  test(`standing through a refill: after your grab, no "refill" again (${order})`, () => {
+    pu.setMap({ boxes: [], pads: PADS });
+    pu.onSnapshot(padSnapshot([1])); // refilling, and our clock already says it's due
+    standOn(0);
+    pu.updatePowerups(clock, 2e5, CAM);
+    assert.equal(pu.padCue().state, 'refill');
+    assert.equal(pu.padCue().secs, 1); // overdue by our clock: the chip reads 1s, never 0 or less
+    const { empty, own } = pu.cues;
+    const pick = () => pu.onEvent({ t: 'event', e: 'pick', id: ME, pad: 0, k: PADS[0].pool[0], tick: 2e5 }, ME);
+    const refilled = () => pu.onSnapshot(padSnapshot([3e5])); // the next refill, never a 0 between
+    if (order.startsWith('pick')) { pick(); refilled(); } else { refilled(); pick(); }
+    net.self.pw.inv.push(PADS[0].pool[0]);
+    for (let k = 1; k <= 3; k++) pu.updatePowerups(clock + k * STEP, 2e5, CAM);
+    assert.equal(pu.cues.own, own + 1);
+    assert.equal(pu.padCue().state, '');
+    assert.equal(pu.cues.empty, empty);
+  });
+}
+
+// Someone else's grab lands first on the pad you just stepped onto: you now
+// stand on an empty pad, and the chip is the only clock you can see there.
+for (const [label, inv] of [['room', []], ['a full inventory', ['shunt', 'bolt', 'mine']]]) {
+  test(`stepping onto an up pad with ${label}, then someone else grabs it: "refill"`, () => {
+    pu.setMap({ boxes: [], pads: PADS });
+    pu.onSnapshot(padSnapshot([]));
+    standOn(0, inv);
+    pu.updatePowerups(clock, 2e5, CAM);
+    const { empty } = pu.cues;
+    pu.onEvent({ t: 'event', e: 'pick', id: 202, pad: 0, k: PADS[0].pool[0], tick: 2e5 }, ME);
+    pu.onSnapshot(padSnapshot([3e5]));
+    for (let k = 1; k <= 3; k++) pu.updatePowerups(clock + k * STEP, 2e5, CAM);
+    assert.equal(pu.padCue().state, 'refill');
+    assert.equal(pu.cues.empty, empty + 1);
+  });
+}

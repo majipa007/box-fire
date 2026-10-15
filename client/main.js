@@ -16,7 +16,7 @@ import { prepareMap } from '../shared/collision.js';
 import { initCharacters, setShadows as rigShadows } from './characters.js'; // characters: map, sun and camera; the shadows setting
 import { SUN_DIR } from './world.js'; // characters: for the shadows-off fallback
 import { Vector3 } from 'three';
-import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf, hitboxes } from '../shared/weapons.js'; // effects: hitboxes
+import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf, hitboxes, shotHeat } from '../shared/weapons.js'; // effects: hitboxes; weapons: shotHeat
 import { shotRng } from '../shared/rng.js';
 import { WEAPONS } from '../shared/constants.js'; // hud: reload progress
 import * as characters from './characters.js'; // hud: nameTags()
@@ -92,7 +92,7 @@ const net = connect({
     powerups.onEvent(m, myId); // powerups: pickups, uses, blasts
     if (m.e === 'blast') blastShake(m, myId, self.alive && self.mover); // feel: blasts near us shake the camera ('boom' shakes from powerups' queued play())
     audio.event(m, myId, heard); // audio: the engine's pickups, uses and blasts (client/powerups.js plays the bible's)
-    if ((m.e === 'pickup' || m.e === 'pick') && m.id === myId) ui.powerToast(m.k); // hud:
+    if (m.e === 'pickup' && m.id === myId) ui.powerToast(m.k); // hud: (powerups: client/powerups.js toasts the bible's 'pick')
     if (m.e === 'spawn' && m.id === myId) {
       Object.assign(self, freshLife(m.x, m.y, m.z, m.primary)); // exactly as the server builds it
       self.pending = [];
@@ -241,7 +241,7 @@ function ownShot(inp) {
   const origin = eyeOf(self.mover);
   const targets = shotTargets(); // effects: in their slot colours
   const muzzle = muzzleWorld(render.camera, ownMuzzle).toArray(); // where the drawn gun's muzzle shows
-  const dirs = shotDirs(inp.yaw, inp.pitch, weaponOf(self.arsenal), self.mover, shotRng(seed, myId, self.shots)); // effects: named, for the count
+  const dirs = shotDirs(inp.yaw, inp.pitch, weaponOf(self.arsenal), self.mover, shotRng(seed, myId, self.shots), shotHeat(self.arsenal)); // effects: named, for the count; weapons: the bloomed cone, as the server rolls it
   const ends = []; // audio: world hits only; the host confirms player hits
   const all = []; // effects: every pellet's end
   for (const dir of dirs) {
@@ -451,7 +451,7 @@ function frame(now) {
   if (me) {
     const a = Math.min(1, Math.max(0, (now - stepStart) / STEP_MS - steps)); // between the last two steps
     eye = lerp(eye, me.crouch ? EYE_CROUCH : EYE_STAND, Math.min(1, frameMs / 60)); // ease, don't snap
-    const v = updateFeel(frameMs, now, input.look, self.alive && lobby.phase === 'playing' ? me : null, weaponOf(self.arsenal), spraying(self.arsenal)); // feel:
+    const v = updateFeel(frameMs, now, input.look, self.alive && lobby.phase === 'playing' ? me : null, weaponOf(self.arsenal), spraying(self.arsenal), self.arsenal.heat); // feel:; weapons: the real heat for the crosshair
     render.setView(lerp(prev.x, me.x, a) + v.x, lerp(prev.y, me.y, a) + eye + v.y, lerp(prev.z, me.z, a) + v.z, input.look.yaw, input.look.pitch, v.roll); // feel: offsets, roll
     render.setFovKick(v.fov); // feel: Nitro widens the view
     // feel: the crosshair gap for the HUD, as --spread (CSS px) on #hud.

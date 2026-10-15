@@ -48,17 +48,26 @@ export const PITCH_LIMIT = (89 * Math.PI) / 180; // look no further up or down t
 // spread in degrees standing still and moving at run speed, and the
 // client-only camera kick: degrees per shot, plus extra per shot of a
 // spray, climbing for 8 shots.
+// weapons: falloff scales damage from full at `from` m down to `min` at `to`
+// m and beyond. headDmg, when set, replaces head × dmg: every headshot does
+// it flat, at any range, mid-spray too. bloom: degrees of extra spread per
+// unit of spray heat (+1 a shot, -HEAT_COOL a second whatever is held, capped at bloomMax / bloom).
 export const WEAPONS = {
-  pistol: { dmg: 26, head: 3, rps: 6.75, auto: false, mag: 12, reload: 1.75, spreadStand: 0.3, spreadMove: 1.5, kick: [0.9, 0] },
-  rifle: { dmg: 40, head: 4, rps: 9.75, auto: true, mag: 25, reload: 2.5, spreadStand: 0.4, spreadMove: 2.5, kick: [0.3, 0.12] },
-  // Pellet damage falls from full at 8 m to a quarter at 20 m and beyond.
+  pistol: { dmg: 26, head: 3, rps: 6.75, auto: false, mag: 12, reload: 1.75, spreadStand: 0.3, spreadMove: 1.5, kick: [0.9, 0], falloff: { from: 25, to: 40, min: 0.75 } },
+  rifle: {
+    dmg: 30, head: 3, headDmg: 160, rps: 9.75, auto: true, mag: 25, reload: 2.5, spreadStand: 0.15, spreadMove: 2.5, kick: [0.3, 0.12], falloff: { from: 20, to: 30, min: 0.8 },
+    bloom: 0.25, bloomMax: 2,
+  },
+  // 12 × 10 = 120: a full blast kills 100 HP, not a Shield's 160 (weapons:).
+  // Pellet damage falls from full at 8 m to a fifth at 18 m and beyond.
   shotgun: {
-    dmg: 8, head: 2, rps: 1.1, auto: false, mag: 5, reload: 0.5, perShell: true,
-    spreadStand: 4, spreadMove: 4, pellets: 12, falloff: { from: 8, to: 20, min: 0.25 }, kick: [2.5, 0],
+    dmg: 10, head: 2, rps: 1.1, auto: false, mag: 5, reload: 0.5, perShell: true,
+    spreadStand: 3.5, spreadMove: 3.5, pellets: 12, falloff: { from: 8, to: 18, min: 0.2 }, kick: [2.5, 0],
   },
 };
 export const PRIMARIES = ['rifle', 'shotgun'];
 export const SWITCH_SECONDS = 0.4;
+export const HEAT_COOL = 4; // spray heat lost per second, whatever is held
 export const SPREAD_AIR_FACTOR = 2; // airborne spread: times the moving value
 export const SPREAD_CROUCH_FACTOR = 0.8; // crouched spread: times the standing value
 // Camera kick: a spray is shots less than KICK_SPRAY_GAP_MS apart; the climb
