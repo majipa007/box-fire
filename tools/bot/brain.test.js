@@ -51,3 +51,14 @@ test('a bot fights a foe it can see, and never one behind a wall or behind its b
   think(behind.bot, budget());
   assert.notEqual(behind.bot.goal.kind, 'fight');
 });
+
+test('a hurt bot takes cover from a foe it can see, at a spot that foe cannot see', () => {
+  // Beside the end of the wall at x = -8, a foe 10 m off in the open.
+  const foe = [-2, 0, -12];
+  assert.ok(clearLine([-7, 1.6, -3], [-2, 1, -12], boxes), 'fixture: the line is clear');
+  const { bot } = situation({ at: [-7, 0, -3], yaw: yawTo(5, -9), hp: 30, foes: [[2, ...foe, ALIVE]] });
+  think(bot, budget());
+  assert.equal(bot.goal.kind, 'cover');
+  const [x, y, z] = bot.goal.pos;
+  assert.ok(!clearLine([foe[0], foe[1] + 1.6, foe[2]], [x, y + 1, z], boxes), `the foe can see ${x.toFixed(1)}, ${z.toFixed(1)}`);
+});

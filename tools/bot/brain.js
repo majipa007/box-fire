@@ -141,7 +141,8 @@ function choose(bot, m, ars) {
     if (target !== null) offer({ kind: 'fight', id: target, s: shootable > 1 ? 0.8 : 0.9 });
     const hpShare = bot.me.hp / MAX_HP;
     // Hurt, or the primary empty: break line of sight.
-    if (bot.nvis && (hpShare < 0.4 || (ars.slot === 0 && ars.mags[0] === 0))) offer({ kind: 'cover', s: 1.2 - 0.5 * hpShare, pos: coverSpot(bot, m) ?? [m.x, m.y, m.z] });
+    const spot = bot.nvis && (hpShare < 0.4 || (ars.slot === 0 && ars.mags[0] === 0)) ? coverSpot(bot, m) : null;
+    if (spot) offer({ kind: 'cover', s: 1.2 - 0.5 * hpShare, pos: spot });
     let lost = null;
     for (const mem of bot.mem.values()) if (t - mem.tick > 20 && (!lost || mem.tick > lost.tick)) lost = mem;
     if (lost) offer({ kind: 'hunt', s: 0.6 * (1 - (t - lost.tick) / (sk.memory * TICK_RATE)), pos: [lost.x, lost.y, lost.z] });
