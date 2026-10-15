@@ -33,24 +33,39 @@ test('ideal range: a sidearm fights at 12 m, falloff guns at 0.6 of where fallof
 // play adds perception latency on top, so here only the top of each band
 // binds; the live run checks the bottom.
 const ENGAGE = { easy: [0.6, 0.9], normal: [0.3, 0.6], hard: [0.2, 0.3] };
+// Median s from a foe appearing (anywhere in view, or dead ahead) to the
+// bot being on target and ready to fire, over 300 seeded trials.
+function readyTimes(sk, rand, anywhere) {
+  const eye = [0, 1.6, 0], chest = [0, 1, -20];
+  const ready = [];
+  for (let n = 0; n < 300; n++) {
+    const a = createAim(anywhere ? (rand() * 2 - 1) * (sk.fov / 2) * (Math.PI / 180) : 0, 0);
+    acquire(a, sk, rand);
+    for (let t = 1; t <= 180; t++) {
+      if (stepAim(a, sk, DT, eye, chest, 0, rand)) { ready.push(t * DT); break; }
+    }
+  }
+  return ready;
+}
 
 test('a bot never fires before its reaction time, then is on target within its skill band', () => {
   const rand = shotRng(7, 0, 0);
-  const eye = [0, 1.6, 0], chest = [0, 1, -20];
   for (const [skill, [lo, hi]] of Object.entries(ENGAGE)) {
-    const sk = SKILLS[skill];
-    const ready = [];
-    for (let n = 0; n < 300; n++) {
-      const a = createAim((rand() * 2 - 1) * (sk.fov / 2) * (Math.PI / 180), 0); // the foe appears anywhere in view
-      acquire(a, sk, rand);
-      for (let t = 1; t <= 180; t++) {
-        if (stepAim(a, sk, DT, eye, chest, 0, rand)) { ready.push(t * DT); break; }
-      }
-    }
+    const sk = SKILLS[skill], ready = readyTimes(sk, rand, true);
     assert.ok(Math.min(...ready) >= sk.react - 1e-9, `${skill} fired at ${Math.min(...ready)} s, before reacting`);
     const m = median(ready);
     assert.ok(m <= hi, `${skill}: median ${m.toFixed(2)} s, want at most ${hi} s (live: ${lo}-${hi} s)`);
   }
+});
+
+// Dead ahead, turning costs nothing and reaction alone sets the time. Each
+// skill must be at least 0.1 s slower than the one above it (the narrowest
+// gap between the bands' lower edges: normal 0.3, hard 0.2), less 2 ticks.
+test('to a foe dead ahead, each skill reacts at least 0.1 s slower than the skill above it', () => {
+  const rand = shotRng(8, 0, 0), gap = 0.1 - 2 / 60;
+  const [easy, normal, hard] = ['easy', 'normal', 'hard'].map((k) => median(readyTimes(SKILLS[k], rand, false)));
+  assert.ok(easy - normal >= gap, `easy ${easy.toFixed(2)} s reacts like normal ${normal.toFixed(2)} s`);
+  assert.ok(normal - hard >= gap, `normal ${normal.toFixed(2)} s reacts like hard ${hard.toFixed(2)} s`);
 });
 
 // A bot with the rifle against a target strafing left and right (0.25-0.8 s
