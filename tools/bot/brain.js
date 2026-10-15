@@ -210,7 +210,7 @@ export function think(bot, budget) {
     if (bot.target !== g.id) { bot.target = g.id; acquire(a, sk, rand); }
     const dx = tgt.x - m.x, dz = tgt.z - m.z, d = Math.hypot(dx, dz) || 1, ux = dx / d, uz = dz / d;
     stepAim(a, sk, DT, eye, seenPoint(bot, g.id, tgt), Math.hypot(m.vx, m.vz) / RUN_SPEED, rand);
-    if (!tgt.prot && !bot.passive) inp.fire = shouldFire(a, sk, w, bot.tick, spreadDegrees(wname, m, ars.heat ?? 0));
+    if (!tgt.prot && !bot.passive) inp.fire = shouldFire(a, sk, w, bot.tick, spreadDegrees(wname, m, ars.heat), ars.heat);
     // The pistol when the primary is empty up close, or when a close-range
     // primary cannot reach; back to the primary once in its range.
     const primary = WEAPONS[ars.primary], range0 = idealRange(primary, false);

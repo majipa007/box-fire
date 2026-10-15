@@ -14,11 +14,13 @@ export const idealRange = (w, sidearm) => (sidearm ? 12 : w.falloff ? 0.6 * w.fa
 // grows with own speed), turn (deg/s), head (chance of aiming at the head),
 // stopToShoot (chance per target of standing still to shoot), tapRate
 // (clicks/s), duty (share of each 0.5 s an auto gun fires), hear (m), fov
-// (deg, full angle), notice (m: seen behind it this close), memory (s).
+// (deg, full angle), notice (m: seen behind it this close), memory (s),
+// bloom (the spray bloom it lets build, as a share of the target's size,
+// before it lets the gun cool: easy sprays, hard taps at range).
 export const SKILLS = {
-  easy: { react: 0.45, lag: 0.22, lead: 0.2, flick: 6, settle: 0.4, wobble: 0.8, turn: 260, head: 0.03, stopToShoot: 0, tapRate: 4, duty: 0.6, hear: 18, fov: 100, notice: 3, memory: 3 },
-  normal: { react: 0.3, lag: 0.17, lead: 0.4, flick: 4.5, settle: 0.3, wobble: 0.55, turn: 420, head: 0.12, stopToShoot: 0.2, tapRate: 5, duty: 0.8, hear: 25, fov: 120, notice: 5, memory: 6 },
-  hard: { react: 0.2, lag: 0.14, lead: 0.6, flick: 3, settle: 0.22, wobble: 0.45, turn: 720, head: 0.15, stopToShoot: 0.9, tapRate: 6, duty: 1.0, hear: 32, fov: 140, notice: 7, memory: 9 },
+  easy: { react: 0.45, lag: 0.22, lead: 0.2, flick: 6, settle: 0.4, wobble: 0.8, turn: 260, head: 0.03, stopToShoot: 0, tapRate: 4, duty: 0.6, hear: 18, fov: 100, notice: 3, memory: 3, bloom: Infinity },
+  normal: { react: 0.3, lag: 0.15, lead: 0.4, flick: 3.5, settle: 0.25, wobble: 0.55, turn: 420, head: 0.12, stopToShoot: 0.2, tapRate: 5, duty: 0.8, hear: 25, fov: 120, notice: 5, memory: 6, bloom: 0.67 },
+  hard: { react: 0.2, lag: 0.14, lead: 0.6, flick: 3, settle: 0.22, wobble: 0.45, turn: 720, head: 0.15, stopToShoot: 0.9, tapRate: 6, duty: 1.0, hear: 32, fov: 140, notice: 7, memory: 9, bloom: 0.15 },
 };
 
 const D2R = Math.PI / 180;
@@ -73,12 +75,14 @@ export const standsToShoot = (a, w) => (a.steady || roleOf(w) === 'precision') &
 
 // Pull the trigger this tick? Only when on target. A bot standing to shoot
 // a single-bullet gun also waits for the gun's current spread (deg) to fit
-// the target. Auto guns fire `duty` of each half second; semi-auto guns
+// the target, and any bot lets a blooming gun cool once its spray heat
+// passes the skill's bloom. Auto guns fire `duty` of each half second; semi-auto guns
 // click at the slower of the skill's tap rate and the gun's fire rate, and
 // never on two ticks in a row (the trigger must come up between shots).
-export function shouldFire(a, sk, w, tick, spread) {
+export function shouldFire(a, sk, w, tick, spread, heat = 0) {
   if (!a.ready) return false;
   if ((w.pellets ?? 1) === 1 && standsToShoot(a, w) && spread > a.tol) return false;
+  if ((w.bloom ?? 0) * heat > sk.bloom * a.tol) return false;
   if (w.auto) return tick % 30 < 30 * sk.duty;
   if (tick < a.click) return false;
   a.click = tick + Math.max(2, Math.round(TICK_RATE / Math.min(sk.tapRate, w.rps)));

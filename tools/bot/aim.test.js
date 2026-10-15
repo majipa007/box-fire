@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { WEAPONS, DT, RUN_SPEED } from '../../shared/constants.js';
 import { shotRng } from '../../shared/rng.js';
 import { createMover, step, KEY } from '../../shared/movement.js';
-import { createArsenal, stepWeapon, eyeOf, spreadDegrees, shotDirs, traceShot } from '../../shared/weapons.js';
+import { createArsenal, stepWeapon, eyeOf, spreadDegrees, shotDirs, traceShot, shotHeat } from '../../shared/weapons.js';
 import { roleOf, idealRange, SKILLS, createAim, acquire, stepAim, shouldFire, standsToShoot } from './aim.js';
 
 const median = (xs) => xs.sort((a, b) => a - b)[xs.length >> 1];
@@ -75,10 +75,10 @@ function duel(sk, dist, rand) {
     const seen = [x + vx * sk.lead * sk.lag, y + (a.head ? 1.65 : 1.0), z + vz * sk.lead * sk.lag];
     step(me, { keys: standsToShoot(a, WEAPONS.rifle) ? 0 : Math.floor(t / 40) % 2 ? KEY.LEFT : KEY.RIGHT, yaw: a.yaw }, floor);
     stepAim(a, sk, DT, eyeOf(me), seen, Math.hypot(me.vx, me.vz) / RUN_SPEED, rand);
-    const fire = shouldFire(a, sk, WEAPONS.rifle, t, spreadDegrees('rifle', me, ars.heat ?? 0));
+    const fire = shouldFire(a, sk, WEAPONS.rifle, t, spreadDegrees('rifle', me, ars.heat), ars.heat);
     if (stepWeapon(ars, { fire, slot: 0, keys: 0 })) {
       shots++;
-      const [d] = shotDirs(a.yaw, a.pitch, 'rifle', me, shotRng(1, 1, shots), Math.max(0, (ars.heat ?? 1) - 1)); // heat before this shot, once guns have it
+      const [d] = shotDirs(a.yaw, a.pitch, 'rifle', me, shotRng(1, 1, shots), shotHeat(ars));
       if (traceShot(eyeOf(me), d, floor, [{ id: 2, ...tg }]).id !== null) hits++;
     }
   }
