@@ -309,3 +309,100 @@ test('the output clipper leaves normal levels alone and never reaches -1 dBFS', 
   assert.ok(at(1) > 0.75 && at(range) > 0.88, 'loud peaks still read as loud');
   for (let i = 1; i < n; i++) assert.ok(curve[i] >= curve[i - 1], 'monotonic');
 });
+
+// ---- arsenal: every gun's own sound, from the recipe in its gun file ----
+import { GUNS, GUN_IDS, baseGun } from '../shared/guns/index.js';
+import { gunSound } from './audio.js';
+
+test('every gun plays its own recipe, from its gun file; others borrow, and nothing reaches the transient', () => {
+  for (const id of GUN_IDS) {
+    assert.equal(gunSound(id), `gun.${id}`, id);
+    assert.equal(SOUNDS[`gun.${id}`].layers, GUNS[id].sound.layers, `${id}: the recipe lives in shared/guns/${id}.js`);
+  }
+  assert.equal(gunSound('bolt'), 'gun.bolt');
+  for (const odd of ['transient', '__proto__', 'nope', undefined]) assert.equal(gunSound(odd), 'gun.rifle', String(odd));
+});
+
+test('no gun sounds like the launch gun it used to borrow', () => {
+  for (const id of GUN_IDS.filter((g) => baseGun(g) !== g)) {
+    assert.notDeepEqual(render(`gun.${id}`).subarray(0, ms(80)), render(`gun.${baseGun(id)}`).subarray(0, ms(80)), id);
+  }
+});
+
+// Character, as relations between renders. win: the 10 ms RMS around sample i.
+const win = (a, i) => rms(a, Math.max(0, i - ms(5)), Math.min(a.length, i + ms(5)));
+const peakWin = (a, to = a.length) => { let p = 0; for (let i = 0; i < to; i += 48) p = Math.max(p, win(a, i)); return p; };
+// Seconds until the sound is last within 30 dB of its loudest 10 ms.
+const ring = (a) => { const floor = peakWin(a) / 31.6; let last = 0; for (let i = 0; i < a.length; i += 48) if (win(a, i) > floor) last = i; return last / FS; };
+// Share of the first `to` samples' energy under about 150 Hz (two one-pole lowpasses).
+const lowShare = (a, to) => {
+  const k = 1 - Math.exp((-2 * Math.PI * 150) / FS);
+  let y1 = 0, y2 = 0, lo = 0, all = 0;
+  for (let i = 0; i < to; i++) { y1 += k * (a[i] - y1); y2 += k * (y1 - y2); lo += y2 * y2; all += a[i] * a[i]; }
+  return lo / all;
+};
+const gun = (id) => render(`gun.${id}`);
+
+test('a spray rattles: every auto and burst round dies 20 dB down before the next one', () => {
+  for (const id of GUN_IDS.filter((g) => GUNS[g].mode !== 'semi')) {
+    const s = gun(id);
+    const next = 1 / (GUNS[id].burst?.rps ?? GUNS[id].rps);
+    const drop = 20 * Math.log10(win(s, Math.round(next * FS)) / peakWin(s, ms(30)));
+    assert.ok(drop <= -20, `${id}: ${drop.toFixed(1)} dB at the next round, ${Math.round(next * 1000)} ms on`);
+  }
+});
+
+test('the Sledge booms: deeper, with a longer low end, than the Rivet', () => {
+  assert.ok(lowShare(gun('handcannon'), ms(150)) > lowShare(gun('pistol'), ms(150)) * 1.2, 'more low end');
+  assert.ok(brightness(gun('handcannon'), ms(60)) < brightness(gun('pistol'), ms(60)), 'darker');
+  assert.ok(ring(gun('handcannon')) > ring(gun('pistol')) * 1.5, `rings ${ring(gun('handcannon'))} s vs ${ring(gun('pistol'))} s`);
+  assert.ok(GUNS.handcannon.sound.level > GUNS.pistol.sound.level, 'louder');
+});
+
+test('the Nailer and the Grinder are light: brighter and shorter than their launch guns', () => {
+  for (const [light, base] of [['machinepistol', 'pistol'], ['smg', 'rifle'], ['machinepistol', 'smg']]) {
+    assert.ok(brightness(gun(light), ms(40)) > brightness(gun(base), ms(40)), `${light} brighter than ${base}`);
+    assert.ok(ring(gun(light)) < ring(gun(base)), `${light} shorter than ${base}: ${ring(gun(light))} vs ${ring(gun(base))}`);
+    assert.ok(lowShare(gun(light), ms(60)) < lowShare(gun(base), ms(60)), `${light} lighter than ${base}`);
+  }
+});
+
+test('the Piledriver is heavier than the Mason: darker, more low end, louder', () => {
+  assert.ok(brightness(gun('lmg'), ms(60)) < brightness(gun('rifle'), ms(60)), 'darker');
+  assert.ok(lowShare(gun('lmg'), ms(100)) > lowShare(gun('rifle'), ms(100)), 'more low end');
+  assert.ok(GUNS.lmg.sound.level > GUNS.rifle.sound.level, 'louder');
+});
+
+test('the Surveyor cracks, then rolls on; the Plumb sits between it and the Mason', () => {
+  const crack = (id) => brightness(gun(id), ms(10));
+  const late = (id) => { const s = gun(id); return rms(s, ms(250), Math.min(s.length, ms(900))) / rms(s, 0, ms(30)); };
+  assert.ok(crack('sniper') > crack('rifle'), 'a sharper crack');
+  assert.ok(late('sniper') > late('marksman') * 2 && late('marksman') > late('rifle') * 2, `tails: sniper ${late('sniper')}, marksman ${late('marksman')}, rifle ${late('rifle')}`);
+  assert.ok(ring(gun('sniper')) > 0.6, `the Surveyor rings ${ring(gun('sniper'))} s`);
+  assert.ok(GUNS.sniper.sound.level >= GUNS.marksman.sound.level && GUNS.marksman.sound.level > GUNS.rifle.sound.level, 'loudest to quietest');
+});
+
+test('the Ratchet is crisp: brighter and shorter than the Mason, so three rounds a click stay three', () => {
+  assert.ok(brightness(gun('burst'), ms(40)) > brightness(gun('rifle'), ms(40)));
+  assert.ok(ring(gun('burst')) < ring(gun('rifle')));
+});
+
+import { cadence, casingDelay } from './audio.js';
+
+test('the soundboard fires each gun at its real cadence: sprays at their rate, three-round bursts, a slow bolt', () => {
+  const gaps = (t) => t.slice(1).map((v, i) => +(v - t[i]).toFixed(4));
+  const burst = cadence('burst', 1);
+  const [g1, g2, g3] = gaps(burst); // the sim's steps are 1/60 s, so a gap can land a step early
+  assert.ok(g1 <= 0.05 + 1e-3 && g2 <= 0.05 + 1e-3 && g3 >= 0.25 - 1 / 60, `three at 20/s, then the delay: ${[g1, g2, g3]}`);
+  assert.equal(burst[0], 0);
+  const lmg = cadence('lmg', 1);
+  near(lmg.length, GUNS.lmg.rps, 0.11, 'Piledriver rounds a second');
+  near(cadence('machinepistol', 1).length, GUNS.machinepistol.rps, 0.07, 'Nailer rounds a second');
+  assert.ok(gaps(cadence('sniper', 2.5)).every((g) => Math.abs(g - 0.75) < 0.02), 'a 0.75 s bolt, give or take a step');
+});
+
+test('brass: a revolver keeps it, a pump or bolt drops it when the action opens, the rest at once', () => {
+  assert.equal(casingDelay('handcannon'), null);
+  for (const id of ['shotgun', 'sniper']) assert.ok(casingDelay(id) > CASING_DELAY + 0.3, id);
+  for (const id of ['rifle', 'pistol', 'smg', 'lmg', 'burst', 'marksman', 'machinepistol', 'bolt-or-unknown']) assert.equal(casingDelay(id), CASING_DELAY, id);
+});
