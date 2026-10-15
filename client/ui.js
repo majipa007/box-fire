@@ -504,6 +504,33 @@ export function powerToast(kind) {
   flash(el, [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none', offset: 0.15 }, { opacity: 1, offset: 0.75 }, { opacity: 0, transform: 'translateY(-6px)' }], LOOK.toastMs);
 }
 
+// powerups: the pad cue chip. state '' hides it; 'refill' shows the next
+// item and "REFILLING 12s" (m:ss from a minute); 'full' "INVENTORY FULL ·
+// Q TO USE". Called every frame; the DOM is written only on a change.
+const lastCue = { state: '', kind: '', secs: -1, use: '' };
+export function padCue(state, kind, secs) {
+  const el = $('padcue');
+  if (!live() || !el) return;
+  const useCode = keys.use ?? keys.usePowerup ?? 'KeyQ';
+  if (state === lastCue.state && kind === lastCue.kind && secs === lastCue.secs && useCode === lastCue.use) return;
+  Object.assign(lastCue, { state, kind, secs, use: useCode });
+  el.hidden = !state;
+  el.classList.toggle('full', state === 'full');
+  if (state === 'refill') {
+    setIcon(el.firstChild, kind);
+    el.style.setProperty('--c', ITEM_COLORS[kind] ?? '');
+    el.lastChild.textContent = `REFILLING ${secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`}`;
+  } else if (state === 'full') el.lastChild.textContent = `INVENTORY FULL · ${keyName(useCode).toUpperCase()} TO USE`;
+}
+
+// powerups: the slots shake when a pad turns you away for a full inventory.
+export function padShake() {
+  const el = $('powers');
+  if (!live() || !el) return;
+  const x = (px) => ({ translate: `calc(${px} * var(--u)) 0` });
+  flash(el, [x(0), x(-7), x(6), x(-4), x(2), x(0)], 220);
+}
+
 // ---- Name tags: tags from characters.nameTags(), [{ id, name, color, x, y, alpha }]. ----
 let tagEls = null;
 export function renderNameTags(tags) {
@@ -783,5 +810,7 @@ function startDemo() {
     if (DEMO !== 'death') killConfirm('bot2', PLAYER_COLORS[1]);
     damageArc(-2.2);
     powerToast('shunt');
+    if (DEMO === 'demo') padCue('refill', 'shunt', 12); // powerups:
+    if (DEMO === 'full') padCue('full', '', 0); // powerups:
   });
 }
