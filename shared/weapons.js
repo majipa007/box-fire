@@ -41,7 +41,7 @@ export const aimDir = (yaw, pitch) => [-Math.sin(yaw) * Math.cos(pitch), Math.si
 // spray's bloom for the heat the shot fires with.
 export function spreadDegrees(weapon, m, heat = 0) {
   const w = WEAPONS[weapon];
-  const bloom = (w.bloom ?? 0) * heat;
+  const bloom = Math.min(w.bloomMax ?? 0, (w.bloom ?? 0) * heat);
   if (!m.grounded) return SPREAD_AIR_FACTOR * w.spreadMove + bloom;
   if (m.crouch) return SPREAD_CROUCH_FACTOR * w.spreadStand + bloom;
   const t = Math.min(1, Math.hypot(m.vx, m.vz) / RUN_SPEED);

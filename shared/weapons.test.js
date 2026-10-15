@@ -255,6 +255,7 @@ test('heat blooms the rifle cone by 0.25° each, standing, crouched, running or 
   assert.ok(close(spreadDegrees('rifle', mover(5.5), 4), 3.5));
   assert.ok(close(spreadDegrees('rifle', mover(0, { grounded: false }), 4), 6));
   assert.ok(close(spreadDegrees('shotgun', mover(0), 4), 3.5), 'no bloom on the shotgun');
+  assert.ok(close(spreadDegrees('rifle', mover(0), 9), 2.15), 'bloom tops out at 2°, even at the stored heat cap the crosshair reads');
   const m = mover(0);
   const aim = aimDir(0, 0);
   let widest = 0;
