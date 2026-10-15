@@ -58,12 +58,14 @@ test('a bot never fires before its reaction time, then is on target within its s
   }
 });
 
-// Dead ahead, turning costs nothing and reaction alone sets the time. Each
-// skill must be at least 0.1 s slower than the one above it (the narrowest
-// gap between the bands' lower edges: normal 0.3, hard 0.2), less 2 ticks.
+// Dead ahead, turning costs nothing, and the quickest tenth of trials (the
+// ones whose flick needed no settling) show the reaction alone. Each skill
+// must be at least 0.1 s slower than the one above it (the narrowest gap
+// between the bands' lower edges: normal 0.3, hard 0.2), less 2 ticks.
+const p10 = (xs) => xs.sort((a, b) => a - b)[Math.floor(xs.length / 10)];
 test('to a foe dead ahead, each skill reacts at least 0.1 s slower than the skill above it', () => {
   const rand = shotRng(8, 0, 0), gap = 0.1 - 2 / 60;
-  const [easy, normal, hard] = ['easy', 'normal', 'hard'].map((k) => median(readyTimes(SKILLS[k], rand, false)));
+  const [easy, normal, hard] = ['easy', 'normal', 'hard'].map((k) => p10(readyTimes(SKILLS[k], rand, false)));
   assert.ok(easy - normal >= gap, `easy ${easy.toFixed(2)} s reacts like normal ${normal.toFixed(2)} s`);
   assert.ok(normal - hard >= gap, `normal ${normal.toFixed(2)} s reacts like hard ${hard.toFixed(2)} s`);
 });
