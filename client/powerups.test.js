@@ -148,3 +148,27 @@ test('a pad the server still calls refilling has no beam, though our clock says 
   assert.equal(beamsOn(0), 0);
   assert.equal(beamsOn(1), 2); // an up pad keeps its two crossed quads
 });
+
+// ---- Picks: yours chime and toast; someone else's is a quiet "taken". ----
+const toastEl = { textContent: '', style: {}, getAnimations: () => [], animate: () => ({}) };
+globalThis.document.getElementById = (id) => (id === 'toast' ? toastEl : null);
+const ME = 101;
+
+test('another player\'s pick plays the quiet taken sound, never your chime or toast', () => {
+  pu.setMap({ boxes: [], pads: PADS });
+  pu.onSnapshot(padSnapshot([]));
+  const { own, other } = pu.cues;
+  pu.onEvent({ t: 'event', e: 'pick', id: 202, pad: 1, k: 'shield', tick: 2e5 }, ME);
+  pu.updatePowerups(clock, 2e5, CAM); // others' picks wait for the render tick
+  assert.equal(pu.cues.other, other + 1);
+  assert.equal(pu.cues.own, own);
+  assert.equal(toastEl.textContent, '');
+});
+
+test('your own pick plays the chime and the toast at once', () => {
+  const { own, other } = pu.cues;
+  pu.onEvent({ t: 'event', e: 'pick', id: ME, pad: 0, k: 'shunt', tick: 2e5 }, ME);
+  assert.equal(pu.cues.own, own + 1);
+  assert.equal(pu.cues.other, other);
+  assert.equal(toastEl.textContent, '+ SHUNT');
+});

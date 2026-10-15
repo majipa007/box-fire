@@ -409,15 +409,27 @@ function ownerOf(eid) {
   return null;
 }
 
+// What the pads have played, for the smokes: your chime, others' taken
+// sound, the empty pad and the full inventory. Counters only.
+export const cues = { own: 0, other: 0, empty: 0, full: 0 };
+
 function play(m) {
   if (m.e === 'pick') {
     const p = pads[m.pad];
     if (!p) return;
+    // Only your own pick gets the burst, the chime and the toast; someone
+    // else's is the glyph's collapse and a quiet "taken" where it happened.
+    if (m.id !== myId) {
+      cues.other++;
+      sound('pad', 'taken', p.x, p.z);
+      return;
+    }
+    cues.own++;
     const at = [p.x, p.y + LOOK.glyph.hover, p.z];
     if (fx.pickupBurst) fx.pickupBurst(at, POWER_COLORS[m.k]);
     else burst(at, HUE[m.k], 1, 10, 2);
-    sound(m.k, 'pick', p.x, p.z);
-    if (m.id === myId) ui.powerToast?.(m.k);
+    audio.power?.(m.k, 'pick'); // at your ear, not at the pad
+    ui.powerToast?.(m.k);
   } else if (m.e === 'use') {
     sound(m.k, 'use', m.x, m.z);
   } else {
@@ -806,7 +818,7 @@ function demo(now, rt) {
   if (FREEZE) {
     const ms = +FREEZE[1];
     pads[2].ready = ms < 0 ? left(-ms / 1000) : 0;
-    pads[2].popT0 = now - ms;
+    pads[2].popT0 = pads[2].ringAt = now - ms; // no ring: it would restart every frame
     pads[2].takenT0 = -1e9;
   }
   pads[7].ready = left(110); // 3 digits, as a 1-player Shock pad shows (40 s x 3)
