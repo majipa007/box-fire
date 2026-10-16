@@ -59,7 +59,7 @@ const LOOK = {
   shatter: { voxel: 0.15, hideMs: 1000 },
 };
 
-// The body (bible §3.1): 26 lit boxes and an unlit visor. Each part is a box
+// The body (bible §3.1): 23 lit boxes, the gun's 2 to 4 and an unlit visor. Each part is a box
 // `size` [w, h, d] centred `at` [x, y, z] in its bone's frame. Limb bones sit
 // on their upper joint with +y back up the limb, so limb parts hang below
 // them; the head bone sits on the neck; foot bones sit on the ankle, ANKLE
@@ -196,7 +196,7 @@ const parts = PARTS.map((p, i) => ({
 const lit = parts.filter((p) => !p.unlit);
 const perRig = (keep) => parts.filter((p) => keep(p) && !p.weapon).length
   + Math.max(...Object.keys(GUNS).map((w) => parts.filter((p) => keep(p) && p.weapon === w).length));
-const LIT_PER_RIG = perRig((p) => !p.unlit); // 26
+const LIT_PER_RIG = perRig((p) => !p.unlit); // 27: the body and the biggest gun
 const HULL_PER_RIG = perRig((p) => p.outline); // 16
 const UNLIT_PER_RIG = perRig((p) => p.unlit) + LOOK.sparks.count; // visor + sparks
 const RIGS = MAX_PLAYERS;
