@@ -4,7 +4,7 @@
 // DOM when a value changes.
 import { PLAYER_COLORS, NAME_MAX, PRIMARIES, SECONDARIES, POWER_COLORS, WEAPONS, KILL_TARGET } from '../shared/constants.js'; // arsenal: SECONDARIES
 import { byScore } from '../shared/protocol.js';
-import { baseGun } from '../shared/guns/index.js'; // arsenal: icon fallback
+import { GUNS, GUN_IDS, baseGun } from '../shared/guns/index.js'; // arsenal: each gun file's icon
 
 // ---- Look: timings and the few colours CSS can't own. ----
 const LOOK = {
@@ -86,6 +86,7 @@ export function initMenu({ onPlay, onChange }) {
   }
   showControls();
   $('play').addEventListener('click', onPlay);
+  resume = onPlay; // arsenal: closing the loadout panel plays on
 }
 
 // Key rebinding. bindings is input.js's action → KeyboardEvent.code map;
@@ -95,7 +96,7 @@ export function initMenu({ onPlay, onChange }) {
 const ACTION_NAMES = {
   forward: 'Move forward', back: 'Move back', left: 'Strafe left', right: 'Strafe right',
   jump: 'Jump', walk: 'Walk', crouch: 'Crouch', reload: 'Reload',
-  primary: 'Primary weapon', pistol: 'Pistol', picker: 'Pick primary', scoreboard: 'Scoreboard',
+  primary: 'Primary weapon', pistol: 'Sidearm', picker: 'Loadout', scoreboard: 'Scoreboard', // arsenal: the sidearm slot, the loadout panel
   usePowerup: 'Use power-up', cyclePowerup: 'Next power-up', use: 'Use power-up', cycle: 'Next power-up',
   aim: 'Aim / scope', // arsenal
 };
@@ -187,6 +188,9 @@ const spikes = Array.from({ length: 16 }, (_, i) => {
   const r = i % 2 ? 7.2 : 11;
   return `${(12 + r * Math.cos(a)).toFixed(2)} ${(12 + r * Math.sin(a)).toFixed(2)}`;
 }).join(' L');
+// arsenal: a gun still at icon: null (docs/guns.md, step 2) wears the launch
+// gun nearest its class, so a new gun never breaks the HUD.
+const drawnIcon = (id) => (GUNS[id].icon?.d ? GUNS[id].icon : GUNS[baseGun(id)].icon ?? {});
 export const ICONS = {
   shunt: svg('0 0 24 24', path('M12 1.5 L20.5 21.5 L12 16.5 L3.5 21.5 Z')),
   bolt: svg('0 0 24 24', path('M14.5 1 L4 13.5 H10.8 L8.8 23 L20 9.5 H13.4 Z')),
@@ -196,18 +200,17 @@ export const ICONS = {
   nitro: svg('0 0 24 24', path('M1.5 3 H6.5 L13 12 L6.5 21 H1.5 L8 12 Z M10.5 3 H15.5 L22 12 L15.5 21 H10.5 L17 12 Z')),
   shield: svg('0 0 24 24', `${path('M12 1.5 L21.1 6.75 V17.25 L12 22.5 L2.9 17.25 V6.75 Z')}<path d="M12 6 L17 8.9 V12 L12 9.1 L7 12 V8.9 Z" fill="#ffffff" fill-opacity="0.55" stroke="none"/>`),
   repair: svg('0 0 24 24', path('M9 2 H15 V9 H22 V15 H15 V22 H9 V15 H2 V9 H9 Z')),
-  rifle: svg('0 0 48 16', path('M1 4 H10 V3 H13 V1.5 H18 V3 H28 V5 H40 V6 H47 V8 H40 V9 H28 V10 H23 L24.5 15 H20 L18.5 10 H15.5 L16 14 H12.5 L12 10 H10 V12 H1 Z')),
-  pistol: svg('0 0 24 16', path('M2 3 H22.5 V8 H10.5 L10 9.5 H9.5 L8 15 H3 L4.5 8 H2 Z')),
-  shotgun: svg('0 0 48 16', path('M1 5 L10 4 H47 V7 H37 V10 H27 V9 H16 L16.5 13.5 H12.5 L12 9 H10 L1 12 Z')),
+  // arsenal: every gun's silhouette comes from its own file (shared/guns, icon: { w, h, d }).
+  ...Object.fromEntries(GUN_IDS.map((id) => { const { w, h, d } = drawnIcon(id); return [id, d ? svg(`0 0 ${w} ${h}`, path(d)) : '']; })),
   // A helmet in profile, facing right, with a crack through the shell.
   head: svg('0 0 22 18', `${path('M2 16 V9.5 C2 4.5 5.5 1.5 10.5 1.5 C15.5 1.5 18.5 4.5 19 9 L21 11.5 V13.5 H14 V16 Z')}<path d="M9.5 2 L7.6 6 L10.4 8.2 L8.6 12.5" fill="none" style="stroke-width:1.8px;paint-order:normal"/>`),
 };
 const CROWN = svg('0 0 20 14', '<path d="M1 3.5 L6 8 L10 1 L14 8 L19 3.5 L17 13 H3 Z" fill="#d9b45a"/>');
 const CHEVRON = svg('0 0 18 18', '<path d="M9 1.5 L16.5 15 L9 11 L1.5 15 Z" fill="#ff2a1a" stroke="#15171c" stroke-width="1.5" paint-order="stroke"/>');
-const ASPECT = { rifle: '3', shotgun: '3', pistol: '1.5', head: '1.22' }; // width / height of the viewBox; the rest are square
+// width / height of the viewBox; power-up glyphs are square.
+const ASPECT = { head: '1.22', ...Object.fromEntries(GUN_IDS.map((id) => { const { w = 1, h = 1 } = drawnIcon(id); return [id, String(w / h)]; })) };
 
 function setIcon(el, kind, color) {
-  if (!ICONS[kind]) kind = baseGun(kind); // arsenal: a gun with no icon yet shows its class's launch gun
   el.innerHTML = ICONS[kind] ?? '';
   el.style.aspectRatio = ASPECT[kind] ?? '1';
   el.style.color = ITEM_COLORS[kind] ?? color ?? '';
@@ -233,14 +236,33 @@ function setText(id, text) {
   shown[id] = text;
   $(id).textContent = text;
 }
-const last = { hp: -1, weapon: '', mag: -1, maxMag: -1, reload: -1, reloading: null, low: null, shield: -1, ring: null, gap: -1, clock: -1, rank: -1, of: -1, leader: null, leaderKills: -1 };
+const last = { hp: -1, weapon: '', mag: -1, maxMag: -1, reload: -1, reloading: null, low: null, shield: -1, ring: null, scope: '', gap: -1, clock: -1, rank: -1, of: -1, leader: null, leaderKills: -1 };
 const tagLast = { nitro: -1, slowed: -1, shield: -1 }; // tenths of a second shown, -1 hidden
 const NONE = {};
 
-// extra: { maxMag, reloadFrac (0 → 1), shield (hp), shieldSeconds, nitro and slowed (seconds left) }
+// arsenal: the fire mode the ammo panel names: a burst gun's burst, else nothing.
+export const fireMode = (id) => (WEAPONS[id]?.mode === 'burst' ? `BURST ×${WEAPONS[id].burst.count}` : '');
+
+// arsenal: the scope overlay's zoom label once a scoped gun is all the way in
+// (share 1, when the gun leaves the screen), else null. fov is the player's.
+const tanHalf = (deg) => Math.tan((deg * Math.PI) / 360);
+export function scopeOverlay(id, share, fov) {
+  const s = WEAPONS[id]?.scope;
+  return s && share >= 1 ? `${(tanHalf(fov) / tanHalf(s.fov)).toFixed(1)}×` : null;
+}
+
+// extra: { maxMag, reloadFrac (0 → 1), shield (hp), shieldSeconds, nitro and slowed (seconds left),
+// scope (arsenal: 0 → 1, scopeShare: how far in a scoped gun is) }
 export function updateHud(hp, weapon, mag, reloading, extra = NONE) {
   if (!live()) return;
-  const { maxMag = WEAPONS[weapon]?.mag ?? 0, reloadFrac = 0, shield = 0, shieldSeconds = 0, nitro = 0, slowed = 0 } = extra;
+  const { maxMag = WEAPONS[weapon]?.mag ?? 0, reloadFrac = 0, shield = 0, shieldSeconds = 0, nitro = 0, slowed = 0, scope = 0 } = extra;
+  const scopeKey = scope >= 1 ? weapon : ''; // arsenal: no string is built unless this changes
+  if (scopeKey !== last.scope) {
+    const zoom = scopeOverlay(weapon, scope, settings.fov);
+    $('hud').classList.toggle('scoped', !!zoom);
+    if (zoom) $('scope-zoom').textContent = zoom;
+    last.scope = scopeKey;
+  }
   if (hp !== last.hp) {
     $('hp').textContent = hp;
     $('hp-fill').style.transform = `scaleX(${Math.max(0, hp) / 100})`;
@@ -269,12 +291,16 @@ export function updateHud(hp, weapon, mag, reloading, extra = NONE) {
   if (weapon !== last.weapon) {
     $('wname').textContent = WEAPONS[weapon]?.name ?? weapon; // arsenal: the gun's own name
     setIcon($('wicon'), weapon);
+    const mode = fireMode(weapon); // arsenal
+    $('wmode').textContent = mode;
+    $('wmode').hidden = !mode;
     last.weapon = weapon;
     const ring = weapon === 'shotgun';
     if (ring !== last.ring) $('crosshair').classList.toggle('ring', (last.ring = ring));
   }
   if (mag !== last.mag || maxMag !== last.maxMag || reloading !== last.reloading) {
     $('mag').textContent = mag;
+    if (maxMag !== last.maxMag) $('ammo').style.setProperty('--digits', String(maxMag).length); // arsenal: the Piledriver's 75 counts down without the panel twitching
     $('ammo').classList.toggle('reloading', reloading);
     $('ammo').classList.toggle('low', !reloading && mag <= Math.ceil(maxMag / 4));
     last.mag = mag;
@@ -399,22 +425,123 @@ export function hideDeath() {
   $('death').hidden = true;
 }
 
-// The primary picker: B toggles it, the respawn screen shows it.
-// arsenal: a row of primaries, then a row of sidearms, numbered 1..9, 0 in
-// PICKS order (input.js maps the digit keys to the same list while it is open).
+// arsenal: a loadout card's four bars, 0..1 against the roster. Damage is
+// per shot with every pellet (square-rooted, so the light guns still show);
+// rate the sustained rps; range where the falloff is halfway (RANGE_M with
+// none) over the tightest cone; mobility the pace, and the pace while firing.
+const RANGE_M = 50;
+const shotDmg = (g) => g.dmg * (g.pellets ?? 1);
+const TOP = { dmg: Math.max(...GUN_IDS.map((id) => shotDmg(GUNS[id]))), rps: Math.max(...GUN_IDS.map((id) => GUNS[id].rps)) };
+export function gunStats(id) {
+  const g = GUNS[id];
+  const reach = g.falloff ? (g.falloff.from + g.falloff.to) / 2 : RANGE_M;
+  const pace = (g.speed ?? 1) * (1 - (1 - (g.fireSpeed ?? 1)) / 4);
+  return {
+    damage: Math.sqrt(shotDmg(g) / TOP.dmg),
+    rate: g.rps / TOP.rps,
+    range: Math.min(1, reach / RANGE_M) / (1 + (g.scope?.spread ?? g.spreadStand)),
+    mobility: Math.min(1, Math.max(0.05, (pace - 0.7) / 0.3)),
+  };
+}
+
+// The loadout panel: B toggles it, the respawn screen shows it.
+// arsenal: a row of primary cards over a row of sidearm cards, numbered
+// 1..9, 0 in PICKS order (input.js maps the digit keys to the same list
+// while the pointer is locked; ui.js does once B has freed the cursor).
 export const PICKS = [...PRIMARIES, ...SECONDARIES];
+const ROWS = [PRIMARIES, SECONDARIES];
+const CLASS_NAMES = { pistol: 'Pistol', handcannon: 'Hand cannon', machinepistol: 'Machine pistol', rifle: 'Rifle', shotgun: 'Shotgun', smg: 'SMG', burst: 'Burst rifle', lmg: 'LMG', marksman: 'Marksman', sniper: 'Sniper' };
+const MODE_NAMES = { semi: 'Semi', auto: 'Auto', burst: 'Burst' };
+const STAT_NAMES = [['damage', 'DMG'], ['rate', 'RATE'], ['range', 'RANGE'], ['mobility', 'MOVE']];
+const make = (tag, className, text = '') => Object.assign(document.createElement(tag), { className, textContent: text });
+let resume = null; // the menu's play action: takes the pointer back when the panel closes
+
 export function initPicker(onPick) {
+  // main closes the panel after a pick while alive; it stays up for the other row until B, Esc or Done.
+  const pick = (id) => {
+    const keep = pickerOpen();
+    onPick(id);
+    if (keep) showPicker(true);
+  };
   PICKS.forEach((id, i) => {
-    const b = Object.assign(document.createElement('button'), { id: `pick-${id}`, type: 'button', textContent: `${(i + 1) % 10} · ${WEAPONS[id].name}` });
-    b.addEventListener('click', () => onPick(id));
-    $(`pick-${WEAPONS[id].slot}`).append(b);
+    const g = WEAPONS[id];
+    const card = Object.assign(make('button', 'gcard'), { id: `pick-${id}`, type: 'button' });
+    const top = make('span', 'gc-top');
+    top.append(make('span', 'key', (i + 1) % 10), make('span', 'gc-mode', MODE_NAMES[g.mode]));
+    const stats = make('span', 'gc-stats');
+    const v = gunStats(id);
+    for (const [k, label] of STAT_NAMES) {
+      const bar = make('span', 'gc-bar');
+      bar.append(make('i', ''));
+      bar.firstChild.style.transform = `scaleX(${Math.max(0.06, v[k]).toFixed(3)})`; // the slowest gun still shows a sliver
+      stats.append(make('span', 'gc-label', label), bar);
+    }
+    card.append(top, icon(id), make('span', 'gc-name', g.name), make('span', 'gc-class', CLASS_NAMES[g.class]), stats);
+    card.addEventListener('click', () => pick(id));
+    $(`pick-${g.slot}`).append(card);
   });
+  $('pick-done').addEventListener('click', () => closePicker(true));
+  // With the cursor free the keys are ours: digits pick, arrows walk the cards (Enter
+  // and Space press them), B closes and plays on, Esc closes to the pause menu.
+  // Capture phase: this runs before input.js, so the B that opens the panel (and may
+  // drop the lock at once) is not read again here as the B that closes it.
+  addEventListener('keydown', (e) => {
+    if (!pickerOpen() || document.pointerLockElement || e.repeat) return; // locked: input.js has the keys
+    const digit = /^Digit(\d)$/.exec(e.code)?.[1];
+    const step = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] }[e.code];
+    if (digit) {
+      const id = PICKS[(Number(digit) + 9) % 10];
+      if (id) pick(id);
+      $(`pick-${id}`)?.focus();
+    } else if (step) {
+      e.preventDefault();
+      moveFocus(...step);
+    } else if (e.code === (keys.picker ?? 'KeyB')) closePicker(true);
+    else if (e.code === 'Escape') closePicker(false);
+  }, true);
+  markChosen();
+}
+
+function moveFocus(dr, dc) {
+  const at = document.activeElement?.id?.replace(/^pick-/, '');
+  let r = Math.max(0, ROWS.findIndex((row) => row.includes(at)));
+  let c = Math.max(0, ROWS[r].indexOf(at));
+  r = Math.min(ROWS.length - 1, Math.max(0, r + dr));
+  c = Math.min(ROWS[r].length - 1, Math.max(0, c + dc));
+  $(`pick-${ROWS[r][c]}`).focus();
+}
+
+// The chosen card in each row, and the summary: both guns and the close key.
+function markChosen() {
+  for (const id of PICKS) {
+    const card = $(`pick-${id}`);
+    if (!card) continue;
+    const on = settings[WEAPONS[id].slot] === id;
+    card.classList.toggle('chosen', on);
+    card.setAttribute('aria-pressed', on);
+  }
+  const gun = (id) => [icon(id), make('b', '', WEAPONS[id]?.name ?? id)];
+  $('pick-summary').replaceChildren(...gun(settings.primary), make('span', 'plus', '+'), ...gun(settings.secondary));
+  $('pick-bkey').textContent = keyName(keys.picker ?? 'KeyB');
+}
+
+function closePicker(play) {
+  showPicker(false);
+  if (play && !document.pointerLockElement) resume?.(); // B and Done are clicks and keys, so the lock may be taken again
 }
 
 export function showPicker(open) {
   if (!live()) return;
   $('picker').hidden = !open;
-  for (const id of PICKS) $(`pick-${id}`)?.classList.toggle('chosen', settings[WEAPONS[id].slot] === id); // arsenal
+  if (!open) return;
+  markChosen();
+  // B mid-match frees the cursor for the cards, like a buy menu (the pause menu waits
+  // underneath, see the CSS). The respawn screen keeps the lock: the digits still
+  // pick there, and the next life starts aimed.
+  if ($('death').hidden && document.pointerLockElement) {
+    document.exitPointerLock();
+    $(`pick-${settings.primary}`)?.focus({ preventScroll: true });
+  }
 }
 
 export const pickerOpen = () => !$('picker').hidden;
@@ -804,11 +931,10 @@ const DEMO_BOARD = [
 function startDemo() {
   const run = (fn) => { demoing = true; try { fn(); } finally { demoing = false; } };
   run(() => {
-    if (DEMO === 'death') {
-      showDeath('bot4', 3, { color: PLAYER_COLORS[3], weapon: 'rifle', killerHp: 64 });
-      showPicker(true);
-    }
-    updateHud(64, 'rifle', 17, false, { maxMag: 25, shield: 30, shieldSeconds: 5.2, nitro: 2.6 });
+    if (DEMO === 'death') showDeath('bot4', 3, { color: PLAYER_COLORS[3], weapon: 'sniper', killerHp: 64 }); // arsenal: the respawn screen
+    if (DEMO === 'death' || DEMO === 'picker') showPicker(true); // arsenal: hud=picker, the panel on B
+    const [gun, mag] = { feed: ['burst', 14], picker: ['lmg', 68], scope: ['sniper', 4] }[DEMO] ?? ['rifle', 17]; // arsenal: a burst's mode, the belt, the scope
+    updateHud(64, gun, mag, false, { maxMag: WEAPONS[gun].mag, shield: 30, shieldSeconds: 5.2, nitro: 2.6, scope: DEMO === 'scope' ? 1 : 0 }); // arsenal: hud=scope, all the way in
     updatePowers({ inv: ['shunt', 'bolt', 'shield'], sel: 1, cd: 24, bolts: 0 });
     updateMatchInfo(287, { name: 'bot4', kills: 17, slot: 3 }, { rank: 3, of: 8 });
     renderNameTags([
@@ -818,9 +944,13 @@ function startDemo() {
     ]);
     if (DEMO !== 'death') threat({ shock: 1.2, shunts: [1.35, -0.9] }); // keeps the death card clear
     renderScoreboard(DEMO_BOARD, 3, null);
-    const feed = [
-      ['bot1', 'bot4', 'rifle', true, false, 0, 3], ['Tester', 'bot2', 'shunt', false, true, 2, 1], ['bot6', 'bot5', 'shotgun', false, false, 5, 4],
-      ['bot5', 'Tester', 'mine', false, true, 4, 2], ['bot2', 'bot1', 'pistol', true, false, 1, 0],
+    // arsenal: ?debug&hud=feed shows the five guns the demo feed leaves out.
+    const feed = DEMO === 'feed' ? [
+      ['bot1', 'bot4', 'marksman', true, false, 0, 3], ['Tester', 'bot2', 'burst', false, true, 2, 1], ['bot6', 'bot5', 'machinepistol', false, false, 5, 4],
+      ['bot5', 'Tester', 'rifle', false, true, 4, 2], ['bot2', 'bot1', 'smg', false, false, 1, 0],
+    ] : [
+      ['bot1', 'bot4', 'sniper', true, false, 0, 3], ['Tester', 'bot2', 'shunt', false, true, 2, 1], ['bot6', 'bot5', 'lmg', false, false, 5, 4],
+      ['bot5', 'Tester', 'handcannon', true, true, 4, 2], ['bot2', 'bot1', 'shotgun', false, false, 1, 0],
     ];
     $('killfeed').classList.add('demo'); // rows stay
     for (const [k, v, w, h, mine, kc, vc] of feed) addKill(k, v, w, h, mine, { killer: PLAYER_COLORS[kc], victim: PLAYER_COLORS[vc] });

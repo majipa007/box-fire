@@ -17,5 +17,5 @@ export default {
     boltBack: { src: 'noise', mode: 'bp', f: 1800, q: 2, at: 0.45, a: 0.002, d: 0.02, g: 0.14 },
     boltFwd: { src: 'noise', mode: 'bp', f: 2700, q: 2.5, at: 0.62, a: 0.001, d: 0.014, g: 0.17 },
   } },
-  icon: null, // hud workstream: the SVG path
+  icon: { w: 56, h: 16, d: 'M1 5 L14 5.5 V6 H32 V6.8 H52 V6 H55 V9 H52 V8.3 H32 V9.5 H26 V12 H22.5 V9.5 H20 L18.5 14 H15.5 L16.5 9.5 H14 L1 12 Z M14 1.5 H18 V2.5 H28 V1 H34 V5 H28 V4.5 H27.5 V6.5 H26 V4.5 H21 V6.5 H19.5 V4.5 H18 V5 H14 Z M29.5 9 H31 L32.5 11.8 H30.8 Z' }, // hud workstream: the kill-feed silhouette, facing right
 };

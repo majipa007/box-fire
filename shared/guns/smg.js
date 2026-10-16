@@ -12,5 +12,5 @@ export default {
     tail: { src: 'noise', mode: 'lp', f: 2600, f1: 550, glide: 0.05, a: 0.004, d: 0.035, g: 0.2 },
     bolt: { src: 'noise', mode: 'bp', f: 3400, q: 3, at: 0.03, a: 0.0004, d: 0.004, g: 0.16 },
   } },
-  icon: null, // hud workstream: the SVG path
+  icon: { w: 40, h: 16, d: 'M1 4 H9 V3 H29 V5 H39 V7.5 H29 V9 H21 V15.5 H17 V9 H14.5 L13 14.5 H9.5 L11 9 H5 V7 H1 Z' }, // hud workstream: the kill-feed silhouette, facing right
 };

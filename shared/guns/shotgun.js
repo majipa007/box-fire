@@ -12,5 +12,5 @@ export default {
     pumpBack: { src: 'noise', mode: 'bp', f: 1700, q: 2, at: 0.42, a: 0.002, d: 0.022, g: 0.16 },
     pumpFwd: { src: 'noise', mode: 'bp', f: 2600, q: 2.5, at: 0.55, a: 0.001, d: 0.016, g: 0.2 },
   } },
-  icon: null, // hud workstream: the SVG path
+  icon: { w: 48, h: 16, d: 'M1 5 L10 4 H47 V7 H37 V10 H27 V9 H16 L16.5 13.5 H12.5 L12 9 H10 L1 12 Z' }, // hud workstream: the kill-feed silhouette, facing right
 };

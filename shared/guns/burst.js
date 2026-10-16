@@ -13,5 +13,5 @@ export default {
     tail: { src: 'noise', mode: 'lp', f: 2400, f1: 500, glide: 0.04, a: 0.003, d: 0.025, g: 0.2 },
     ratchet: { src: 'noise', mode: 'bp', f: 3600, q: 4, at: 0.028, a: 0.0003, d: 0.003, g: 0.14 },
   } },
-  icon: null, // hud workstream: the SVG path
+  icon: { w: 48, h: 16, d: 'M1 4 H12 V2 H26 V4 H38 V5.5 H47 V7.5 H38 V9 H30 V10 H22 L21 15 H17.5 L18 10 H11 V14 H6.5 V10 H1 Z' }, // hud workstream: the kill-feed silhouette, facing right
 };
