@@ -248,6 +248,41 @@ async function suite() {
     });
     return { share: inside / n, low };
   }
+  // How much of some boxes the player actually sees: the share of points on
+  // their faces (a 3 × 3 grid on each) whose line of sight from the eye meets
+  // one of those boxes first, so arms, hands or the gun in front count against it.
+  const sight = new THREE.Raycaster();
+  const eye = new THREE.Vector3();
+  const mid = new THREE.Vector3();
+  const faceCorners = Array.from({ length: 24 }, () => new THREE.Vector3());
+  const point = new THREE.Vector3();
+  function seen(weapon, pick) {
+    const mesh = rig(weapon);
+    const boxes = vm.MODELS[weapon].boxes;
+    vm.viewScene.updateMatrixWorld(true);
+    mesh.boundingSphere = mesh.boundingBox = null; // the skinned bounds move with the bones
+    vm.viewCamera.getWorldPosition(eye);
+    const pos = mesh.geometry.attributes.position;
+    let n = 0;
+    let shown = 0;
+    boxes.forEach((b, k) => {
+      if (!pick(b)) return;
+      mid.set(0, 0, 0);
+      faceCorners.forEach((v, i) => mid.add(mesh.applyBoneTransform(k * 24 + i, v.fromBufferAttribute(pos, k * 24 + i)).applyMatrix4(mesh.matrixWorld)));
+      mid.divideScalar(24);
+      for (let f = 0; f < 6; f++) {
+        const [a, b1, c, d] = faceCorners.slice(f * 4, f * 4 + 4); // (u, v) = (0, 1), (1, 1), (0, 0), (1, 0)
+        for (const u of [0.2, 0.5, 0.8]) for (const v of [0.2, 0.5, 0.8]) {
+          n++;
+          point.copy(c).lerp(d, u).lerp(corner.copy(a).lerp(b1, u), v).lerp(mid, 0.05);
+          sight.set(eye, corner.copy(point).sub(eye).normalize());
+          const hit = sight.intersectObject(mesh, false)[0];
+          if (hit && pick(boxes[Math.floor(hit.face.a / 24)]) && Math.abs(corner.copy(point).project(vm.viewCamera).x) <= 1 && Math.abs(corner.y) <= 1) shown++;
+        }
+      }
+    });
+    return n ? shown / n : 0;
+  }
   // The power-up slots at 1280 × 720: x 560–720, y 630–705, in NDC.
   const underHud = (c) => c.some((v, i) => i % 2 === 0 && Math.abs(v) < 0.125 && c[i + 1] < 1 - (2 * 630) / 720 && c[i + 1] > 1 - (2 * 705) / 720);
   const oldMag = (b) => b.part === 'part';
@@ -266,6 +301,8 @@ async function suite() {
       let clear = Infinity; // px at 720p from the crosshair to the nearest corner of the gun
       let dropped = false;
       let seats = 0;
+      const looks = []; // how much of the new magazine shows on its way up
+      const sampleAt = [0.38, 0.425, 0.47, 0.515, 0.56];
       self.arsenal.reload = w.reload;
       while (self.arsenal.reload > 0) {
         const wasOld = onScreen(weapon, oldMag);
@@ -295,7 +332,11 @@ async function suite() {
           assert.equal(held.share, 1, `${t}: the new magazine is on screen`);
           assert.ok(!underHud(heldCorners), `${t}: and clear of the HUD`);
         }
+        if (t >= sampleAt[looks.length]) looks.push(seen(weapon, newMag));
       }
+      // As much in sight as the Mason's (0.27): neither glove, sleeve nor gun hides it.
+      const shown = looks.reduce((a, b) => a + b, 0) / looks.length;
+      assert.ok(looks.length === sampleAt.length && shown >= 0.15, `the new magazine is in sight on its way up (${looks.map((v) => v.toFixed(2)).join(' ')})`);
       assert.ok(dropped, 'the old magazine drops in view first');
       assert.ok(clear > 40, `the gun keeps clear of the crosshair (${clear.toFixed(0)} px)`);
       assert.equal(seats, 1, 'one seat');

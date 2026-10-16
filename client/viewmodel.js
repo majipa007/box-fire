@@ -168,13 +168,19 @@ const handgunArms = () => [
 // seats it at 0.6 (the click); a slap at `slap` (the left hand's pivot
 // offset) at 0.76. `extra` adds tracks (a bolt, a feed cover).
 // `lift` brings a long magazine up higher; `drop` scales its first fall, for
-// a magazine near the camera.
-function magReload(seat, tilt, slap, { lift = 0, drop = 1, ...extra } = {}) {
+// a magazine near the camera; `approach` is where the hand is, from the
+// seat, at 0.34 and 0.5, for a well the right fist would hide.
+const APPROACH = [[0.075, -0.08, 0], [0.025, -0.03, 0]];
+// From ahead and to the left, the open side, for a well close to the grip:
+// from the usual side the right fist stands between the eye and the magazine.
+const OPEN_SIDE = [[-0.06, -0.08, -0.1], [-0.03, -0.03, -0.05]];
+function magReload(seat, tilt, slap, { lift = 0, drop = 1, approach = APPROACH, ...extra } = {}) {
   const at = (d, ...rot) => [...add(seat, d), ...rot];
+  const near = approach.map((d) => add(d, [0, lift, 0]));
   return {
     gun: [[0], [0.14, ...tilt], [0.72, ...tilt], [0.76, ...add(tilt, [0, -0.008, 0.016, 0.05, 0, 3 * DEG])], [0.8, ...tilt], [0.94]],
     part: [[0.14], [0.2, 0.02 * drop, -0.15 * drop, 0.01, 0.3 * drop, 0, 0.2 * drop], [0.27, 0.1, -0.8, 0.03, 0.8, 0, 0.5], [0.6]],
-    left: [[0.1], [0.18, ...at([-0.005, -0.13, -0.06], 0.2)], [0.27, ...at([0.095, -0.63, -0.01], 0.3)], [0.34, ...at([0.075, lift - 0.08, 0])], [0.5, ...at([0.025, lift - 0.03, 0])],
+    left: [[0.1], [0.18, ...at([-0.005, -0.13, -0.06], 0.2)], [0.27, ...at([0.095, -0.63, -0.01], 0.3)], [0.34, ...at(near[0])], [0.5, ...at(near[1])],
       [0.6, ...seat], [0.64, ...seat], [0.71, ...slap], [0.76, ...add(slap, [0.005, 0.01, -0.02])], [0.88]],
     hold: [0.28, 0.6], // the new magazine is in the hand, the old one gone
     ...extra,
@@ -183,10 +189,13 @@ function magReload(seat, tilt, slap, { lift = 0, drop = 1, ...extra } = {}) {
 // A handgun's magazine, the long gun's fractions with the gun on its side so
 // the grip opens toward the support hand, clear of the HUD; the slide drops
 // home at 0.76 while the support hand waits under the grip.
-const handgunReload = (seat, tilt, lift = 0) => ({
+// `approach` is where the support hand is, from the seat, at 0.33 and 0.5;
+// `drop` sends a long magazine further down out of sight.
+const HANDGUN_APPROACH = [[0.01, -0.1, 0], [0, -0.05, 0]];
+const handgunReload = (seat, tilt, { approach = HANDGUN_APPROACH, drop = 0.7 } = {}) => ({
   gun: [[0], [0.14, ...tilt], [0.8, ...tilt], [0.94]],
-  part: [[0.14], [0.2, 0, -0.12, 0.01, 0.3], [0.27, 0, -0.7 - 2 * lift, 0.02, 0.6], [0.6]],
-  left: [[0.1], [0.18, 0, -0.25, 0.05, 0.1], [0.26, 0, -0.6 - 4 * lift, 0.05], [0.33, 0.06, lift - 0.2, 0.03], [0.5, 0.05, lift - 0.15, 0.03], [0.6, ...seat], [0.8, ...seat], [0.94]],
+  part: [[0.14], [0.2, 0, -0.12, 0.01, 0.3], [0.27, 0, -drop, 0.02, 0.6], [0.6]],
+  left: [[0.1], [0.18, 0, -0.25, 0.05, 0.1], [0.26, 0, seat[1] - drop + 0.2, 0.05], [0.33, ...add(seat, approach[0])], [0.5, ...add(seat, approach[1])], [0.6, ...seat], [0.8, ...seat], [0.94]],
   hold: [0.28, 0.6],
   slide: [[0.72], [0.76, 0, 0, 0.03], [0.78]],
 });
@@ -237,19 +246,19 @@ const STYLE = {
     rest: [0.19, -0.18, -0.55, 0.03, 0.08, 0], anchor: [0, 0.075, -0.07], flash: 0.14,
     kick: { back: 0.022, up: 1.4 * DEG, roll: 1.2 * DEG, halflife: 0.035 }, casing: [0.01, 0.022, 'brass'],
     arms: longArms,
-    reload: (seat) => magReload(seat, add(RIFLE_TILT, [0, 0.04, 0, 0, 0, 0]), [-0.04, 0, 0.1], { lift: 0.07, drop: 0.75 }), // slaps the charging knob
+    reload: (seat) => magReload(seat, add(RIFLE_TILT, [0, 0.04, 0, 0, 0, 0]), [-0.04, 0, 0.1], { lift: 0.07, drop: 0.75, approach: OPEN_SIDE }), // slaps the charging knob
   },
   burst: { // the bullpup's well is behind the grip, so the left hand reaches back for it
     rest: [0.2, -0.19, -0.58, 0.03, 0.08, 0], anchor: [0, 0.08, 0.1], flash: 0.16,
     kick: { back: 0.03, up: 2 * DEG, roll: 1 * DEG, halflife: 0.04 }, casing: [0.012, 0.035, 'brass'],
     arms: longArms,
-    reload: (seat) => magReload(seat, BULLPUP_TILT, [-0.05, 0, 0.2], { lift: 0.1, drop: 0.8 }),
+    reload: (seat) => magReload(seat, BULLPUP_TILT, [-0.05, 0, 0.2], { lift: 0.1, drop: 0.8, approach: OPEN_SIDE }),
   },
   marksman: { // heavy single shots: a deep, slower kick
     rest: [0.2, -0.19, -0.6, 0.03, 0.08, 0], anchor: [0, 0.09, -0.06], flash: 0.2,
     kick: { back: 0.06, up: 4.5 * DEG, roll: 1 * DEG, halflife: 0.07 }, casing: [0.014, 0.045, 'brass'],
     arms: longArms,
-    reload: (seat) => magReload(seat, RIFLE_TILT, [-0.045, 0, 0.22]),
+    reload: (seat) => magReload(seat, RIFLE_TILT, [-0.045, 0, 0.22], { approach: OPEN_SIDE }),
   },
   pistol: {
     rest: [0.17, -0.17, -0.5, 0, 0.1, 0], anchor: [0, 0.06, -0.055], flash: 0.12,
@@ -262,9 +271,9 @@ const STYLE = {
   machinepistol: { // a handgun that sprays: a light, quick kick and the pistol's reload, the long magazine through the grip
     rest: [0.17, -0.17, -0.5, 0, 0.1, 0], anchor: [0, 0.07, -0.06], flash: 0.12,
     kick: { back: 0.025, up: 1.6 * DEG, roll: 1.5 * DEG, halflife: 0.035 }, casing: [0.01, 0.022, 'brass'],
-    left: HANDGUN_LEFT, seat: [0.05, -0.1, 0.03],
+    left: HANDGUN_LEFT, seat: [0.05, -0.17, 0.03], // the support hand under the long magazine's base plate, so the magazine stands up out of the fist
     arms: handgunArms,
-    reload: (seat) => handgunReload(seat, [0, 0.14, -0.1, 0.6, 0.25, -0.5], 0.12), // muzzle up and turned, so the long magazine drops clear of the fist; the hand brings the new one up higher
+    reload: (seat) => handgunReload(seat, [0.12, 0.18, -0.06, 0.35, 0.2, -1.1], { drop: 0.94, approach: [[0.01, -0.08, 0], [0, -0.04, 0]] }), // the pistol's roll, raised so the long magazine has room below; it comes up close under the grip
   },
   handcannon: { // a revolver: a big slow kick, no casings at the shot
     rest: [0.17, -0.17, -0.5, 0, 0.1, 0], anchor: [0, 0.065, -0.06], flash: 0.2,
@@ -288,6 +297,7 @@ const STYLE = {
     arms: longArms,
     // The bolt opens at 0.02–0.12 and the left hand runs it home at 0.74–0.79.
     reload: (seat) => magReload(seat, [0.04, 0.05, 0.04, 0.12, 0, -25 * DEG], [0.06, 0.07, 0.38], { // tilted but not turned in: the long barrel would cross the crosshair
+      approach: OPEN_SIDE,
       slide: [[0.02], [0.07, ...BOLT_UP], [0.12, ...BOLT_BACK], [0.74, ...BOLT_BACK], [0.79, ...BOLT_UP], [0.83]] }),
     cycle: {
       slide: [[0.08], [0.16, ...BOLT_UP], [0.3, ...BOLT_BACK], [0.38, ...BOLT_BACK], [0.48, ...BOLT_UP], [0.56]],
