@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { migrate, DEFAULTS, ICONS, bearing, fireMode } from './ui.js';
+import { migrate, DEFAULTS, ICONS, bearing, fireMode, gunStats } from './ui.js';
 import { POWER_IDS } from '../shared/protocol.js';
 import { PRIMARIES, SECONDARIES } from '../shared/constants.js';
 import { GUNS, GUN_IDS } from '../shared/guns/index.js'; // arsenal
@@ -63,4 +63,24 @@ test('the ammo panel labels a burst gun with its burst, and no other gun', () =>
   assert.equal(fireMode('burst'), 'BURST ×3');
   for (const id of GUN_IDS.filter((g) => g !== 'burst')) assert.equal(fireMode(id), '', id);
   assert.equal(fireMode('bolt'), '', 'a power-up id is no gun');
+});
+
+// arsenal: the loadout cards' four bars, read off each gun's numbers.
+test('the loadout stat bars rank the roster the way its numbers do', () => {
+  const s = Object.fromEntries(GUN_IDS.map((id) => [id, gunStats(id)]));
+  for (const id of GUN_IDS) for (const k of ['damage', 'rate', 'range', 'mobility']) assert.ok(s[id][k] > 0 && s[id][k] <= 1, `${id} ${k} ${s[id][k]}`);
+  const most = (k) => GUN_IDS.reduce((a, b) => (s[b][k] > s[a][k] ? b : a));
+  const least = (k) => GUN_IDS.reduce((a, b) => (s[b][k] < s[a][k] ? b : a));
+  assert.equal(most('damage'), 'sniper');
+  assert.ok(s.shotgun.damage > s.marksman.damage, 'a full Crusher blast outhits a Plumb round');
+  assert.ok(s.handcannon.damage > s.pistol.damage && s.rifle.damage > s.smg.damage);
+  assert.equal(most('rate'), 'machinepistol');
+  assert.equal(least('rate'), 'shotgun');
+  assert.ok(s.smg.rate > s.rifle.rate && s.rifle.rate > s.handcannon.rate);
+  assert.equal(least('range'), 'shotgun');
+  assert.ok(s.marksman.range > s.rifle.range && s.sniper.range > s.rifle.range, 'no falloff outranges falloff');
+  assert.ok(s.rifle.range > s.smg.range && s.smg.range > s.shotgun.range);
+  assert.equal(least('mobility'), 'lmg');
+  assert.ok(s.sniper.mobility < s.marksman.mobility && s.marksman.mobility < s.rifle.mobility);
+  assert.equal(s.smg.mobility, s.pistol.mobility, 'guns with no pace of their own move alike');
 });

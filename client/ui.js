@@ -86,6 +86,7 @@ export function initMenu({ onPlay, onChange }) {
   }
   showControls();
   $('play').addEventListener('click', onPlay);
+  resume = onPlay; // arsenal: closing the loadout panel plays on
 }
 
 // Key rebinding. bindings is input.js's action → KeyboardEvent.code map;
@@ -95,7 +96,7 @@ export function initMenu({ onPlay, onChange }) {
 const ACTION_NAMES = {
   forward: 'Move forward', back: 'Move back', left: 'Strafe left', right: 'Strafe right',
   jump: 'Jump', walk: 'Walk', crouch: 'Crouch', reload: 'Reload',
-  primary: 'Primary weapon', pistol: 'Pistol', picker: 'Pick primary', scoreboard: 'Scoreboard',
+  primary: 'Primary weapon', pistol: 'Sidearm', picker: 'Loadout', scoreboard: 'Scoreboard', // arsenal: the sidearm slot, the loadout panel
   usePowerup: 'Use power-up', cyclePowerup: 'Next power-up', use: 'Use power-up', cycle: 'Next power-up',
   aim: 'Aim / scope', // arsenal
 };
@@ -405,22 +406,123 @@ export function hideDeath() {
   $('death').hidden = true;
 }
 
-// The primary picker: B toggles it, the respawn screen shows it.
-// arsenal: a row of primaries, then a row of sidearms, numbered 1..9, 0 in
-// PICKS order (input.js maps the digit keys to the same list while it is open).
+// arsenal: a loadout card's four bars, 0..1 against the roster. Damage is
+// per shot with every pellet (square-rooted, so the light guns still show);
+// rate the sustained rps; range where the falloff is halfway (RANGE_M with
+// none) over the tightest cone; mobility the pace, and the pace while firing.
+const RANGE_M = 50;
+const shotDmg = (g) => g.dmg * (g.pellets ?? 1);
+const TOP = { dmg: Math.max(...GUN_IDS.map((id) => shotDmg(GUNS[id]))), rps: Math.max(...GUN_IDS.map((id) => GUNS[id].rps)) };
+export function gunStats(id) {
+  const g = GUNS[id];
+  const reach = g.falloff ? (g.falloff.from + g.falloff.to) / 2 : RANGE_M;
+  const pace = (g.speed ?? 1) * (1 - (1 - (g.fireSpeed ?? 1)) / 4);
+  return {
+    damage: Math.sqrt(shotDmg(g) / TOP.dmg),
+    rate: g.rps / TOP.rps,
+    range: Math.min(1, reach / RANGE_M) / (1 + (g.scope?.spread ?? g.spreadStand)),
+    mobility: Math.min(1, Math.max(0.05, (pace - 0.7) / 0.3)),
+  };
+}
+
+// The loadout panel: B toggles it, the respawn screen shows it.
+// arsenal: a row of primary cards over a row of sidearm cards, numbered
+// 1..9, 0 in PICKS order (input.js maps the digit keys to the same list
+// while the pointer is locked; ui.js does once B has freed the cursor).
 export const PICKS = [...PRIMARIES, ...SECONDARIES];
+const ROWS = [PRIMARIES, SECONDARIES];
+const CLASS_NAMES = { pistol: 'Pistol', handcannon: 'Hand cannon', machinepistol: 'Machine pistol', rifle: 'Rifle', shotgun: 'Shotgun', smg: 'SMG', burst: 'Burst rifle', lmg: 'LMG', marksman: 'Marksman', sniper: 'Sniper' };
+const MODE_NAMES = { semi: 'Semi', auto: 'Auto', burst: 'Burst' };
+const STAT_NAMES = [['damage', 'DMG'], ['rate', 'RATE'], ['range', 'RANGE'], ['mobility', 'MOVE']];
+const make = (tag, className, text = '') => Object.assign(document.createElement(tag), { className, textContent: text });
+let resume = null; // the menu's play action: takes the pointer back when the panel closes
+
 export function initPicker(onPick) {
+  // main closes the panel after a pick while alive; it stays up for the other row until B, Esc or Done.
+  const pick = (id) => {
+    const keep = pickerOpen();
+    onPick(id);
+    if (keep) showPicker(true);
+  };
   PICKS.forEach((id, i) => {
-    const b = Object.assign(document.createElement('button'), { id: `pick-${id}`, type: 'button', textContent: `${(i + 1) % 10} · ${WEAPONS[id].name}` });
-    b.addEventListener('click', () => onPick(id));
-    $(`pick-${WEAPONS[id].slot}`).append(b);
+    const g = WEAPONS[id];
+    const card = Object.assign(make('button', 'gcard'), { id: `pick-${id}`, type: 'button' });
+    const top = make('span', 'gc-top');
+    top.append(make('span', 'key', (i + 1) % 10), make('span', 'gc-mode', MODE_NAMES[g.mode]));
+    const stats = make('span', 'gc-stats');
+    const v = gunStats(id);
+    for (const [k, label] of STAT_NAMES) {
+      const bar = make('span', 'gc-bar');
+      bar.append(make('i', ''));
+      bar.firstChild.style.transform = `scaleX(${Math.max(0.06, v[k]).toFixed(3)})`; // the slowest gun still shows a sliver
+      stats.append(make('span', 'gc-label', label), bar);
+    }
+    card.append(top, icon(id), make('span', 'gc-name', g.name), make('span', 'gc-class', CLASS_NAMES[g.class]), stats);
+    card.addEventListener('click', () => pick(id));
+    $(`pick-${g.slot}`).append(card);
   });
+  $('pick-done').addEventListener('click', () => closePicker(true));
+  // With the cursor free the keys are ours: digits pick, arrows walk the cards (Enter
+  // and Space press them), B closes and plays on, Esc closes to the pause menu.
+  // Capture phase: this runs before input.js, so the B that opens the panel (and may
+  // drop the lock at once) is not read again here as the B that closes it.
+  addEventListener('keydown', (e) => {
+    if (!pickerOpen() || document.pointerLockElement || e.repeat) return; // locked: input.js has the keys
+    const digit = /^Digit(\d)$/.exec(e.code)?.[1];
+    const step = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] }[e.code];
+    if (digit) {
+      const id = PICKS[(Number(digit) + 9) % 10];
+      if (id) pick(id);
+      $(`pick-${id}`)?.focus();
+    } else if (step) {
+      e.preventDefault();
+      moveFocus(...step);
+    } else if (e.code === (keys.picker ?? 'KeyB')) closePicker(true);
+    else if (e.code === 'Escape') closePicker(false);
+  }, true);
+  markChosen();
+}
+
+function moveFocus(dr, dc) {
+  const at = document.activeElement?.id?.replace(/^pick-/, '');
+  let r = Math.max(0, ROWS.findIndex((row) => row.includes(at)));
+  let c = Math.max(0, ROWS[r].indexOf(at));
+  r = Math.min(ROWS.length - 1, Math.max(0, r + dr));
+  c = Math.min(ROWS[r].length - 1, Math.max(0, c + dc));
+  $(`pick-${ROWS[r][c]}`).focus();
+}
+
+// The chosen card in each row, and the summary: both guns and the close key.
+function markChosen() {
+  for (const id of PICKS) {
+    const card = $(`pick-${id}`);
+    if (!card) continue;
+    const on = settings[WEAPONS[id].slot] === id;
+    card.classList.toggle('chosen', on);
+    card.setAttribute('aria-pressed', on);
+  }
+  const gun = (id) => [icon(id), make('b', '', WEAPONS[id]?.name ?? id)];
+  $('pick-summary').replaceChildren(...gun(settings.primary), make('span', 'plus', '+'), ...gun(settings.secondary));
+  $('pick-bkey').textContent = keyName(keys.picker ?? 'KeyB');
+}
+
+function closePicker(play) {
+  showPicker(false);
+  if (play && !document.pointerLockElement) resume?.(); // B and Done are clicks and keys, so the lock may be taken again
 }
 
 export function showPicker(open) {
   if (!live()) return;
   $('picker').hidden = !open;
-  for (const id of PICKS) $(`pick-${id}`)?.classList.toggle('chosen', settings[WEAPONS[id].slot] === id); // arsenal
+  if (!open) return;
+  markChosen();
+  // B mid-match frees the cursor for the cards, like a buy menu (the pause menu waits
+  // underneath, see the CSS). The respawn screen keeps the lock: the digits still
+  // pick there, and the next life starts aimed.
+  if ($('death').hidden && document.pointerLockElement) {
+    document.exitPointerLock();
+    $(`pick-${settings.primary}`)?.focus({ preventScroll: true });
+  }
 }
 
 export const pickerOpen = () => !$('picker').hidden;
@@ -810,10 +912,8 @@ const DEMO_BOARD = [
 function startDemo() {
   const run = (fn) => { demoing = true; try { fn(); } finally { demoing = false; } };
   run(() => {
-    if (DEMO === 'death') {
-      showDeath('bot4', 3, { color: PLAYER_COLORS[3], weapon: 'rifle', killerHp: 64 });
-      showPicker(true);
-    }
+    if (DEMO === 'death') showDeath('bot4', 3, { color: PLAYER_COLORS[3], weapon: 'sniper', killerHp: 64 }); // arsenal: the respawn screen
+    if (DEMO === 'death' || DEMO === 'picker') showPicker(true); // arsenal: hud=picker, the panel on B
     const [gun, mag] = { feed: ['burst', 14], picker: ['lmg', 68], scope: ['sniper', 4] }[DEMO] ?? ['rifle', 17]; // arsenal: a burst's mode, the belt, the scope
     updateHud(64, gun, mag, false, { maxMag: WEAPONS[gun].mag, shield: 30, shieldSeconds: 5.2, nitro: 2.6 });
     updatePowers({ inv: ['shunt', 'bolt', 'shield'], sel: 1, cd: 24, bolts: 0 });
