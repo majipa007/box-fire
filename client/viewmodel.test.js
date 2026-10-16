@@ -56,7 +56,7 @@ async function suite() {
 
   // arsenal: every gun is drawn from the look in its own gun file, nothing else.
   const { GUN_IDS } = await import('../shared/guns/index.js');
-  const DRAWN = ['rifle', 'pistol', 'shotgun', 'smg', 'burst', 'marksman'];
+  const DRAWN = GUN_IDS;
   const MAGS = DRAWN.filter((id) => !['shotgun', 'handcannon'].includes(id)); // the magazine reloads
   test('the spring gives the same answer at any frame rate and never overshoots', () => {
     const a = vm.spring(1);
@@ -145,7 +145,7 @@ async function suite() {
         draws++;
         tris += (o.geometry.index.count / 3) * (o.isInstancedMesh ? o.instanceMatrix.count : 1); // every casing live
       });
-      assert.ok(rig('flash').visible && rig('casings').visible, w);
+      assert.ok(rig('flash').visible && rig('casings').visible === !!vm.MODELS[w].casing, w); // a revolver keeps its cases
       assert.ok(draws <= 4 && tris <= 1500, `${w}: ${draws} draws, ${tris} triangles`);
       frames(60);
     }
@@ -303,6 +303,74 @@ async function suite() {
       assert.ok(mag.position.distanceTo(new THREE.Vector3(...vm.MODELS[weapon].pivots.part)) < 1e-3, 'seated');
     });
   }
+
+  test('the Sledge swings its cylinder out, a speedloader comes up in the hand, and the cylinder closes home', () => {
+    spawn('handcannon');
+    const w = WEAPONS.handcannon;
+    const cyl = bone('handcannon', 1);
+    const loader = bone('handcannon', 4);
+    const home = new THREE.Vector3(...vm.MODELS.handcannon.pivots.part);
+    const corners = [];
+    let out = false;
+    let loaded = false;
+    self.arsenal.reload = w.reload;
+    while (self.arsenal.reload > 0) {
+      self.arsenal.reload = Math.max(0, self.arsenal.reload - 1 / 60);
+      frames(1);
+      const t = 1 - self.arsenal.reload / w.reload;
+      assert.ok(cyl.scale.x > 0, `${t.toFixed(2)}: the cylinder never vanishes`);
+      if (t > 0.3 && t < 0.6 && cyl.rotation.z > 1.2 && cyl.position.x < home.x - 0.005) out = true;
+      if (t > 0.42 && t < 0.56 && loader.scale.x > 0 && onScreen('handcannon', (b) => b.part === 'shell', corners).share === 1 && !underHud(corners)) loaded = true;
+    }
+    assert.ok(out, 'the cylinder swings out to the left');
+    assert.ok(loaded, 'the speedloader is in the hand, on screen and clear of the HUD');
+    frames(60);
+    assert.equal(loader.scale.x, 0, 'no speedloader after the reload');
+    assert.ok(cyl.position.distanceTo(home) < 1e-3 && Math.abs(cyl.rotation.z) < 1e-3, 'the cylinder is home');
+  });
+
+  test('the Surveyor works its bolt after a shot: up and back, the case flies at the pull, home by the next shot', () => {
+    spawn('sniper');
+    const bolt = bone('sniper', 3);
+    const home = new THREE.Vector3(...vm.MODELS.sniper.pivots.slide);
+    const casings = rig('casings');
+    const cycle = 1 / WEAPONS.sniper.rps;
+    vm.gunKick();
+    frames(2);
+    assert.equal(casings.count, 0, 'no case at the shot');
+    for (const [t, back] of [[0.05, false], [0.36, true], [0.74, false]]) {
+      self.arsenal.cooldown = cycle - t;
+      frames(30); // pinned: let the bolt get there
+      const z = bolt.position.z - home.z;
+      assert.ok(back ? z > 0.05 && bolt.rotation.z > 0.5 : Math.abs(z) < 0.005, `${t} s: bolt ${z.toFixed(3)} m back, turned ${bolt.rotation.z.toFixed(2)}`);
+    }
+    self.arsenal.cooldown = 0;
+    frames(30);
+    assert.ok(bolt.position.distanceTo(home) < 1e-3, 'home');
+    vm.gunKick();
+    frames(14); // 0.23 s: the bolt has not reached the pull
+    assert.equal(casings.count, 0, 'not yet');
+    frames(10); // 0.4 s
+    assert.equal(casings.count, 1, 'out at the pull');
+    frames(60);
+  });
+
+  test('the Piledriver opens its feed cover for the box swap and shuts it after', () => {
+    spawn('lmg');
+    const cover = bone('lmg', 3);
+    const w = WEAPONS.lmg;
+    let open = false;
+    self.arsenal.reload = w.reload;
+    while (self.arsenal.reload > 0) {
+      self.arsenal.reload = Math.max(0, self.arsenal.reload - 1 / 60);
+      frames(1);
+      const t = 1 - self.arsenal.reload / w.reload;
+      if (t > 0.3 && t < 0.6 && cover.rotation.x < -0.6) open = true;
+    }
+    assert.ok(open, 'the cover lifts while the box is out');
+    frames(60);
+    assert.ok(Math.abs(cover.rotation.x) < 1e-3, 'shut');
+  });
 
   test('each shell shows in the left hand, outside the glove and on screen, until it is pushed in', () => {
     spawn('shotgun');

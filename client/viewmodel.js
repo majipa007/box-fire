@@ -183,13 +183,39 @@ function magReload(seat, tilt, slap, { lift = 0, drop = 1, ...extra } = {}) {
 // A handgun's magazine, the long gun's fractions with the gun on its side so
 // the grip opens toward the support hand, clear of the HUD; the slide drops
 // home at 0.76 while the support hand waits under the grip.
-const handgunReload = (seat, tilt) => ({
+const handgunReload = (seat, tilt, lift = 0) => ({
   gun: [[0], [0.14, ...tilt], [0.8, ...tilt], [0.94]],
   part: [[0.14], [0.2, 0, -0.12, 0.01, 0.3], [0.27, 0, -0.7, 0.02, 0.6], [0.6]],
-  left: [[0.1], [0.18, 0, -0.25, 0.05, 0.1], [0.26, 0, -0.6, 0.05], [0.33, 0.06, -0.2, 0.03], [0.5, 0.05, -0.15, 0.03], [0.6, ...seat], [0.8, ...seat], [0.94]],
+  left: [[0.1], [0.18, 0, -0.25, 0.05, 0.1], [0.26, 0, -0.6 - lift, 0.05], [0.33, 0.06, lift - 0.2, 0.03], [0.5, 0.05, lift - 0.15, 0.03], [0.6, ...seat], [0.8, ...seat], [0.94]],
   hold: [0.28, 0.6],
   slide: [[0.72], [0.76, 0, 0, 0.03], [0.78]],
 });
+
+// The Sledge: the gun rolls onto its side (left side up) so the cylinder,
+// swung out on its crane by 0.14, faces us; the muzzle tips up at 0.2 to dump
+// the cases; the left hand comes back from below with a speedloader, seats it
+// at 0.56 and lets go at 0.64; the wrist flicks the cylinder shut at 0.77.
+const REVOLVER_TILT = [0.06, 0.1, -0.04, 0.2, 0.2, -0.9];
+const CYLINDER_OUT = [-0.012, -0.005, 0, 0, 0, 1.45];
+// The speedloader in gun space where it seats, behind the swung-out
+// cylinder, and where the left hand's pivot is then (its fingers on the knob).
+const SPEEDLOADER = [
+  box('shell', 'brass', [0.04, 0.04, 0.02], [-0.054, 0.061, 0.024]), // six rounds
+  box('shell', 'dark', [0.046, 0.046, 0.006], [-0.054, 0.061, 0.037]), // plate
+  box('shell', 'metal', [0.018, 0.018, 0.03], [-0.054, 0.061, 0.055]), // knob
+];
+const LOADER_SEAT = [-0.038, 0.026, 0.084];
+const revolverReload = {
+  gun: [[0], [0.12, ...REVOLVER_TILT], [0.2, ...add(REVOLVER_TILT, [0, 0.04, 0, 0.7, 0, 0])], [0.3, ...REVOLVER_TILT], [0.7, ...REVOLVER_TILT],
+    [0.76, ...add(REVOLVER_TILT, [0, 0, 0, 0, 0, 0.45])], [0.8, ...REVOLVER_TILT], [0.94]],
+  part: [[0.06], [0.14, ...CYLINDER_OUT], [0.72, ...CYLINDER_OUT], [0.77]],
+  left: [[0.08], [0.16, -0.02, -0.12, 0.04, 0.2], [0.24, -0.06, -0.6, 0.05], [0.34, ...add(LOADER_SEAT, [-0.04, -0.12, 0.06])], [0.48, ...add(LOADER_SEAT, [0, 0, 0.04])],
+    [0.56, ...LOADER_SEAT], [0.64, ...LOADER_SEAT], [0.7, ...add(LOADER_SEAT, [-0.04, -0.06, 0.04])], [0.86]],
+  hold: [0.26, 0.64],
+};
+// A turn-bolt: the handle rolls up a turn about the bore, then the bolt runs back.
+const BOLT_UP = [0, 0, 0, 0, 0, 1];
+const BOLT_BACK = [0, 0, 0.085, 0, 0, 1];
 
 // Per gun class: rest pose and anchor; flash size; recoil, as the peak
 // offsets one shot reaches before its spring brings it back (back in metres,
@@ -232,6 +258,41 @@ const STYLE = {
     arms: handgunArms,
     reload: (seat) => handgunReload(seat, PISTOL_TILT),
     cycle: { slide: [[0, 0, 0, 0.03], [0.06]] }, // slide recoils 0.03 m
+  },
+  machinepistol: { // a handgun that sprays: a light, quick kick and the pistol's reload, the long magazine through the grip
+    rest: [0.17, -0.17, -0.5, 0, 0.1, 0], anchor: [0, 0.07, -0.06], flash: 0.12,
+    kick: { back: 0.025, up: 1.6 * DEG, roll: 1.5 * DEG, halflife: 0.035 }, casing: [0.01, 0.022, 'brass'],
+    left: HANDGUN_LEFT, seat: [0.05, -0.1, 0.03],
+    arms: handgunArms,
+    reload: (seat) => handgunReload(seat, add(PISTOL_TILT, [0, 0.05, 0, 0, 0, 0]), 0.08), // the long magazine: the gun and the hand come up higher
+  },
+  handcannon: { // a revolver: a big slow kick, no casings at the shot
+    rest: [0.17, -0.17, -0.5, 0, 0.1, 0], anchor: [0, 0.065, -0.06], flash: 0.2,
+    kick: { back: 0.07, up: 9 * DEG, roll: 2 * DEG, halflife: 0.08 }, casing: null,
+    left: HANDGUN_LEFT, seat: null, // the cylinder stays on the gun: only the speedloader is in the hand
+    arms: handgunArms,
+    held: () => SPEEDLOADER.map((b) => ({ ...b, at: sub(b.at, LOADER_SEAT) })),
+    reload: () => revolverReload,
+  },
+  lmg: { // heavy: a small kick on a slow spring; the feed cover opens for the box
+    rest: [0.2, -0.2, -0.6, 0.03, 0.08, 0], anchor: [0, 0.075, -0.07], flash: 0.2,
+    kick: { back: 0.03, up: 1.8 * DEG, roll: 1.2 * DEG, halflife: 0.05 }, casing: [0.012, 0.035, 'brass'],
+    arms: longArms,
+    // The cover lifts at 0.04–0.12 and the left hand slaps it shut at 0.71.
+    reload: (seat) => magReload(seat, RIFLE_TILT, [0.016, 0.2, 0.256], { lift: 0.08, drop: 0.8,  slide: [[0.04], [0.12, 0, 0, 0, -1.1], [0.66, 0, 0, 0, -1.1], [0.72]] }),
+  },
+  sniper: { // one heavy shot, then the bolt: up, back (the case flies), forward, down
+    rest: [0.2, -0.19, -0.62, 0.03, 0.08, 0], anchor: [0, 0.08, -0.06], flash: 0.3,
+    kick: { back: 0.09, up: 8 * DEG, roll: 1.5 * DEG, halflife: 0.1 }, casing: [0.014, 0.05, 'brass'],
+    eject: 0.32,
+    arms: longArms,
+    // The bolt opens at 0.02–0.12 and the left hand runs it home at 0.74–0.79.
+    reload: (seat) => magReload(seat, [0.04, 0.05, 0.04, 0.12, 0, -25 * DEG], [0.06, 0.07, 0.38], { // tilted but not turned in: the long barrel would cross the crosshair
+      slide: [[0.02], [0.07, ...BOLT_UP], [0.12, ...BOLT_BACK], [0.74, ...BOLT_BACK], [0.79, ...BOLT_UP], [0.83]] }),
+    cycle: {
+      slide: [[0.08], [0.16, ...BOLT_UP], [0.3, ...BOLT_BACK], [0.38, ...BOLT_BACK], [0.48, ...BOLT_UP], [0.56]],
+      gun: [[0.08], [0.2, 0, -0.005, 0, 0, 0, 0.06], [0.48, 0, -0.005, 0.01, 0, 0, 0.06], [0.62]],
+    },
   },
   shotgun: {
     rest: [0.2, -0.2, -0.58, 0.03, 0.08, 0], anchor: [0, 0.07, -0.08], flash: 0.28,
