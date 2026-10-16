@@ -5,10 +5,11 @@
 // life a bot carries a random primary and sidearm from the gun registry. --skill mixed (the default) rolls easy, normal
 // or hard for each bot. --passive bots never shoot or use
 // an offensive power-up: they wander and collect pads, a harmless target for
-// visual checks and netcode tests. Up to MAX_PLAYERS minus the humans.
-//   npm run bot -- --count 6 [--skill easy|normal|hard|mixed] [--passive] [--url ws://localhost:3000]
+// visual checks and netcode tests. --loadout primary,sidearm fixes every
+// bot's guns for every life (live checks of one gun). Up to MAX_PLAYERS minus the humans.
+//   npm run bot -- --count 6 [--skill easy|normal|hard|mixed] [--passive] [--loadout lmg,handcannon] [--url ws://localhost:3000]
 import { encodeInput } from '../shared/protocol.js';
-import { TICK_RATE, PORT } from '../shared/constants.js';
+import { TICK_RATE, PORT, PRIMARIES, SECONDARIES } from '../shared/constants.js';
 import { SKILLS } from './bot/aim.js';
 import { createBot, onMessage, think } from './bot/brain.js';
 
@@ -25,9 +26,14 @@ if (skill !== 'mixed' && !SKILLS[skill]) {
   console.log(`--skill ${skill}: use easy, normal, hard or mixed`);
   process.exit(1);
 }
+const [primary, secondary] = opt('loadout', '').split(',');
+if (primary && !(PRIMARIES.includes(primary) && SECONDARIES.includes(secondary))) {
+  console.log(`--loadout ${primary},${secondary}: a primary (${PRIMARIES}) and a sidearm (${SECONDARIES})`);
+  process.exit(1);
+}
 
 function startBot(n) {
-  const bot = createBot(n, { skill: skill === 'mixed' ? Object.keys(SKILLS)[Math.floor(Math.random() * 3)] : skill, passive });
+  const bot = createBot(n, { skill: skill === 'mixed' ? Object.keys(SKILLS)[Math.floor(Math.random() * 3)] : skill, passive, primary: primary || undefined, secondary });
   const ws = new WebSocket(url);
   bot.ws = ws;
   ws.onopen = () => {
