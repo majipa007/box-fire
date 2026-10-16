@@ -54,7 +54,16 @@ All numbers are per bullet unless noted. Angles are degrees, times seconds, dist
 
 ### The presentation fields
 
-Each belongs to one workstream, sits on its own line of the gun file, and starts as `null`. While it is `null` the client draws and plays the launch gun from `baseGun(id)`. The owning workstream decides the exact shape; these are the contracts the other code can rely on.
+Each belongs to one workstream, sits on its own line of the gun file, and starts as `null`. The owning workstream decides the exact shape; these are the contracts the other code can rely on.
+
+**No client code reads these fields yet.** Today every client lookup maps a gun to its launch gun (`baseGun(id)`) whatever the field holds, so filling one changes nothing on screen or in the speakers until its workstream adds the reader: use `GUNS[id].<field>` when it is set, else the launch gun's entry as now. The places, as of this branch:
+
+- **`look`**: `setGun()` in `client/viewmodel.js` (it picks from `MODELS` by id, then `baseGun(id)`), and `animate()` in `client/characters.js` for the third-person model (it picks from its `GUNS` by id, then `baseGun`).
+- **`sound`**: `gunshot()` in `client/audio.js`. Its first line is an unconditional `weapon = baseGun(weapon)`, so even a per-id `GUNSHOTS` entry is skipped until that line changes.
+- **muzzle, tracer, impact and casing effects**: `impact()`, `shot()` and `casing()` in `client/effects.js` each start with the same unconditional `baseGun()` call. They take their muzzle point and class feel from the launch gun; a `look` with its own `muzzle` needs the reader here too.
+- **`icon`**: `setIcon()` in `client/ui.js` (it picks from `ICONS` by id, then `baseGun(id)`); the kill feed and the HUD both go through it.
+
+Until a reader lands, a field may hold its final data safely: nothing else reads it, and the validation test only checks that each key is present and is `null`, an object or a string.
 
 - **`look`: a box model.** An object in the shape of a `MODELS` entry in `client/viewmodel.js`: `boxes`, a list of `{ part, color, size: [w, h, d], at: [x, y, z], rot?: [x, y, z] }` in metres and radians in the view space of the first-person rig (x right, y up, -z forward); `color` a palette name (`dark`, `metal`, `tan`, `slot`, ...); `muzzle: [x, y, z]` where the flash and tracers start; optional `anchor`, `rest`, `port`, `flash`, `kick`, `pivots` and `reload` keyframes as the launch guns have them. The third-person model may scale the same boxes down. Plain data: no three.js objects, no imports.
 - **`sound`: a synthesis recipe.** An object in the shape of a `GUNSHOTS` entry in `client/audio.js`: `{ level (dB), n (voices), drive?, slap?, layers: { name: { src: 'noise' | 'sine', mode?: 'bp' | 'lp' | 'hp', f, f1?, q?, a, d?, dur?, at?, g?, sweep?, glide?, partials? } } }`. A shot, plus whatever mechanism layers the gun has (bolt, slide, pump), all synthesized in the browser: no sample files, no external requests.
@@ -63,7 +72,7 @@ Each belongs to one workstream, sits on its own line of the gun file, and starts
 ## How to add a gun
 
 1. Copy the gun file nearest the new one: `cp shared/guns/rifle.js shared/guns/carbine.js`.
-2. Edit it: a new `id` (the file name), `name`, `slot` and `class`, then the numbers. Keep `look`, `sound` and `icon` as `null` until those workstreams draw it.
+2. Edit it: a new `id` (the file name), `name`, `slot` and `class`, then the numbers. Keep `look`, `sound` and `icon` as `null` until those workstreams draw it; while they are `null` the gun borrows its class's launch gun (step 4), and a filled field shows only once the client reads it (see "The presentation fields").
 3. In `shared/guns/index.js`, add `import carbine from './carbine.js';` and put `carbine` at the **end** of `LIST`. The list order is the wire order (snapshots carry an index into it), so never insert in the middle.
 4. A new class only: add it to `BASE` in the same file, mapped to `'pistol'`, `'rifle'` or `'shotgun'`, the launch gun it borrows a model and sound from.
 5. Run the validation test: `node --test shared/guns/guns.test.js`. It names the field or rule a gun breaks.
@@ -81,11 +90,11 @@ Nothing else needs code. The bots read a gun's role from its numbers (below), th
 - **precision** (a scope, `rps` under 2, or `dmg` 45 and up on a semi): stands to shoot. A scoped gun holds KEY.AIM on its target, stands still throughout, fires only once fully scoped and its cone fits the target, keeps a 30 m ideal range, and goes to the sidearm inside 7.5 m.
 - **tap** (anything else): clicks at the slower of its skill's tap rate and the gun's.
 
-Each life a bot asks for a random primary and sidearm from the registry (`--loadout lmg,handcannon` on `tools/bot.js` fixes them instead). In a live run (9 normal bots, port 3161, until every gun had two kills), every gun got real kills, with no errors in the server or bot log. Kills: rifle 38, pistol 8, shotgun 2, handcannon 7, machinepistol 3, smg 23, burst 21, lmg 33, marksman 33, sniper 46. In bot hands the sniper leads (a scoped body hit kills) and the close guns trail (bots meet at range more often than up close). Rerun it from the repo root with `REPO=$PWD PORT=3161 BOTS=9 BOTARGS="--skill normal" .scratch/harness/serve.sh .scratch/harness/botmix.mjs`. To check one gun, add `--loadout p,s` to `BOTARGS` and pass `NEED=p,s`.
+Each life a bot asks for a random primary and sidearm from the registry (`--loadout lmg,handcannon` on `tools/bot.js` fixes them instead). The first life's pair rides on the join message, because a bot that joins a match already running spawns at once. `REPO=$PWD PORT=3161 .scratch/harness/serve.sh .scratch/harness/midjoin-bots.mjs` checks it: six bots join a running match and each first spawn must carry the pair the bot printed. In a live run (9 normal bots, port 3161, 257 s until every gun had two kills), every gun got real kills, and the bots' own log has no error lines. Kills: rifle 54, pistol 9, shotgun 2, handcannon 7, machinepistol 4, smg 34, burst 35, lmg 50, marksman 44, sniper 73. In bot hands the sniper leads (a scoped body hit kills) and the close guns trail (bots meet at range more often than up close). Rerun it from the repo root with `REPO=$PWD PORT=3161 COUNT=9 BOTARGS="--skill normal" .scratch/harness/serve.sh .scratch/harness/botmix.mjs`; it starts the bots itself, logs them to `botmix-bots-<port>.log` under the work folder and fails on any bot error. To check one gun, add `--loadout p,s` to `BOTARGS` and pass `NEED=p,s`.
 
 ## Live loadout smoke
 
-`.scratch/harness/pw/loadouts.mjs` drives a real browser through every primary and every sidearm. For each pair it saves the pick, joins (the client sends the loadout message), spawns, and fires the primary (scoping first for a scoped gun, spraying four rounds for an auto). Then it switches to the sidearm and fires that. A watcher socket confirms the server spawned the pair and accepted each shot. The predicted magazine must land on the server's shot count without ever jumping back up, and the movement correction must stay under 50 mm. It renders on the Low preset at 50% scale. A headless page on a loaded machine can freeze for seconds, and a frozen page's inputs then reach the server in a lump or the page is dropped. A pair that fails during a freeze of over 1.5 s, or a drop, runs again (six reruns at most). A failure without a freeze still fails. The last run passed all ten guns, with two reruns after drops. Run it from the repo root with `REPO=$PWD PORT=3161 VIEW=960x540 .scratch/harness/serve.sh .scratch/harness/pw/loadouts.mjs`.
+`.scratch/harness/pw/loadouts.mjs` drives a real browser through every primary and every sidearm. For each pair it saves the pick, joins (the pick rides on the join message), spawns, and fires the primary (scoping first for a scoped gun, spraying four rounds for an auto). Then it switches to the sidearm and fires that. A watcher socket confirms the server spawned the pair and accepted each shot. The predicted magazine must land on the server's shot count without ever jumping back up, and the movement correction must stay under 50 mm. It renders on the Low preset at 50% scale. A headless page on a loaded machine can freeze for seconds, and a frozen page's inputs then reach the server in a lump or the page is dropped. A pair that fails during a freeze of over 1.5 s, or a drop, runs again (four reruns a pair at most). A failure without a freeze still fails. A scoped gun must show its scoped cone in the debug stats before it fires, and the run ends with a screenshot of the picker. Run it from the repo root with `REPO=$PWD PORT=3161 VIEW=960x540 .scratch/harness/serve.sh .scratch/harness/pw/loadouts.mjs`.
 
 ## Kill tables
 
@@ -209,3 +218,13 @@ secondary
 | move | machinepistol | machinepistol | pistol | pistol | pistol | pistol |
 | three | machinepistol | pistol | pistol | pistol | pistol | pistol |
 
+
+### the sniper from the hip
+
+The tables above scope every scoped gun first. Unscoped, the Surveyor's 10° hip cone still lands a 150 damage body hit up close, so a point-blank no-scope kills: a deliberate risk and reward that the shotgun answers at the same range (it kills in 2 to 6 m too, without the 0.75 s bolt between misses). From `MD=1 TUNE='{"sniper":{"scope":null}}' node .scratch/harness/mc.mjs 2000 sniper`:
+
+| Surveyor, hip | 2 m | 6 m | 12 m | 20 m | 30 m | 40 m |
+| --- | --- | --- | --- | --- | --- | --- |
+| one-shot % (human aim) | 99 | 30 | 8 | 2 | 2 | 1 |
+| body ms | 6 | 1321 | - | - | - | - |
+| move ms | 202 | 1776 | - | - | - | - |

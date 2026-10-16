@@ -59,7 +59,9 @@ export function decodeClient(raw) {
   switch (m.t) {
     case 'join': {
       const name = cleanName(m.name);
-      return name && { t: 'join', name, bot: m.bot === true };
+      // arsenal: an optional pick for the first life; an id not listed in its slot is dropped, never the join.
+      return name && { t: 'join', name, bot: m.bot === true,
+        ...(PRIMARIES.includes(m.primary) && { primary: m.primary }), ...(SECONDARIES.includes(m.secondary) && { secondary: m.secondary }) };
     }
     case 'start': return { t: 'start' };
     case 'end_match': return { t: 'end_match' };

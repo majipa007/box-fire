@@ -122,3 +122,15 @@ test('loadout: both picks apply at the next spawn, a primary-only message keeps 
   game.spawn(alice.player);
   assert.deepEqual([alice.player.arsenal.primary, alice.player.arsenal.secondary], ['rifle', 'handcannon']);
 });
+
+// arsenal: attach() spawns a drop-in player at once, so the pick must ride on join.
+test('loadout: a player who joins mid-match with a pick spawns with it on the first life', () => {
+  const game = newGame();
+  const alice = join(game, 'Alice', { loopback: true });
+  game.handle(alice, { t: 'start' });
+  const late = conn();
+  game.handle(late, { t: 'join', name: 'bot7', bot: true, primary: 'sniper', secondary: 'handcannon' });
+  const spawn = alice.out.find((m) => m.e === 'spawn' && m.id === late.player.id);
+  assert.deepEqual([spawn.primary, spawn.secondary], ['sniper', 'handcannon']);
+  assert.deepEqual([late.player.arsenal.primary, late.player.arsenal.secondary], ['sniper', 'handcannon']);
+});

@@ -74,8 +74,10 @@ export class Game {
     }
   }
 
-  join(conn, { name, bot }) {
+  join(conn, { name, bot, primary, secondary }) {
     if (conn.player) return;
+    // arsenal: the pick is set before attach() can spawn a drop-in player.
+    const pickUp = (p) => { if (primary) p.primary = primary; if (secondary) p.secondary = secondary; return p; };
     const key = name.toLowerCase();
     const existing = [...this.players.values()].find((p) => p.key === key);
     if (existing) {
@@ -88,11 +90,11 @@ export class Game {
         old.ws.terminate();
         if (this.phase !== 'lobby') this.leave(existing);
       }
-      return this.attach(existing, conn);
+      return this.attach(pickUp(existing), conn);
     }
     // Greyed-out players keep their slot until the match ends.
     if (this.players.size >= MAX_PLAYERS) return send(conn, { t: 'reject', reason: 'full' });
-    const p = new Player(this.nextId++, name, this.freeSlot(), conn, bot);
+    const p = pickUp(new Player(this.nextId++, name, this.freeSlot(), conn, bot));
     this.players.set(p.id, p);
     this.attach(p, conn);
   }
