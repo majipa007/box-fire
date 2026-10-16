@@ -18,8 +18,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WEAPONS, SWITCH_SECONDS, RUN_SPEED } from '../shared/constants.js';
 import { rayBox } from '../shared/collision.js';
+import { scopedIn } from '../shared/weapons.js';
 import { self } from './net.js';
-import { baseGun } from '../shared/guns/index.js'; // arsenal: guns without their own model or sound borrow a launch gun's
 
 const DEG = Math.PI / 180;
 
@@ -79,26 +79,36 @@ export const LOOK = {
   },
   casings: {
     pool: 16, velocity: [2, 1.6, 0.3], spread: 0.15, spin: 15, life: 0.45, gravity: 9.8,
-    size: { rifle: [0.012, 0.035], pistol: [0.01, 0.022], shotgun: [0.024, 0.06] }, // diameter, length
   },
 };
 
-// ---- Model data. A box is a bone ('body' moves with the gun, 'part' is the
-// magazine or pump, 'left' the left arm, 'slide' the pistol's slide, 'shell'
-// what the left hand brings in: a new magazine or a shell), a colour key, a size and a centre, with an
-// optional rotation; a limb is a box of cross-section [w, h] stretched
-// between two points; hot boxes glow when the gun fires. Gun space has its
-// origin at the right hand on the grip, and the rest pose puts that point
-// where the bible's table puts the gun: `rest` places the receiver's centre,
-// `anchor`, in camera space.
+// ---- Model data. Each gun's boxes live in its own gun file's `look`
+// (shared/guns/*.js): colour keys, sizes, centres, optional rotations and
+// bone tags, plus its muzzle, ejection port, support-hand point (`fore`) and
+// the pivot of its moving child (`mag`). Here they become boxes on the
+// viewmodel's bones, joined by the arms and a copy of the magazine for the
+// left hand, and a style per gun class adds the rest pose, recoil and reload.
+// A box is a bone ('body' moves with the gun, 'part' is the magazine, pump or
+// cylinder, 'left' the left arm, 'slide' the slide, bolt or feed cover,
+// 'shell' what the left hand brings in), a colour key, a size and a centre,
+// with an optional rotation; a limb is a box of cross-section [w, h]
+// stretched between two points; hot boxes glow when the gun fires. Gun space
+// has its origin at the right hand on the grip, and the rest pose puts that
+// point where the bible's table puts the gun: `rest` places `anchor` (about
+// the receiver's centre) in camera space.
 const box = (part, color, size, at, rot) => ({ part, color, size, at, rot });
 const limb = (part, color, size, from, to) => ({ part, color, size, from, to });
-const hot = (b) => Object.assign(b, { hot: true });
 const add = (a, b) => a.map((v, i) => v + b[i]);
+const sub = (a, b) => a.map((v, i) => v - b[i]);
 const toward = (a, b, d) => a.map((v, i) => v + ((b[i] - v) * d) / Math.hypot(...b.map((w, j) => w - a[j])));
 // A copy of the magazine in the left hand: where the magazine would be with
 // the left bone moved back by `seat`, so at the seat the two coincide.
 const inHand = (mag, seat) => mag.map((b) => ({ ...b, part: 'shell', at: add(b.at, seat.map((v) => -v)) }));
+const BONE_OF = { mag: 'part', pump: 'part', slide: 'slide', bolt: 'slide', cover: 'slide' };
+const gunBoxes = (look) => look.parts.map((p) => ({ part: BONE_OF[p.bone] ?? 'body', color: p.c, size: p.s, at: p.at, rot: p.r, hot: p.hot }));
+// Where the left hand's pivot goes to seat a magazine: under the well.
+const HAND_UNDER = [0.005, -0.125, 0];
+const ORIGIN = [0, 0, 0];
 
 // The armband at the wrist, in the slot colour, and the forearm toward the
 // elbow, on a forearm bone ('rfore' or 'lfore') that keeps aiming at where
@@ -134,145 +144,181 @@ function leftArm(at, elbow) {
   ];
 }
 
-// Per weapon: rest pose; muzzle point, flash size and ejection port;
-// recoil, as the peak offsets one shot reaches before its spring brings it
-// back (back in metres, up and roll in radians, the roll random either way);
-// bone pivots; the boxes; and keyframe tracks. A track is [t, x, y, z,
-// pitch, yaw, roll] keys (missing values are 0), eased between keys and held
-// past the ends. `reload` runs over the reload timer as a fraction (per shell
-// for the shotgun); `cycle` over the seconds since a shot.
-const RIFLE_MAG = [
-  box('part', 'tan', [0.045, 0.08, 0.07], [0, -0.02, -0.15], [0.1, 0, 0]), // curved magazine, polymer
-  box('part', 'tan', [0.045, 0.07, 0.065], [0, -0.085, -0.172], [0.35, 0, 0]),
+// Long guns: the right hand on the grip, the left under the look's `fore`.
+const longArms = (look) => [...rightArm([0.17, -0.32, 0.34]), ...leftArm(look.fore, [-0.24, -0.3, -0.06])];
+// Handguns: a high grip, both wrists in line with the slide, so the armbands
+// and forearms come in from the bottom edge rather than below it; the
+// support hand wraps the right fist.
+const HANDGUN_LEFT = [-0.04, -0.01, -0.01];
+const handgunArms = () => [
+  ...rightArm([0.3, -0.28, 0.3], [0.02, 0, 0.07]),
+  box('left', 'glove', [0.105, 0.09, 0.1], [-0.052, -0.026, -0.004]),
+  box('left', 'glove', [0.06, 0.045, 0.03], [-0.012, -0.03, -0.058]),
+  box('left', 'glove', [0.024, 0.024, 0.06], [-0.036, 0.04, -0.04]),
+  ...[0, 1, 2].map((k) => box('left', 'glove', [0.018, 0.024, 0.07], [-0.106, 0.008 - k * 0.027, -0.012 - k * 0.004])), // fingers
+  ...sleeve('lfore', [-0.085, -0.005, 0.05], [-0.34, -0.28, 0.28]),
 ];
-const RIFLE_SEAT = [0.005, -0.17, 0.21]; // the left hand under the magazine well
+
+// Reloads. A track is [t, x, y, z, pitch, yaw, roll] keys (missing values
+// are 0), eased between keys and held past the ends; `reload` runs over the
+// reload timer as a fraction (per shell for the shotgun), `cycle` over the
+// seconds since a shot.
+// A long gun's magazine: tilt over 0–0.14 so the well shows; the magazine
+// drops out in view and leaves at the lower left by 0.27 while the hand
+// fetches a new one off screen; the hand brings it up in view from 0.33 and
+// seats it at 0.6 (the click); a slap at `slap` (the left hand's pivot
+// offset) at 0.76. `extra` adds tracks (a bolt, a feed cover).
+// `lift` brings a long magazine up higher; `drop` scales its first fall, for
+// a magazine near the camera; `approach` is where the hand is, from the
+// seat, at 0.34 and 0.5, for a well the right fist would hide.
+const APPROACH = [[0.075, -0.08, 0], [0.025, -0.03, 0]];
+// From ahead and to the left, the open side, for a well close to the grip:
+// from the usual side the right fist stands between the eye and the magazine.
+const OPEN_SIDE = [[-0.06, -0.08, -0.1], [-0.03, -0.03, -0.05]];
+function magReload(seat, tilt, slap, { lift = 0, drop = 1, approach = APPROACH, ...extra } = {}) {
+  const at = (d, ...rot) => [...add(seat, d), ...rot];
+  const near = approach.map((d) => add(d, [0, lift, 0]));
+  return {
+    gun: [[0], [0.14, ...tilt], [0.72, ...tilt], [0.76, ...add(tilt, [0, -0.008, 0.016, 0.05, 0, 3 * DEG])], [0.8, ...tilt], [0.94]],
+    part: [[0.14], [0.2, 0.02 * drop, -0.15 * drop, 0.01, 0.3 * drop, 0, 0.2 * drop], [0.27, 0.1, -0.8, 0.03, 0.8, 0, 0.5], [0.6]],
+    left: [[0.1], [0.18, ...at([-0.005, -0.13, -0.06], 0.2)], [0.27, ...at([0.095, -0.63, -0.01], 0.3)], [0.34, ...at(near[0])], [0.5, ...at(near[1])],
+      [0.6, ...seat], [0.64, ...seat], [0.71, ...slap], [0.76, ...add(slap, [0.005, 0.01, -0.02])], [0.88]],
+    hold: [0.28, 0.6], // the new magazine is in the hand, the old one gone
+    ...extra,
+  };
+}
+// A handgun's magazine, the long gun's fractions with the gun on its side so
+// the grip opens toward the support hand, clear of the HUD; the slide drops
+// home at 0.76 while the support hand waits under the grip.
+// `approach` is where the support hand is, from the seat, at 0.33 and 0.5;
+// `drop` sends a long magazine further down out of sight.
+const HANDGUN_APPROACH = [[0.01, -0.1, 0], [0, -0.05, 0]];
+const handgunReload = (seat, tilt, { approach = HANDGUN_APPROACH, drop = 0.7 } = {}) => ({
+  gun: [[0], [0.14, ...tilt], [0.8, ...tilt], [0.94]],
+  part: [[0.14], [0.2, 0, -0.12, 0.01, 0.3], [0.27, 0, -drop, 0.02, 0.6], [0.6]],
+  left: [[0.1], [0.18, 0, -0.25, 0.05, 0.1], [0.26, 0, seat[1] - drop + 0.2, 0.05], [0.33, ...add(seat, approach[0])], [0.5, ...add(seat, approach[1])], [0.6, ...seat], [0.8, ...seat], [0.94]],
+  hold: [0.28, 0.6],
+  slide: [[0.72], [0.76, 0, 0, 0.03], [0.78]],
+});
+
+// The Sledge: the gun rolls onto its side (left side up) so the cylinder,
+// swung out on its crane by 0.14, faces us; the muzzle tips up at 0.2 to dump
+// the cases; the left hand comes back from below with a speedloader, seats it
+// at 0.56 and lets go at 0.64; the wrist flicks the cylinder shut at 0.77.
+const REVOLVER_TILT = [-0.02, 0.1, 0, 0.35, 0.7, -0.4];
+const CYLINDER_OUT = [-0.012, -0.005, 0, 0, 0, 1.45];
+// The speedloader in gun space where it seats, behind the swung-out
+// cylinder, and where the left hand's pivot is then (its fingers on the knob).
+const SPEEDLOADER = [
+  box('shell', 'brass', [0.04, 0.04, 0.02], [-0.054, 0.061, 0.024]), // six rounds
+  box('shell', 'dark', [0.046, 0.046, 0.006], [-0.054, 0.061, 0.037]), // plate
+  box('shell', 'metal', [0.018, 0.018, 0.03], [-0.054, 0.061, 0.055]), // knob
+];
+const LOADER_SEAT = [-0.01, 0.06, 0.13];
+const revolverReload = {
+  gun: [[0], [0.12, ...REVOLVER_TILT], [0.2, ...add(REVOLVER_TILT, [0, 0.04, 0, 0.7, 0, 0])], [0.3, ...REVOLVER_TILT], [0.7, ...REVOLVER_TILT],
+    [0.76, ...add(REVOLVER_TILT, [0, 0, 0, 0, 0, 0.45])], [0.8, ...REVOLVER_TILT], [0.94]],
+  part: [[0.06], [0.14, ...CYLINDER_OUT], [0.72, ...CYLINDER_OUT], [0.77]],
+  left: [[0.08], [0.16, -0.02, -0.12, 0.04, 0.2], [0.24, -0.06, -0.6, 0.05], [0.34, ...add(LOADER_SEAT, [-0.04, -0.12, 0.06])], [0.48, ...add(LOADER_SEAT, [0, 0, 0.04])],
+    [0.56, ...LOADER_SEAT], [0.64, ...LOADER_SEAT], [0.7, ...add(LOADER_SEAT, [-0.04, -0.06, 0.04])], [0.86]],
+  hold: [0.26, 0.64],
+};
+// A turn-bolt: the handle rolls up a turn about the bore, then the bolt runs back.
+const BOLT_UP = [0, 0, 0, 0, 0, 1];
+const BOLT_BACK = [0, 0, 0.085, 0, 0, 1];
+
+// Per gun class: rest pose and anchor; flash size; recoil, as the peak
+// offsets one shot reaches before its spring brings it back (back in metres,
+// up and roll in radians, the roll random either way); casings (diameter,
+// length, colour key; `eject` delays them to a pump or bolt); arms; and the
+// reload and cycle tracks, from the gun's magazine seat when it has one.
 const RIFLE_TILT = [0.03, 0.09, 0.04, 0.2, 0.1, -25 * DEG]; // raised, turned and tilted 25° so the magazine well shows; the gun stays 57 px clear of the crosshair at 720p
-const PISTOL_MAG = [
-  box('part', 'tan', [0.024, 0.1, 0.038], [0, -0.025, 0.014], [-12 * DEG, 0, 0]), // magazine, inside the grip
-  box('part', 'dark', [0.036, 0.012, 0.055], [0, -0.078, 0.024], [-12 * DEG, 0, 0]), // base plate
-];
-const PISTOL_SEAT = [0.05, -0.1, 0.03]; // the support hand under the grip
 const PISTOL_TILT = [0.08, 0.12, -0.06, 0.15, 0.2, -1.1]; // on its side, so the grip opens toward the support hand, clear of the HUD
-export const MODELS = {
+const BULLPUP_TILT = [0.0, 0.16, 0.0, -0.3, 0.35, -35 * DEG]; // raised high and turned in, the well behind the grip toward the middle
+const STYLE = {
   rifle: {
-    rest: [0.2, -0.19, -0.6, 0.03, 0.08, 0],
-    anchor: [0, 0.075, -0.07],
-    muzzle: [0, 0.075, -0.765],
-    flash: 0.18,
-    port: [0.035, 0.085, -0.03],
-    kick: { back: 0.035, up: 2.5 * DEG, roll: 1.5 * DEG, halflife: 0.045 },
-    pivots: { part: [0, 0.03, -0.15], left: [0, 0.075, -0.36] },
-    boxes: [
-      box('body', 'metal', [0.06, 0.08, 0.36], [0, 0.075, -0.07]), // receiver
-      box('body', 'dark', [0.034, 0.012, 0.3], [0, 0.121, -0.08]), // top rail
-      box('body', 'dark', [0.034, 0.03, 0.04], [0, 0.142, 0.06]), // rear sight
-      box('body', 'dark', [0.012, 0.05, 0.02], [0, 0.13, -0.44]), // front sight
-      box('body', 'metal', [0.04, 0.012, 0.03], [0, 0.121, 0.11]), // charging handle
-      box('body', 'slot', [0.062, 0.01, 0.08], [0, 0.1, -0.17]), // slot stripe
-      box('body', 'metal', [0.064, 0.03, 0.08], [0, 0.03, -0.15]), // magazine well
-      box('body', 'dark', [0.035, 0.09, 0.05], [0, -0.005, 0.01], [-15 * DEG, 0, 0]), // grip
-      box('body', 'dark', [0.01, 0.01, 0.07], [0, 0, -0.065]), // trigger guard
-      box('body', 'tan', [0.055, 0.06, 0.22], [0, 0.075, -0.36]), // handguard
-      box('body', 'dark', [0.03, 0.01, 0.2], [0, 0.11, -0.36]), // handguard rail
-      hot(box('body', 'dark', [0.035, 0.04, 0.03], [0, 0.075, -0.49])), // gas block
-      hot(box('body', 'metal', [0.025, 0.025, 0.3], [0, 0.075, -0.58])), // barrel
-      hot(box('body', 'dark', [0.035, 0.035, 0.035], [0, 0.075, -0.745])), // brake
-      box('body', 'dark', [0.03, 0.035, 0.1], [0, 0.085, 0.16]), // buffer tube
-      box('body', 'dark', [0.05, 0.08, 0.2], [0, 0.065, 0.26]), // stock
-      box('body', 'dark', [0.054, 0.086, 0.02], [0, 0.065, 0.37]), // butt pad
-      ...RIFLE_MAG,
-      ...inHand(RIFLE_MAG, RIFLE_SEAT),
-      ...rightArm([0.17, -0.32, 0.34]),
-      ...leftArm([0, 0.075, -0.36], [-0.24, -0.3, -0.06]),
-    ],
-    // Tilt 25° over 0–0.14; the magazine drops out in view and leaves at the
-    // lower left by 0.27 while the hand fetches a new one off screen; the hand
-    // brings it up in view from 0.33 and seats it at 0.6 (the click); bolt
-    // slap at 0.76.
-    seat: RIFLE_SEAT,
-    reload: {
-      gun: [[0], [0.14, ...RIFLE_TILT], [0.72, ...RIFLE_TILT], [0.76, ...add(RIFLE_TILT, [0, -0.008, 0.016, 0.05, 0, 3 * DEG])], [0.8, ...RIFLE_TILT], [0.94]],
-      part: [[0.14], [0.2, 0.02, -0.15, 0.01, 0.3, 0, 0.2], [0.27, 0.1, -0.8, 0.03, 0.8, 0, 0.5], [0.6]],
-      left: [[0.1], [0.18, 0, -0.3, 0.15, 0.2], [0.27, 0.1, -0.8, 0.2, 0.3], [0.34, 0.08, -0.25, 0.21], [0.5, 0.03, -0.2, 0.21],
-        [0.6, ...RIFLE_SEAT], [0.64, ...RIFLE_SEAT], [0.71, -0.045, -0.02, 0.27], [0.76, -0.04, -0.01, 0.25], [0.88]],
-      hold: [0.3, 0.6], // the new magazine is in the hand, the old one gone
-    },
+    rest: [0.2, -0.19, -0.6, 0.03, 0.08, 0], anchor: [0, 0.075, -0.07], flash: 0.18,
+    kick: { back: 0.035, up: 2.5 * DEG, roll: 1.5 * DEG, halflife: 0.045 }, casing: [0.012, 0.035, 'brass'],
+    arms: longArms,
+    // Bolt slap at 0.76 by the left side of the receiver.
+    reload: (seat) => magReload(seat, RIFLE_TILT, [-0.045, -0.02, 0.27]),
+  },
+  smg: { // light and quick: a small kick, a fast spring
+    rest: [0.19, -0.18, -0.55, 0.03, 0.08, 0], anchor: [0, 0.075, -0.07], flash: 0.14,
+    kick: { back: 0.022, up: 1.4 * DEG, roll: 1.2 * DEG, halflife: 0.035 }, casing: [0.01, 0.022, 'brass'],
+    arms: longArms,
+    reload: (seat) => magReload(seat, add(RIFLE_TILT, [0, 0.04, 0, 0, 0, 0]), [-0.04, 0, 0.1], { lift: 0.07, drop: 0.75, approach: OPEN_SIDE }), // slaps the charging knob
+  },
+  burst: { // the bullpup's well is behind the grip, so the left hand reaches back for it
+    rest: [0.2, -0.19, -0.58, 0.03, 0.08, 0], anchor: [0, 0.08, 0.1], flash: 0.16,
+    kick: { back: 0.03, up: 2 * DEG, roll: 1 * DEG, halflife: 0.04 }, casing: [0.012, 0.035, 'brass'],
+    arms: longArms,
+    reload: (seat) => magReload(seat, BULLPUP_TILT, [-0.05, 0, 0.2], { lift: 0.1, drop: 0.8, approach: OPEN_SIDE }),
+  },
+  marksman: { // heavy single shots: a deep, slower kick
+    rest: [0.2, -0.19, -0.6, 0.03, 0.08, 0], anchor: [0, 0.09, -0.06], flash: 0.2,
+    kick: { back: 0.06, up: 4.5 * DEG, roll: 1 * DEG, halflife: 0.07 }, casing: [0.014, 0.045, 'brass'],
+    arms: longArms,
+    reload: (seat) => magReload(seat, RIFLE_TILT, [-0.045, 0, 0.22], { approach: OPEN_SIDE }),
   },
   pistol: {
-    rest: [0.17, -0.17, -0.5, 0, 0.1, 0],
-    anchor: [0, 0.06, -0.055],
-    muzzle: [0, 0.078, -0.17],
-    flash: 0.12,
-    port: [0.02, 0.085, -0.02],
-    kick: { back: 0.05, up: 4 * DEG, roll: 1.5 * DEG, halflife: 0.06 },
-    pivots: { part: [0, -0.03, 0.015], left: [-0.04, -0.01, -0.01] },
-    boxes: [
-      box('slide', 'metal', [0.035, 0.04, 0.19], [0, 0.075, -0.055]), // slide
-      box('slide', 'dark', [0.037, 0.026, 0.035], [0, 0.078, 0.015]), // serrations
-      box('slide', 'dark', [0.008, 0.012, 0.012], [0, 0.1, -0.138]), // front sight
-      box('slide', 'dark', [0.03, 0.012, 0.012], [0, 0.1, 0.028]), // rear sight
-      hot(box('body', 'dark', [0.018, 0.018, 0.012], [0, 0.078, -0.153])), // barrel
-      box('body', 'dark', [0.03, 0.03, 0.16], [0, 0.04, -0.06]), // frame
-      box('body', 'tan', [0.032, 0.11, 0.05], [0, -0.02, 0.012], [-12 * DEG, 0, 0]), // grip
-      box('body', 'dark', [0.008, 0.01, 0.05], [0, 0.01, -0.05]), // trigger guard
-      ...PISTOL_MAG,
-      ...inHand(PISTOL_MAG, PISTOL_SEAT),
-      // A high grip: both wrists in line with the slide, so the armbands and
-      // forearms come in from the bottom edge rather than below it.
-      ...rightArm([0.3, -0.28, 0.3], [0.02, 0, 0.07]),
-      // The support hand wraps the right fist.
-      box('left', 'glove', [0.105, 0.09, 0.1], [-0.052, -0.026, -0.004]),
-      box('left', 'glove', [0.06, 0.045, 0.03], [-0.012, -0.03, -0.058]),
-      box('left', 'glove', [0.024, 0.024, 0.06], [-0.036, 0.04, -0.04]),
-      ...[0, 1, 2].map((k) => box('left', 'glove', [0.018, 0.024, 0.07], [-0.106, 0.008 - k * 0.027, -0.012 - k * 0.004])), // fingers
-      ...sleeve('lfore', [-0.085, -0.005, 0.05], [-0.34, -0.28, 0.28]),
-    ],
-    // The rifle's fractions over 1.75 s, the pistol on its side; the slide
-    // drops home at 0.76 while the support hand waits under the grip.
-    seat: PISTOL_SEAT,
-    reload: {
-      gun: [[0], [0.14, ...PISTOL_TILT], [0.8, ...PISTOL_TILT], [0.94]],
-      part: [[0.14], [0.2, 0, -0.12, 0.01, 0.3], [0.27, 0, -0.7, 0.02, 0.6], [0.6]],
-      left: [[0.1], [0.18, 0, -0.25, 0.05, 0.1], [0.26, 0, -0.6, 0.05], [0.33, 0.06, -0.2, 0.03], [0.5, 0.05, -0.15, 0.03],
-        [0.6, ...PISTOL_SEAT], [0.8, ...PISTOL_SEAT], [0.94]],
-      hold: [0.28, 0.6],
-      slide: [[0.72], [0.76, 0, 0, 0.03], [0.78]],
-    },
+    rest: [0.17, -0.17, -0.5, 0, 0.1, 0], anchor: [0, 0.06, -0.055], flash: 0.12,
+    kick: { back: 0.05, up: 4 * DEG, roll: 1.5 * DEG, halflife: 0.06 }, casing: [0.01, 0.022, 'brass'],
+    left: HANDGUN_LEFT, seat: [0.05, -0.1, 0.03], // the support hand under the grip
+    arms: handgunArms,
+    reload: (seat) => handgunReload(seat, PISTOL_TILT),
     cycle: { slide: [[0, 0, 0, 0.03], [0.06]] }, // slide recoils 0.03 m
   },
+  machinepistol: { // a handgun that sprays: a light, quick kick and the pistol's reload, the long magazine through the grip
+    // Canted 17° and turned in, so it never reads as the Rivet: the compensator shows past the fists.
+    rest: [0.15, -0.15, -0.5, 0, 0.3, -0.3], anchor: [0, 0.07, -0.06], flash: 0.12,
+    kick: { back: 0.025, up: 1.6 * DEG, roll: 1.5 * DEG, halflife: 0.035 }, casing: [0.01, 0.022, 'brass'],
+    left: HANDGUN_LEFT, seat: [0.05, -0.17, 0.03], // the support hand under the long magazine's base plate, so the magazine stands up out of the fist
+    arms: handgunArms,
+    reload: (seat) => handgunReload(seat, [0.14, 0.18, -0.06, 0.35, 0.05, -0.7], { drop: 0.94, approach: [[0.01, -0.08, 0], [0, -0.04, 0]] }), // on top of the canted rest, about the pistol's roll, raised so the long magazine has room below; it comes up close under the grip
+  },
+  handcannon: { // a revolver: a big slow kick, no casings at the shot
+    rest: [0.17, -0.17, -0.5, 0, 0.1, 0], anchor: [0, 0.065, -0.06], flash: 0.2,
+    kick: { back: 0.07, up: 9 * DEG, roll: 2 * DEG, halflife: 0.08 }, casing: null,
+    left: HANDGUN_LEFT, seat: null, // the cylinder stays on the gun: only the speedloader is in the hand
+    arms: handgunArms,
+    held: () => SPEEDLOADER.map((b) => ({ ...b, at: sub(b.at, LOADER_SEAT) })),
+    reload: () => revolverReload,
+  },
+  lmg: { // heavy: a small kick on a slow spring; the feed cover opens for the box
+    rest: [0.2, -0.2, -0.6, 0.03, 0.08, 0], anchor: [0, 0.075, -0.07], flash: 0.2,
+    kick: { back: 0.03, up: 1.8 * DEG, roll: 1.2 * DEG, halflife: 0.05 }, casing: [0.012, 0.035, 'brass'],
+    arms: longArms,
+    // The cover lifts at 0.04–0.12 and the left hand slaps it shut at 0.71.
+    reload: (seat) => magReload(seat, RIFLE_TILT, [0.016, 0.2, 0.256], { lift: 0.08, drop: 0.8,  slide: [[0.04], [0.12, 0, 0, 0, -1.1], [0.66, 0, 0, 0, -1.1], [0.72]] }),
+  },
+  sniper: { // one heavy shot, then the bolt: up, back (the case flies), forward, down
+    rest: [0.2, -0.19, -0.62, 0.03, 0.08, 0], anchor: [0, 0.08, -0.06], flash: 0.3,
+    kick: { back: 0.09, up: 8 * DEG, roll: 1.5 * DEG, halflife: 0.1 }, casing: [0.014, 0.05, 'brass'],
+    eject: 0.32,
+    arms: longArms,
+    // The bolt opens at 0.02–0.12 and the left hand runs it home at 0.74–0.79.
+    reload: (seat) => magReload(seat, [0.04, 0.05, 0.04, 0.12, 0, -25 * DEG], [0.06, 0.07, 0.38], { // tilted but not turned in: the long barrel would cross the crosshair
+      approach: OPEN_SIDE,
+      slide: [[0.02], [0.07, ...BOLT_UP], [0.12, ...BOLT_BACK], [0.74, ...BOLT_BACK], [0.79, ...BOLT_UP], [0.83]] }),
+    cycle: {
+      slide: [[0.08], [0.16, ...BOLT_UP], [0.3, ...BOLT_BACK], [0.38, ...BOLT_BACK], [0.48, ...BOLT_UP], [0.56]],
+      gun: [[0.08], [0.2, 0, -0.005, 0, 0, 0, 0.06], [0.48, 0, -0.005, 0.01, 0, 0, 0.06], [0.62]],
+    },
+  },
   shotgun: {
-    rest: [0.2, -0.2, -0.58, 0.03, 0.08, 0],
-    anchor: [0, 0.07, -0.08],
-    muzzle: [0, 0.09, -0.61],
-    flash: 0.28,
-    port: [0.035, 0.07, -0.09],
-    kick: { back: 0.09, up: 7 * DEG, roll: 1.5 * DEG, halflife: 0.09 },
-    pivots: { part: [0, 0.05, -0.36], left: [0, 0.05, -0.36] },
-    boxes: [
-      box('body', 'metal', [0.06, 0.08, 0.2], [0, 0.07, -0.08]), // receiver
-      hot(box('body', 'metal', [0.035, 0.035, 0.42], [0, 0.09, -0.39])), // barrel
-      box('body', 'dark', [0.03, 0.03, 0.36], [0, 0.05, -0.36]), // magazine tube
-      box('body', 'metal', [0.034, 0.034, 0.02], [0, 0.05, -0.55]), // tube cap
-      box('body', 'dark', [0.01, 0.008, 0.4], [0, 0.111, -0.39]), // rib
-      hot(box('body', 'brass', [0.01, 0.01, 0.01], [0, 0.12, -0.595])), // bead
-      box('body', 'dark', [0.036, 0.1, 0.046], [0, -0.005, 0.01], [-0.3, 0, 0]), // grip
-      box('body', 'dark', [0.01, 0.01, 0.06], [0, 0.015, -0.05]), // trigger guard
-      box('body', 'tan', [0.05, 0.09, 0.24], [0, 0.05, 0.14], [0.1, 0, 0]), // stock
-      box('body', 'dark', [0.054, 0.1, 0.02], [0, 0.038, 0.265], [0.1, 0, 0]), // butt pad
-      ...[-0.13, -0.1, -0.07, -0.04].map((z) => box('body', 'shell', [0.024, 0.06, 0.024], [-0.042, 0.07, z])), // side saddle
-      box('part', 'tan', [0.055, 0.055, 0.14], [0, 0.05, -0.36]), // pump
-      box('part', 'dark', [0.058, 0.008, 0.1], [0, 0.034, -0.36]), // pump grooves
-      box('shell', 'shell', [0.024, 0.024, 0.06], [-0.08, 0.03, -0.37]), // the shell being loaded, in the left hand's fingertips
-      ...rightArm([0.17, -0.32, 0.34]),
-      ...leftArm([0, 0.05, -0.36], [-0.24, -0.3, -0.06]),
-    ],
+    rest: [0.2, -0.2, -0.58, 0.03, 0.08, 0], anchor: [0, 0.07, -0.08], flash: 0.28,
+    kick: { back: 0.09, up: 7 * DEG, roll: 1.5 * DEG, halflife: 0.09 }, casing: [0.024, 0.06, 'shell'],
+    eject: 0.43, // seconds after a shot: the pump is back and the shell flies
+    seat: null, // no magazine to swap: shells go in one at a time
+    arms: longArms,
+    held: () => [box('shell', 'shell', [0.024, 0.024, 0.06], [-0.08, 0.03, -0.37])], // the shell being loaded, in the left hand's fingertips
     // One shell per 0.5 s: tilted 10°, hand to the port 0–0.25 s, insert 0.25–0.40 s, back 0.40–0.50 s.
-    reload: {
+    reload: () => ({
       gun: [[0, 0.03, 0.06, 0, 0.1, 0.05, -10 * DEG]],
       left: [[0, 0, -0.14, 0.2], [0.5, 0, -0.075, 0.27], [0.8, 0, -0.045, 0.26], [1, 0, -0.14, 0.2]],
       hold: [0, 0.8], // the shell shows in the hand until it is pushed in
-    },
-    eject: 0.43, // seconds after a shot: the pump is back and the shell flies
+    }),
     // Racks 0.07 m from 300 to 560 ms after each shot.
     cycle: {
       gun: [[0.28], [0.43, 0, 0.005, 0, 0.04, 0, -0.05], [0.6]],
@@ -282,8 +328,23 @@ export const MODELS = {
   },
 };
 
-// Box sizes [width, height, length] per weapon, for other players' guns.
-export const GUN_SHAPES = { rifle: [0.045, 0.06, 0.5], pistol: [0.04, 0.07, 0.2], shotgun: [0.065, 0.065, 0.46] };
+function model(look, s) {
+  const gun = gunBoxes(look);
+  const seat = s.seat !== undefined ? s.seat : add(sub(look.mag, look.fore), HAND_UNDER);
+  return {
+    rest: s.rest, anchor: s.anchor, muzzle: look.muzzle, flash: s.flash, port: look.port, kick: s.kick, eject: s.eject, casing: s.casing,
+    pivots: { part: look.mag ?? ORIGIN, left: look.fore ?? s.left, slide: look.action ?? ORIGIN },
+    boxes: [...gun, ...(s.held ? s.held(look, seat) : inHand(gun.filter((b) => b.part === 'part'), seat)), ...s.arms(look)],
+    seat: seat ?? undefined, reload: s.reload(seat), cycle: s.cycle,
+  };
+}
+export const MODELS = Object.fromEntries(Object.keys(WEAPONS).filter((id) => STYLE[WEAPONS[id].class] && WEAPONS[id].look).map((id) => [id, model(WEAPONS[id].look, STYLE[WEAPONS[id].class])]));
+
+// Each gun's overall size [width, height, length] from its look (rotations ignored).
+export const GUN_SHAPES = Object.fromEntries(Object.keys(MODELS).map((id) => {
+  const ps = WEAPONS[id].look.parts;
+  return [id, [0, 1, 2].map((k) => Math.max(...ps.map((p) => p.at[k] + p.s[k] / 2)) - Math.min(...ps.map((p) => p.at[k] - p.s[k] / 2)))];
+}));
 
 // ---- Springs and tracks: plain numbers, no allocation per frame.
 
@@ -464,6 +525,7 @@ function buildRig(name, m) {
   bones.left.add(bones.shell, bones.lfore);
   bones.part.position.fromArray(m.pivots.part);
   bones.left.position.fromArray(m.pivots.left);
+  bones.slide.position.fromArray(m.pivots.slide);
   // Each forearm turns about its wrist; where its elbow rests, in camera space.
   const restPose = new THREE.Matrix4().compose(new THREE.Vector3(...m.base), new THREE.Quaternion().setFromEuler(new THREE.Euler(...m.base.slice(3))), new THREE.Vector3(1, 1, 1));
   m.arms = ['rfore', 'lfore'].map((name) => {
@@ -553,16 +615,16 @@ viewScene.add(casings);
 const cases = Array.from({ length: C.pool }, () => ({ p: new THREE.Vector3(), v: new THREE.Vector3(), age: 0, d: 0, l: 0, color: brass }));
 const dummy = new THREE.Object3D();
 
-function eject(weapon, port) {
-  if (casings.count === C.pool) return;
+function eject(m) {
+  if (!m.casing || casings.count === C.pool) return;
   const c = cases[casings.count++];
   pose.updateMatrix();
-  c.p.fromArray(port).applyMatrix4(pose.matrix).applyQuaternion(viewCamera.quaternion);
+  c.p.fromArray(m.port).applyMatrix4(pose.matrix).applyQuaternion(viewCamera.quaternion);
   const r = () => 1 + (Math.random() - 0.5) * 2 * C.spread;
   c.v.set(C.velocity[0] * r(), C.velocity[1] * r(), C.velocity[2] * r()).applyQuaternion(viewCamera.quaternion);
   c.age = 0;
-  [c.d, c.l] = C.size[weapon];
-  c.color = weapon === 'shotgun' ? shellRed : brass;
+  [c.d, c.l] = m.casing;
+  c.color = m.casing[2] === 'shell' ? shellRed : brass;
   casings.visible = true;
 }
 
@@ -677,9 +739,9 @@ const vmState = { mover: { vx: 0, vy: 0, vz: 0, grounded: true, crouch: false },
 
 // ---- State.
 let wanted = 'rifle'; // the weapon the arsenal holds
-let heldGun = 'rifle'; // arsenal: the registry gun behind it
 let shown = null; // the weapon on screen; lags `wanted` until a switch is down
 let raise = false; // just became visible: come up from below
+let scopedAway = false; // hidden by a full scope, not by death: no raise on the way out
 let shots = 0; // own shots since the last frame
 let lastNow = null;
 let lastYaw = 0;
@@ -716,9 +778,9 @@ const clamp = (v, max) => Math.max(-max, Math.min(max, v));
 const SNAP = 0.5; // rad in one frame: a respawn or a teleport, not a turn
 
 export function setGun(weapon, visible) {
-  heldGun = weapon; // arsenal: its own timings drive the borrowed model's reload and cycle
-  wanted = MODELS[weapon] ? weapon : MODELS[baseGun(weapon)] ? baseGun(weapon) : 'rifle';
+  wanted = MODELS[weapon] ? weapon : 'rifle';
   if (visible && !pose.visible) raise = true;
+  if (!visible) scopedAway = self.alive && !!self.arsenal && scopedIn(self.arsenal);
   pose.visible = visible;
 }
 
@@ -771,8 +833,6 @@ function aimForearms(arms) {
     bone.quaternion.setFromUnitVectors(dir, aim);
   }
 }
-const ORIGIN = [0, 0, 0];
-
 // Once per frame, after the world pass (it reads the world lights'
 // matrices) and before the viewmodel's: the world camera and scene, to
 // follow its turn and mirror its lights, and the renderer, to compile every
@@ -814,7 +874,7 @@ export function updateViewmodel(now, camera, scene, renderer) {
   castT += dt;
   if (raise) {
     raise = false;
-    switchT = LOOK.switchPose.out; // come up from the bottom
+    if (!scopedAway) switchT = LOOK.switchPose.out; // come up from the bottom
     lastYaw = camera.rotation.y;
     lastPitch = camera.rotation.x;
     turnYaw = turnPitch = 0;
@@ -824,7 +884,7 @@ export function updateViewmodel(now, camera, scene, renderer) {
   if (VM?.pose === 'switch') switchT = VM.t * SWITCH_SECONDS;
   if (shown !== wanted && (!shown || switchT >= LOOK.switchPose.out)) show(wanted);
   const m = MODELS[shown];
-  const w = WEAPONS[baseGun(heldGun) === shown ? heldGun : shown]; // arsenal: the held gun's timings
+  const w = WEAPONS[shown];
 
   // Sway trails the turn, per pixel of mouse in a 60 Hz frame. A recoil kick
   // turns the camera too, but the gun leads that rather than trailing it, so
@@ -880,7 +940,7 @@ export function updateViewmodel(now, camera, scene, renderer) {
     kick.v[3] += impulse(k.up, k.halflife);
     kick.v[5] += impulse(k.roll * r, k.halflife);
     if (m.eject) ejectAt = now + m.eject * 1000;
-    else eject(shown, m.port);
+    else eject(m);
   }
   springStep(kick, null, k.halflife, dt);
   if (VM?.pose === 'recoil') { // the kick as it stands that long after a shot
@@ -889,7 +949,7 @@ export function updateViewmodel(now, camera, scene, renderer) {
   }
   if (now >= ejectAt) {
     ejectAt = Infinity;
-    eject(shown, m.port);
+    eject(m);
   }
 
   // Reload and pump poses straight from the arsenal's timers.
@@ -932,7 +992,7 @@ export function updateViewmodel(now, camera, scene, renderer) {
   const { bones } = rigs[shown];
   place(bones.part, m.pivots.part, part.x);
   place(bones.left, m.pivots.left, left.x);
-  place(bones.slide, ORIGIN, slideAt);
+  place(bones.slide, m.pivots.slide, slideAt);
   bones.shell.scale.setScalar(held ? 1 : 0);
   bones.part.scale.setScalar(held && m.seat ? 0 : 1);
   aimForearms(m.arms);
