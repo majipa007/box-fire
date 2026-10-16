@@ -95,7 +95,7 @@ export function initMenu({ onPlay, onChange }) {
 const ACTION_NAMES = {
   forward: 'Move forward', back: 'Move back', left: 'Strafe left', right: 'Strafe right',
   jump: 'Jump', walk: 'Walk', crouch: 'Crouch', reload: 'Reload',
-  primary: 'Primary weapon', pistol: 'Pistol', picker: 'Pick primary', scoreboard: 'Scoreboard',
+  primary: 'Primary weapon', pistol: 'Sidearm', picker: 'Pick loadout', scoreboard: 'Scoreboard',
   usePowerup: 'Use power-up', cyclePowerup: 'Next power-up', use: 'Use power-up', cycle: 'Next power-up',
   aim: 'Aim / scope', // arsenal
 };

@@ -274,7 +274,11 @@
   #death-timer { margin-top: calc(10 * var(--u)); font: 700 calc(18 * var(--u)) var(--font); letter-spacing: 0.06em; }
   #death-timer b { color: var(--accent); }
   #picker { left: 50%; top: 58%; transform: translateX(-50%); pointer-events: auto; text-align: center; padding: 12px 18px; font-size: 14px;
-    background: rgba(21, 23, 28, 0.78); border: 1px solid var(--line); }
+    background: rgba(21, 23, 28, 0.78); border: 1px solid var(--line); width: min(94vw, 620px); max-height: calc(42vh - 6px); overflow-y: auto; box-sizing: border-box; }
+  #pick-secondary { margin-top: 10px; border-top: 1px solid var(--line); } /* arsenal: sidearms under the primaries */
+  @media (max-height: 460px) { /* arsenal: every gun still fits under the death card on a short view */
+    #picker { top: 56%; max-height: calc(44vh - 4px); padding: 5px 10px 6px; font-size: 12px; } #pick-secondary { margin-top: 5px; }
+    #picker button { margin: 5px 2px 0; padding: 6px 12px; font-size: 11px; } }
   #picker button { margin: 10px 4px 0; color: var(--text); background: rgba(242, 239, 232, 0.1); font-size: 13px; }
   #picker button.chosen { color: var(--ink); background: var(--accent); }
 
