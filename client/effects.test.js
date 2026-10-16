@@ -270,6 +270,72 @@ test('every power-up blast, the fizzle and a pickup spawn, then clear to nothing
   run(2);
 });
 
+// ---- arsenal: each gun's tracer, flash, holes and brass, by its class ----
+const A4 = (attr, i = 0) => attr.array.subarray(i * 4, i * 4 + 4);
+// One shot at the wall from 9 m off: its tracer's width, length and alpha in its first frame.
+function tracerOf(weapon) {
+  run(2);
+  fx.shot({ from: [0, 1.5, -1], ends: [[0, 1.5, -10]], weapon });
+  frame();
+  const at = streaks.geometry.attributes;
+  const [a, b, c] = [A4(at.aA), A4(at.aB), A4(at.aC)];
+  return { width: a[3], perM: b[3], length: Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]), alpha: c[3], chips: cubes.count };
+}
+function flashOf(...args) {
+  run(1);
+  fx.muzzle([0, 1.5, -3], [0, 0, -1], ...args);
+  frame();
+  let size = 0;
+  for (let i = 0; i < glows.geometry.instanceCount; i++) size = Math.max(size, A4(glows.geometry.attributes.aA, i)[3]);
+  return size;
+}
+
+test('tracers by class: the Surveyor a thick, bright, long one; the Grinder and Nailer faint', () => {
+  const [sniper, rifle, smg, mp, lmg] = ['sniper', 'rifle', 'smg', 'machinepistol', 'lmg'].map(tracerOf);
+  assert.ok(sniper.width >= rifle.width * 2 && sniper.perM > rifle.perM, `sniper ${sniper.width} vs rifle ${rifle.width}`);
+  assert.ok(sniper.length > rifle.length && sniper.alpha >= rifle.alpha, 'sniper long and bright');
+  for (const [faint, name] of [[smg, 'smg'], [mp, 'machinepistol']]) {
+    assert.ok(faint.alpha < rifle.alpha * 0.7 && faint.width < rifle.width && faint.length < rifle.length, `${name} faint: ${JSON.stringify(faint)}`);
+  }
+  assert.ok(lmg.width > rifle.width, 'the Piledriver heavier than the Mason');
+  assert.deepEqual(tracerOf('nope'), rifle, 'an unknown gun draws the rifle tracer');
+});
+
+test('the Surveyor and the Plumb leave a vapour trail hanging after the round lands; the Mason does not', () => {
+  for (const [weapon, trail] of [['sniper', true], ['marksman', true], ['rifle', false]]) {
+    tracerOf(weapon);
+    run(0.15); // the round crossed 9 m in under 30 ms
+    assert.equal(streaks.geometry.instanceCount > 0, trail, weapon);
+  }
+  run(2);
+  assert.equal(streaks.geometry.instanceCount, 0, 'and the trail clears');
+});
+
+test('muzzle flashes by class: the Sledge and the Crusher big, the Nailer small; the last shot picks when none is named', () => {
+  const [hand, shotgun, rifle, mp] = ['handcannon', 'shotgun', 'rifle', 'machinepistol'].map(flashOf);
+  assert.ok(hand >= rifle * 1.6 && shotgun > rifle, `handcannon ${hand}, shotgun ${shotgun}, rifle ${rifle}`);
+  assert.ok(mp < rifle, `machinepistol ${mp}`);
+  fx.shot({ from: [0, 1.5, -1], ends: [[0, 1.5, -10]], weapon: 'handcannon' });
+  assert.equal(flashOf(), hand, 'remote shots flash with the gun that just fired');
+});
+
+test('heavy rounds bite harder: more chips off concrete from the Surveyor and the Sledge than the Mason', () => {
+  const chips = (w) => tracerOf(w).chips;
+  assert.ok(chips('sniper') > chips('rifle') && chips('handcannon') > chips('rifle'));
+  assert.ok(chips('machinepistol') <= chips('pistol'));
+});
+
+test('the Sledge is a revolver: it throws no brass', () => {
+  run(3);
+  fx.casing([0, 1, 0], [1, 0, 0], 'handcannon');
+  frame();
+  assert.equal(cubes.count, 0);
+  fx.casing([0, 1, 0], [1, 0, 0], 'lmg');
+  frame();
+  assert.equal(cubes.count, 1);
+  run(3);
+});
+
 test('a thousand shots reuse the pools: no new objects', () => {
   const children = [...fx.effectsGroup.children];
   const arrays = fx.effectsGroup.children.map((o) => Object.values(o.geometry.attributes).map((a) => a.array));
