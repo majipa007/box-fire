@@ -185,6 +185,12 @@ test('every gun in the roster has its own third-person gun, from its look: its o
     if (WEAPONS[id].slot === 'secondary') assert.ok(back - front < 0.4, `${id}: a sidearm is short (${(back - front).toFixed(2)} m)`);
   }
   assert.equal(shapes.size, GUN_IDS.length, 'no two guns share a silhouette');
+  // Nothing floats: every gun box touches another of the same gun (a scope on its rings, a barrel in its receiver).
+  const touch = (a, b) => [0, 1, 2].every((k) => Math.abs(a.at[k] - b.at[k]) <= (a.size[k] + b.size[k]) / 2 + 0.002);
+  for (const id of GUN_IDS) {
+    const gun = PARTS.filter((p) => p.weapon === id);
+    for (const p of gun) assert.ok(gun.some((q) => q !== p && touch(p, q)), `${id}: ${p.name} floats free of the rest of the gun`);
+  }
   const length = (id) => { const g = PARTS.filter((p) => p.weapon === id); return Math.max(...g.map((p) => p.at[2] + p.size[2] / 2)) - Math.min(...g.map((p) => p.at[2] - p.size[2] / 2)); };
   assert.ok(length('sniper') > length('rifle') && length('rifle') > length('smg') && length('smg') > length('pistol'), 'longest to shortest: sniper, rifle, SMG, pistol');
 });

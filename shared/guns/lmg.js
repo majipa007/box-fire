@@ -13,7 +13,7 @@ export default {
       { c: 'brass', s: [0.05, 0.012, 0.04], at: [0, 0.122, -0.09] }, // the belt on the feed tray, seen with the cover up
       { c: 'metal', s: [0.016, 0.016, 0.03], at: [0.04, 0.08, -0.17] }, // charging handle
       { c: 'tan', s: [0.064, 0.055, 0.2], at: [0, 0.058, -0.34], tp: 'body' }, // forend
-      { c: 'dark', s: [0.044, 0.022, 0.24], at: [0, 0.1, -0.37] }, // heat shield
+      { c: 'dark', s: [0.044, 0.022, 0.24], at: [0, 0.1, -0.37], tp: 'body' }, // heat shield: in third person it reaches the barrel
       { c: 'metal', s: [0.018, 0.018, 0.2], at: [0, 0.042, -0.52] }, // gas tube
       { c: 'metal', s: [0.034, 0.034, 0.34], at: [0, 0.08, -0.62], hot: true, tp: 'barrel' }, // heavy barrel
       { c: 'dark', s: [0.042, 0.042, 0.05], at: [0, 0.08, -0.805], hot: true, tp: 'barrel' }, // flash hider
@@ -25,7 +25,7 @@ export default {
       { c: 'dark', s: [0.012, 0.012, 0.22], at: [0.016, 0.044, -0.66] },
       { c: 'dark', s: [0.035, 0.09, 0.05], at: [0, -0.005, 0.01], r: [-0.2618, 0, 0] }, // grip
       { c: 'dark', s: [0.012, 0.012, 0.07], at: [0, 0, -0.065] }, // trigger guard
-      { c: 'dark', s: [0.03, 0.035, 0.06], at: [0, 0.08, 0.12] }, // buffer
+      { c: 'dark', s: [0.03, 0.035, 0.06], at: [0, 0.08, 0.12], tp: 'stock' }, // buffer
       { c: 'dark', s: [0.05, 0.1, 0.2], at: [0, 0.06, 0.24], tp: 'stock' }, // stock
       { c: 'dark', s: [0.054, 0.106, 0.02], at: [0, 0.06, 0.345], tp: 'stock' }, // butt pad
       { bone: 'cover', c: 'dark', s: [0.066, 0.026, 0.17], at: [0, 0.133, -0.08] }, // feed cover
@@ -35,7 +35,7 @@ export default {
       { bone: 'mag', c: 'tan', s: [0.075, 0.11, 0.13], at: [-0.02, -0.03, -0.13], tp: 'mag' }, // ammo box
       { bone: 'mag', c: 'dark', s: [0.079, 0.014, 0.134], at: [-0.02, 0.022, -0.13] }, // its lid
       { bone: 'mag', c: 'metal', s: [0.01, 0.03, 0.03], at: [-0.06, -0.02, -0.13] }, // latch
-      { bone: 'mag', c: 'brass', s: [0.014, 0.06, 0.034], at: [-0.042, 0.06, -0.09] }, // the belt up the side
+      { bone: 'mag', c: 'brass', s: [0.014, 0.06, 0.034], at: [-0.042, 0.06, -0.09], tp: 'mag' }, // the belt up the side
       { bone: 'mag', c: 'brass', s: [0.03, 0.012, 0.034], at: [-0.03, 0.094, -0.09] },
     ],
   },

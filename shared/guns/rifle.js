@@ -13,7 +13,7 @@ export default {
       { c: 'dark', s: [0.012, 0.05, 0.02], at: [0, 0.13, -0.44] }, // front sight
       { c: 'metal', s: [0.04, 0.012, 0.03], at: [0, 0.121, 0.11] }, // charging handle
       { c: 'slot', s: [0.062, 0.01, 0.08], at: [0, 0.1, -0.17] }, // slot stripe
-      { c: 'metal', s: [0.064, 0.03, 0.08], at: [0, 0.03, -0.15] }, // magazine well
+      { c: 'metal', s: [0.064, 0.03, 0.08], at: [0, 0.03, -0.15], tp: 'mag' }, // magazine well: in third person it seats the magazine
       { c: 'dark', s: [0.035, 0.09, 0.05], at: [0, -0.005, 0.01], r: [-0.2618, 0, 0] }, // grip
       { c: 'dark', s: [0.01, 0.01, 0.07], at: [0, 0, -0.065] }, // trigger guard
       { c: 'tan', s: [0.055, 0.06, 0.22], at: [0, 0.075, -0.36], tp: 'body' }, // handguard

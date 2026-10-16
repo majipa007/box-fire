@@ -23,7 +23,7 @@ export default {
       { c: 'dark', s: [0.034, 0.1, 0.04], at: [0, -0.01, -0.27], r: [0.08, 0, 0], tp: 'fore' }, // vertical foregrip
       { c: 'dark', s: [0.035, 0.09, 0.05], at: [0, -0.005, 0.01], r: [-0.2618, 0, 0] }, // grip
       { c: 'dark', s: [0.01, 0.01, 0.06], at: [0, 0, -0.065] }, // trigger guard
-      { c: 'metal', s: [0.042, 0.03, 0.058], at: [0, 0.025, -0.145] }, // magazine well
+      { c: 'metal', s: [0.042, 0.03, 0.058], at: [0, 0.025, -0.145], tp: 'mag' }, // magazine well: in third person it seats the magazine
       { c: 'metal', s: [0.05, 0.05, 0.04], at: [0, 0.08, 0.09], tp: 'stock' }, // stock block
       { c: 'dark', s: [0.01, 0.01, 0.19], at: [-0.018, 0.09, 0.2], tp: 'stock' }, // stock rods
       { c: 'dark', s: [0.01, 0.01, 0.19], at: [0.018, 0.09, 0.2] },

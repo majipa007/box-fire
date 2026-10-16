@@ -28,10 +28,10 @@ export default {
       { c: 'dark', s: [0.012, 0.012, 0.2], at: [0.017, 0.012, -0.37] },
       { c: 'tan', s: [0.038, 0.095, 0.05], at: [0, -0.005, 0.014], r: [-0.3, 0, 0] }, // grip
       { c: 'dark', s: [0.01, 0.01, 0.06], at: [0, 0.008, -0.05] }, // trigger guard
-      { c: 'tan', s: [0.05, 0.1, 0.26], at: [0, 0.055, 0.25], tp: 'stock' }, // stock
+      { c: 'tan', s: [0.05, 0.1, 0.28], at: [0, 0.055, 0.24], tp: 'stock' }, // stock, up to the bolt shroud
       { c: 'dark', s: [0.042, 0.026, 0.14], at: [0, 0.117, 0.22] }, // cheek riser
       { c: 'dark', s: [0.054, 0.118, 0.02], at: [0, 0.05, 0.39], tp: 'stock' }, // butt pad
-      { bone: 'bolt', c: 'dark', s: [0.034, 0.034, 0.04], at: [0, 0.085, 0.08] }, // bolt shroud
+      { bone: 'bolt', c: 'dark', s: [0.034, 0.034, 0.04], at: [0, 0.085, 0.08], tp: 'body' }, // bolt shroud
       { bone: 'bolt', c: 'metal', s: [0.044, 0.01, 0.012], at: [0.036, 0.082, 0.062], r: [0, 0, -0.35] }, // bolt handle
       { bone: 'bolt', c: 'dark', s: [0.022, 0.022, 0.022], at: [0.058, 0.074, 0.062] }, // its knob
       { bone: 'mag', c: 'metal', s: [0.04, 0.05, 0.08], at: [0, 0.03, -0.1] }, // box magazine
