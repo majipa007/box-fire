@@ -25,8 +25,8 @@ import { GUNS, GUN_IDS } from '../shared/guns/index.js'; // arsenal: each gun's 
 //
 // arsenal: LOOK.guns, per gun class:
 //   tracer  length m, width × LOOK.tracer.width (and its per-metre growth),
-//           alpha, flight speed m/s, tail colour; vapour: a trail that hangs
-//           along the shot after the round lands (width m, life s, alpha);
+//           alpha, flight speed m/s, tail colour; vapour: a trail that forms
+//           behind the round and hangs `life` s after it lands (width m, alpha);
 //   flash   others' muzzle flash: star and glow m across, life s;
 //   chips   concrete chips a round knocks off; hole, its decal m across;
 //   casing  a LOOK.casing key, or null: a revolver keeps its brass.
@@ -114,6 +114,7 @@ const BEAM = 1;
 const RING = 2;
 const BAND = 3;
 const PUFF = 4;
+const VAPOUR = 5; // drawn as a soft BEAM that grows behind its round
 
 export const effectsGroup = new THREE.Group();
 
@@ -704,7 +705,8 @@ void main() {
     float half_ = max(0.5 * vMetres.y - vParam.y, 1e-4);
     float d = abs(vUv.y * 0.5 * vMetres.y - zig) / half_;
     if (d > 1.0) discard;
-    o = profile(d, vParam.w > 0.5 ? vec3(1.0) : uBeamCore, vColor.rgb, uDark, ${LOOK.bolt.fringeAlpha.toFixed(2)});
+    if (vParam.w > 1.5) o = vec4(mix(vec3(1.0), vColor.rgb, smoothstep(0.0, 0.5, d)), (1.0 - d) * (1.0 - d)); // vapour: soft all the way out
+    else o = profile(d, vParam.w > 0.5 ? vec3(1.0) : uBeamCore, vColor.rgb, uDark, ${LOOK.bolt.fringeAlpha.toFixed(2)});
   } else if (style == 2) {
     float r = length(vec2(vUv.x * 2.0 - 1.0, vUv.y)) * vMetres.x;
     float t = (vMetres.x - r) / max(vMetres.y, 1e-4); // 0 on the leading edge, 1 on the inner
@@ -837,8 +839,9 @@ function updateStreaks(dt) {
     const k = kind[i];
     const i3 = i * 3;
     const i4 = i * 4;
-    // A tracer lives until its tail reaches the impact (its life holds its speed); the rest by the clock.
-    const t = k === TRACER ? (age[i] * life[i]) / len[i] : age[i] / life[i];
+    // A tracer lives until its tail reaches the impact (its life holds its speed);
+    // a vapour trail for its life after its round lands (b holds the speed); the rest by the clock.
+    const t = k === TRACER ? (age[i] * life[i]) / len[i] : k === VAPOUR ? (age[i] - len[i] / b[i]) / life[i] : age[i] / life[i];
     if (t >= 1) {
       moveItem(streakFields, i, --streak.n);
       continue;
@@ -855,6 +858,17 @@ function updateStreaks(dt) {
       }
       A[i4 + 3] = LOOK.tracer.width * b[i]; // b: the gun's width factor
       B[i4 + 3] = LOOK.tracer.widthPerM * b[i];
+    } else if (k === VAPOUR) { // from the muzzle to the tracer's tail: never ahead of the round
+      const far = Math.min(age[i] * b[i], len[i]);
+      for (let j = 0; j < 3; j++) {
+        A[i4 + j] = p[i3 + j];
+        B[i4 + j] = p[i3 + j] + d[i3 + j] * far;
+      }
+      A[i4 + 3] = a[i];
+      B[i4 + 3] = 0;
+      D[i4] = BEAM;
+      D[i4 + 3] = 2; // a soft edge, not the Bolt's dark fringe
+      if (t > 0) alpha *= 1 - t * t;
     } else if (k === BEAM) {
       for (let j = 0; j < 3; j++) {
         A[i4 + j] = p[i3 + j];
@@ -1243,7 +1257,7 @@ export function addTracer(from, to, weapon = 'rifle') {
   _v.set(to[0] - from[0], to[1] - from[1], to[2] - from[2]).divideScalar(dist);
   spawnStreak(TRACER, _p.fromArray(from), _v, dist, t.length, t.width, toColor(t.tail ?? LOOK.tracer.tail), t.alpha, t.speed ?? LOOK.tracer.speed);
   const vap = t.vapour;
-  if (vap) spawnStreak(BEAM, _p, _v, dist, vap.width, 0, toColor(LOOK.tracer.vapour), vap.alpha, vap.life, -1); // seed -1: straight, a white core
+  if (vap) spawnStreak(VAPOUR, _p, _v, dist, vap.width, t.speed ?? LOOK.tracer.speed, toColor(LOOK.tracer.vapour), vap.alpha, vap.life);
 }
 
 // A Bolt: an instant zigzag beam from `from` to `to`, gone in 140 ms.

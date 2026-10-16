@@ -311,6 +311,37 @@ test('the Surveyor and the Plumb leave a vapour trail hanging after the round la
   assert.equal(streaks.geometry.instanceCount, 0, 'and the trail clears');
 });
 
+test('the vapour follows the round: nothing shows past the tracer head in flight, and it hangs its whole life after landing', () => {
+  // [gun, flight speed m/s, tracer length m, vapour life s], a 150 m shot down -z.
+  for (const [weapon, speed, length, life] of [['sniper', 900, 8, 0.7], ['marksman', 600, 4.5, 0.35]]) {
+    run(3);
+    const dist = 150;
+    fx.addTracer([0, 1.5, 0], [0, 1.5, -dist], weapon);
+    const at = streaks.geometry.attributes;
+    const reach = () => { // the farthest drawn point, and the longest streak, m
+      let far = 0;
+      let span = 0;
+      for (let i = 0; i < streaks.geometry.instanceCount; i++) {
+        const [a, b] = [-A4(at.aA, i)[2], -A4(at.aB, i)[2]];
+        far = Math.max(far, a, b);
+        span = Math.max(span, Math.abs(b - a));
+      }
+      return { far, span };
+    };
+    const landing = dist / speed;
+    let age = 0; // the first frame draws it where it starts
+    for (; age < landing; age += 1 / 60) {
+      frame();
+      const head = age * speed + length;
+      assert.ok(reach().far <= head + 1e-3, `${weapon} at ${age.toFixed(3)} s: drawn to ${reach().far} m, tracer head at ${head} m`);
+    }
+    run(life * 0.6);
+    assert.ok(reach().span >= dist * 0.95, `${weapon}: the trail still hangs along the shot ${(life * 0.6).toFixed(2)} s after landing`);
+    run(life * 0.5);
+    assert.equal(streaks.geometry.instanceCount, 0, `${weapon}: and then it clears`);
+  }
+});
+
 test('muzzle flashes by class: the Sledge and the Crusher big, the Nailer small; the last shot picks when none is named', () => {
   const [hand, shotgun, rifle, mp] = ['handcannon', 'shotgun', 'rifle', 'machinepistol'].map(flashOf);
   assert.ok(hand >= rifle * 1.6 && shotgun > rifle, `handcannon ${hand}, shotgun ${shotgun}, rifle ${rifle}`);
