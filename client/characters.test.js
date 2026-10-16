@@ -46,11 +46,13 @@ function bounds(cubes) {
   return box;
 }
 
-test('26 lit parts, an unlit visor, 16 outlined; slot colour only on torso, helmet, knee pads, armbands and visor', () => {
+test('23 lit body parts and at most 4 gun boxes, an unlit visor, 16 outlined; slot colour only on torso, helmet, knee pads, armbands and visor', () => {
   for (const weapon of Object.keys(GUNS)) {
     const mine = PARTS.filter((p) => !p.weapon || p.weapon === weapon);
-    assert.equal(mine.filter((p) => !p.unlit).length, 26, weapon);
-    assert.equal(mine.filter((p) => p.outline).length, 16, weapon);
+    const gun = mine.filter((p) => p.weapon);
+    assert.equal(mine.filter((p) => !p.unlit && !p.weapon).length, 23, weapon);
+    assert.ok(gun.length >= 2 && gun.length <= 4, `${weapon}: ${gun.length} gun boxes`);
+    assert.equal(mine.filter((p) => p.outline).length, 16, weapon); // the gun's body is the one outlined gun box
     assert.deepEqual(mine.filter((p) => p.unlit).map((p) => p.name), ['visor']);
   }
   const slot = PARTS.filter((p) => p.paint === 'slot').map((p) => p.name.replace(/[LR]$/, ''));
@@ -168,6 +170,25 @@ test('hands hold their grips for every weapon at any aim, kicked or not', () => 
   }
 });
 
+// arsenal: every gun in the roster is drawn, from the same look as the first-person gun.
+test('every gun in the roster has its own third-person gun, from its look: its own outline, the muzzle at its front', async () => {
+  const { GUN_IDS } = await import('../shared/guns/index.js');
+  const { WEAPONS } = await import('../shared/constants.js');
+  assert.deepEqual(Object.keys(GUNS).sort(), [...GUN_IDS].sort());
+  const shapes = new Set();
+  for (const id of GUN_IDS) {
+    const gun = PARTS.filter((p) => p.weapon === id);
+    const front = Math.min(...gun.map((p) => p.at[2] - p.size[2] / 2));
+    const back = Math.max(...gun.map((p) => p.at[2] + p.size[2] / 2));
+    assert.ok(Math.abs(front - GUNS[id].muzzle[2]) < 0.03, `${id}: muzzle ${GUNS[id].muzzle[2]} vs front ${front}`);
+    shapes.add(gun.map((p) => p.size.map((v) => v.toFixed(3)).join()).sort().join('|'));
+    if (WEAPONS[id].slot === 'secondary') assert.ok(back - front < 0.4, `${id}: a sidearm is short (${(back - front).toFixed(2)} m)`);
+  }
+  assert.equal(shapes.size, GUN_IDS.length, 'no two guns share a silhouette');
+  const length = (id) => { const g = PARTS.filter((p) => p.weapon === id); return Math.max(...g.map((p) => p.at[2] + p.size[2] / 2)) - Math.min(...g.map((p) => p.at[2] - p.size[2] / 2)); };
+  assert.ok(length('sniper') > length('rifle') && length('rifle') > length('smg') && length('smg') > length('pistol'), 'longest to shortest: sniper, rifle, SMG, pistol');
+});
+
 test('the muzzle is at the front of the drawn gun', () => {
   const { id } = show({ x: 1, z: 1 }, 20);
   const at = muzzleOf(id);
@@ -259,6 +280,8 @@ test('shadows off: a player in a wall\'s lee is dimmed by the sun rays, eased', 
 
 // (All three effects on all 10 at once, 10.6k, cannot happen: there is one Shield pad and a Shield lasts 8 s.)
 test('ten players, each with a Shield and Nitro or slowed: 6 draws and at most 10k triangles', () => {
+  const boxes = (w) => PARTS.filter((p) => p.weapon === w).length;
+  const heaviest = Object.keys(GUNS).reduce((a, b) => (boxes(b) > boxes(a) ? b : a)); // the gun with the most boxes
   const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.05, 200);
   camera.position.set(0, 1.6, 12);
   camera.updateMatrixWorld();
@@ -266,7 +289,7 @@ test('ten players, each with a Shield and Nitro or slowed: 6 draws and at most 1
   const roster = new Map();
   for (let i = 0; i < MAX_PLAYERS; i++) {
     const id = nextId++;
-    list.push({ id, x: i - 5, y: 0, z: 0, yaw: 0, pitch: 0, crouch: false, shielded: true, hp: 100, weapon: 'shotgun', bubble: true, nitro: i % 2 === 0, slowed: i % 2 === 1 });
+    list.push({ id, x: i - 5, y: 0, z: 0, yaw: 0, pitch: 0, crouch: false, shielded: true, hp: 100, weapon: heaviest, bubble: true, nitro: i % 2 === 0, slowed: i % 2 === 1 });
     roster.set(id, { name: `n${i}`, slot: i });
   }
   for (let f = 0; f < 30; f++) {

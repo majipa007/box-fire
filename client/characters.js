@@ -13,15 +13,19 @@
 import * as THREE from 'three';
 import { PLAYER_COLORS, STAND_HEIGHT, CROUCH_HEIGHT, PLAYER_WIDTH, RUN_SPEED, MAX_PLAYERS } from '../shared/constants.js';
 import { rayBox } from '../shared/collision.js';
-import { baseGun } from '../shared/guns/index.js'; // arsenal: guns without their own model or sound borrow a launch gun's
+import { GUNS as ROSTER, GUN_IDS } from '../shared/guns/index.js'; // arsenal: each gun is drawn from its look
 
 const D = Math.PI / 180;
+const add = (a, b) => a.map((v, i) => v + b[i]);
+// Third-person guns: look space × this per slot, and the paint for each look colour (gunParts).
+const TP_SCALE = { primary: [1.2, 1.2, 0.6], secondary: [1.3, 1.4, 1.1] };
+const TP_PAINT = { metal: 'gun', dark: 'boot', tan: 'tan' };
 
 // ─── Look: every number an art pass may tune ────────────────────────────────
 // Metres, radians, milliseconds. The rig faces -z, +x is its right and y is up
 // from the soles.
 const LOOK = {
-  paints: { kit: '#24272d', boot: '#1b1d22', glove: '#3a3d44', pack: '#c7b48e', gun: '#2e3136' },
+  paints: { kit: '#24272d', boot: '#1b1d22', glove: '#3a3d44', pack: '#c7b48e', gun: '#2e3136', tan: '#b9a27a' },
   lift: 0.35, // self-lit share of the albedo, so slot hues hold in shade
   // Bevels: every box's edges lighten (albedo × gain + add) over `width` m, so dark kit, gloves and
   // gun read as separate parts up close; they fade out between `fade` m, where the outline takes over.
@@ -62,7 +66,7 @@ const LOOK = {
 // above the sole; the gun bone sits on the right-hand grip with the barrel
 // along -z. Paint 'slot' is the player's slot colour; 'visor' is that at full
 // value, unlit. `outline` parts get a hull; gun parts carry a `weapon` and are
-// drawn only while it is held.
+// drawn only while it is held (gunParts, below).
 const pair = (part) => ['L', 'R'].map((s) => ({ ...part, name: part.name + s, bone: part.bone + s }));
 export const PARTS = [
   { name: 'belt', bone: 'pelvis', paint: 'kit', size: [0.38, 0.12, 0.24], at: [0, 0.03, 0], outline: true },
@@ -81,25 +85,53 @@ export const PARTS = [
   ...pair({ name: 'shin', bone: 'shin', paint: 'kit', size: [0.14, 0.36, 0.16], at: [0, -0.18, 0], outline: true }),
   ...pair({ name: 'kneePad', bone: 'shin', paint: 'slot', size: [0.15, 0.1, 0.04], at: [0, -0.04, -0.09] }),
   ...pair({ name: 'boot', bone: 'foot', paint: 'boot', size: [0.16, 0.12, 0.26], at: [0, 0.02, -0.04], outline: true }),
-  { name: 'rifleReceiver', bone: 'gun', weapon: 'rifle', paint: 'gun', size: [0.06, 0.09, 0.42], at: [0, 0.05, -0.14], outline: true },
-  { name: 'rifleMag', bone: 'gun', weapon: 'rifle', paint: 'gun', size: [0.04, 0.12, 0.06], at: [0, -0.05, -0.1] },
-  { name: 'rifleStock', bone: 'gun', weapon: 'rifle', paint: 'gun', size: [0.05, 0.08, 0.16], at: [0, 0.03, 0.15] },
-  { name: 'pistolSlide', bone: 'gun', weapon: 'pistol', paint: 'gun', size: [0.04, 0.06, 0.2], at: [0, 0.05, -0.06], outline: true },
-  { name: 'pistolGrip', bone: 'gun', weapon: 'pistol', paint: 'gun', size: [0.035, 0.11, 0.05], at: [0, -0.01, 0.01] },
-  { name: 'pistolGuard', bone: 'gun', weapon: 'pistol', paint: 'gun', size: [0.03, 0.03, 0.07], at: [0, 0.005, -0.06] },
-  { name: 'shotgunReceiver', bone: 'gun', weapon: 'shotgun', paint: 'gun', size: [0.065, 0.09, 0.56], at: [0, 0.05, -0.18], outline: true },
-  { name: 'shotgunPump', bone: 'gun', weapon: 'shotgun', paint: 'gun', size: [0.06, 0.06, 0.15], at: [0, -0.02, -0.33] },
-  { name: 'shotgunStock', bone: 'gun', weapon: 'shotgun', paint: 'gun', size: [0.055, 0.1, 0.18], at: [0, 0.02, 0.18] },
+  ...GUN_IDS.flatMap((id) => gunParts(ROSTER[id])),
 ];
+
+// Each third-person gun comes from the same look as the first-person one
+// (shared/guns/*.js): the boxes sharing a `tp` tag merge into one box, their
+// bounds with rotations included, coloured as the biggest of them; untagged
+// details drop. At most 4 boxes, so 10 players stay inside 10k triangles; the
+// 'body' box is the one with an outline. Gun space is the look's, squashed to
+// the soldier's proportions: a long gun keeps its cross-section and loses
+// length, a sidearm grows a little all round.
+function gunParts(g) {
+  const k = TP_SCALE[g.slot];
+  const groups = new Map();
+  const corner = new THREE.Vector3();
+  for (const p of g.look.parts) {
+    if (!p.tp) continue;
+    if (!groups.has(p.tp)) groups.set(p.tp, { box: new THREE.Box3(), paint: 'gun', biggest: 0 });
+    const group = groups.get(p.tp);
+    const turn = new THREE.Euler(...(p.r ?? [0, 0, 0]));
+    for (let i = 0; i < 8; i++) {
+      corner.set(i & 1 ? 0.5 : -0.5, i & 2 ? 0.5 : -0.5, i & 4 ? 0.5 : -0.5).multiply(new THREE.Vector3(...p.s)).applyEuler(turn).add(new THREE.Vector3(...p.at));
+      group.box.expandByPoint(corner);
+    }
+    const volume = p.s[0] * p.s[1] * p.s[2];
+    if (volume > group.biggest) [group.biggest, group.paint] = [volume, TP_PAINT[p.c] ?? 'gun'];
+  }
+  return [...groups].map(([tp, { box, paint }]) => ({
+    name: g.id + tp[0].toUpperCase() + tp.slice(1), bone: 'gun', weapon: g.id, paint,
+    size: box.getSize(new THREE.Vector3()).toArray().map((v, i) => v * k[i]),
+    at: box.getCenter(new THREE.Vector3()).toArray().map((v, i) => v * k[i]),
+    ...(tp === 'body' && { outline: true }),
+  }));
+}
 
 // Per weapon: where the gun bone sits from the aim pivot (between the
 // shoulders) at zero pitch, the torso's stance twist, each hand's grip and
-// the muzzle in gun space.
-export const GUNS = {
-  rifle: { hold: [0.08, -0.14, -0.2], twist: -0.35, left: [0, -0.01, -0.29], right: [0, -0.02, 0], muzzle: [0, 0.05, -0.36] },
-  pistol: { hold: [0.03, -0.08, -0.36], twist: 0, left: [-0.03, -0.04, 0.02], right: [0, -0.02, 0], muzzle: [0, 0.05, -0.17] },
-  shotgun: { hold: [0.08, -0.14, -0.17], twist: -0.35, left: [0, -0.04, -0.33], right: [0, -0.02, 0], muzzle: [0, 0.05, -0.47] },
-};
+// the muzzle in gun space. Long guns are shouldered, turned into the stance,
+// the left hand under the look's `fore`; sidearms are held out square in both
+// hands.
+export const GUNS = Object.fromEntries(GUN_IDS.map((id) => {
+  const { slot, look } = ROSTER[id];
+  const k = TP_SCALE[slot];
+  const scaled = (v) => v.map((x, i) => x * k[i]);
+  return [id, slot === 'primary'
+    ? { hold: [0.08, -0.14, -0.2], twist: -0.35, left: add(scaled(look.fore), [0, -0.045, 0]), right: [0, -0.02, 0], muzzle: scaled(look.muzzle) }
+    : { hold: [0.03, -0.08, -0.36], twist: 0, left: [-0.03, -0.04, 0.02], right: [0, -0.02, 0], muzzle: scaled(look.muzzle) }];
+}));
 
 // The skeleton. The pelvis height is derived, never set: the hips sit just
 // low enough, and far enough back, that the helmet tops out on the hitbox,
@@ -546,7 +578,7 @@ function dress(rig, slot) {
 // last frame (just joined, respawned or un-hidden), so snap rather than blend,
 // and assemble the body.
 function animate(rig, p, dt, fresh, boxes, now) {
-  rig.weapon = GUNS[p.weapon] ? p.weapon : GUNS[baseGun(p.weapon)] ? baseGun(p.weapon) : 'rifle'; // arsenal: class fallback
+  rig.weapon = GUNS[p.weapon] ? p.weapon : 'rifle';
   rig.ground = groundBelow(p, boxes);
   const air = p.y - rig.ground > AIR_GAP ? 1 : 0;
   const h = clamp(dt, 0, 0.1);
@@ -897,7 +929,7 @@ function lineup(now) {
     const shade = LINEUP === 'shade';
     const list = NAMES.map((name, i) => ({
       id: 1001 + i, x: shade ? 8.9 : -4.05 + 0.9 * i, y: 0, z: shade ? 4 + 0.9 * i : 3, yaw: (shade ? -Math.PI / 2 : Math.PI) + TURN, pitch: 0,
-      crouch: CROUCH, alive: true, shielded: false, hp: 100, weapon: ['rifle', 'pistol', 'shotgun'][i % 3],
+      crouch: CROUCH, alive: true, shielded: false, hp: 100, weapon: GUN_IDS[i % GUN_IDS.length], // the whole roster, one gun each
       bubble: false, nitro: false, slowed: false,
     }));
     fakes = { list, roster: new Map(list.map((p, i) => [p.id, { name: NAMES[i], slot: i }])), x: list.map((p) => p.x) };
