@@ -94,3 +94,18 @@ test('the scope overlay shows only fully scoped, with the zoom the fov gives', (
   assert.equal(scopeOverlay('sniper', 0, 90), null);
   for (const id of GUN_IDS.filter((g) => !GUNS[g].scope)) assert.equal(scopeOverlay(id, 1, 90), null, id);
 });
+
+// arsenal: docs/guns.md says a new gun keeps icon: null until it is drawn.
+// The HUD must still load, and draw the launch gun nearest its class.
+test('a gun whose icon is still null wears its base gun\'s silhouette instead of breaking the HUD', async () => {
+  const { baseGun } = await import('../shared/guns/index.js');
+  const saved = GUNS.marksman.icon;
+  GUNS.marksman.icon = null;
+  try {
+    const fresh = await import('./ui.js?icon-null'); // a new module instance, same GUNS
+    assert.equal(fresh.ICONS.marksman, fresh.ICONS[baseGun('marksman')]);
+    assert.match(fresh.ICONS.marksman, /^<svg viewBox/);
+  } finally {
+    GUNS.marksman.icon = saved;
+  }
+});

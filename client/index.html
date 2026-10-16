@@ -150,7 +150,7 @@
   #scope .rim.ink { stroke-width: 5px; opacity: 1; }
   #scope .rim.lit { stroke: rgba(242, 239, 232, 0.35); stroke-width: 1.5px; }
   #scope .dot { fill: var(--accent); stroke: var(--ink); stroke-width: 1.5px; }
-  #scope-zoom { position: absolute; left: calc(50% + var(--sr) * 0.42); top: calc(50% + var(--sr) * 0.5); font: 700 calc(14 * var(--u)) var(--font); letter-spacing: 0.12em; color: var(--text); opacity: 0.85; }
+  #scope-zoom { position: absolute; left: calc(50% + var(--sr) * 0.42); top: calc(50% + var(--sr) * 0.5); font: 700 calc(18 * var(--u)) var(--font); letter-spacing: 0.12em; color: var(--text); opacity: 0.85; }
 
   /* Hit marker: 4 diagonal strokes, 5 px out. Kill: a big red X. */
   #hitmarker, #killx { left: 50%; top: 50%; width: 0; height: 0; opacity: 0; }
@@ -289,14 +289,14 @@
   #powerups { display: none !important; } /* hud: the provisional strip from powerups.js; ui.js draws the slots */
 
   /* arsenal: the respawn screen. The death card stacks over the loadout panel,
-     centred between the top-centre plates and the power-up slots, so both fit
-     at 960 x 540 (where --u is 0.8). */
-  #respawn { left: 0; right: 0; top: calc(116 * var(--u)); bottom: calc(96 * var(--u)); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(10 * var(--u)); }
+     centred between the top-centre plates and the HP and ammo plates (tops at
+     110u), so both fit at 960 x 540 (where --u is 0.8). */
+  #respawn { left: 0; right: 0; top: calc(116 * var(--u)); bottom: calc(112 * var(--u)); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(6 * var(--u)); }
   #death { display: grid; grid-template-columns: auto auto; justify-content: center; align-items: center; column-gap: calc(24 * var(--u)); min-width: calc(360 * var(--u)); text-align: center;
-    padding: calc(12 * var(--u)) calc(30 * var(--u)) calc(14 * var(--u)); background: rgba(21, 23, 28, 0.78); clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px)); }
+    padding: calc(8 * var(--u)) calc(30 * var(--u)) calc(10 * var(--u)); background: rgba(21, 23, 28, 0.78); clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px)); }
   #death .eyebrow, #death-killer { grid-column: 1 / -1; }
   #death .eyebrow { font-size: calc(14 * var(--u)); }
-  #death-killer { font: 700 calc(28 * var(--u))/1.2 var(--font); letter-spacing: 0.04em; margin: calc(2 * var(--u)) 0 calc(6 * var(--u)); }
+  #death-killer { font: 700 calc(28 * var(--u))/1.2 var(--font); letter-spacing: 0.04em; margin: 0 0 calc(4 * var(--u)); }
   #death-how { display: flex; align-items: center; justify-content: center; gap: calc(10 * var(--u)); font-size: calc(14 * var(--u)); color: var(--dim); }
   #death-how .ico { height: calc(24 * var(--u)); color: var(--text); }
   #death-timer { font: 700 calc(18 * var(--u)) var(--font); letter-spacing: 0.06em; }

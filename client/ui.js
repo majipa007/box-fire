@@ -4,7 +4,7 @@
 // DOM when a value changes.
 import { PLAYER_COLORS, NAME_MAX, PRIMARIES, SECONDARIES, POWER_COLORS, WEAPONS, KILL_TARGET } from '../shared/constants.js'; // arsenal: SECONDARIES
 import { byScore } from '../shared/protocol.js';
-import { GUNS, GUN_IDS } from '../shared/guns/index.js'; // arsenal: each gun file's icon
+import { GUNS, GUN_IDS, baseGun } from '../shared/guns/index.js'; // arsenal: each gun file's icon
 
 // ---- Look: timings and the few colours CSS can't own. ----
 const LOOK = {
@@ -188,6 +188,9 @@ const spikes = Array.from({ length: 16 }, (_, i) => {
   const r = i % 2 ? 7.2 : 11;
   return `${(12 + r * Math.cos(a)).toFixed(2)} ${(12 + r * Math.sin(a)).toFixed(2)}`;
 }).join(' L');
+// arsenal: a gun still at icon: null (docs/guns.md, step 2) wears the launch
+// gun nearest its class, so a new gun never breaks the HUD.
+const drawnIcon = (id) => (GUNS[id].icon?.d ? GUNS[id].icon : GUNS[baseGun(id)].icon ?? {});
 export const ICONS = {
   shunt: svg('0 0 24 24', path('M12 1.5 L20.5 21.5 L12 16.5 L3.5 21.5 Z')),
   bolt: svg('0 0 24 24', path('M14.5 1 L4 13.5 H10.8 L8.8 23 L20 9.5 H13.4 Z')),
@@ -198,14 +201,14 @@ export const ICONS = {
   shield: svg('0 0 24 24', `${path('M12 1.5 L21.1 6.75 V17.25 L12 22.5 L2.9 17.25 V6.75 Z')}<path d="M12 6 L17 8.9 V12 L12 9.1 L7 12 V8.9 Z" fill="#ffffff" fill-opacity="0.55" stroke="none"/>`),
   repair: svg('0 0 24 24', path('M9 2 H15 V9 H22 V15 H15 V22 H9 V15 H2 V9 H9 Z')),
   // arsenal: every gun's silhouette comes from its own file (shared/guns, icon: { w, h, d }).
-  ...Object.fromEntries(GUN_IDS.map((id) => { const { w, h, d } = GUNS[id].icon; return [id, svg(`0 0 ${w} ${h}`, path(d))]; })),
+  ...Object.fromEntries(GUN_IDS.map((id) => { const { w, h, d } = drawnIcon(id); return [id, d ? svg(`0 0 ${w} ${h}`, path(d)) : '']; })),
   // A helmet in profile, facing right, with a crack through the shell.
   head: svg('0 0 22 18', `${path('M2 16 V9.5 C2 4.5 5.5 1.5 10.5 1.5 C15.5 1.5 18.5 4.5 19 9 L21 11.5 V13.5 H14 V16 Z')}<path d="M9.5 2 L7.6 6 L10.4 8.2 L8.6 12.5" fill="none" style="stroke-width:1.8px;paint-order:normal"/>`),
 };
 const CROWN = svg('0 0 20 14', '<path d="M1 3.5 L6 8 L10 1 L14 8 L19 3.5 L17 13 H3 Z" fill="#d9b45a"/>');
 const CHEVRON = svg('0 0 18 18', '<path d="M9 1.5 L16.5 15 L9 11 L1.5 15 Z" fill="#ff2a1a" stroke="#15171c" stroke-width="1.5" paint-order="stroke"/>');
 // width / height of the viewBox; power-up glyphs are square.
-const ASPECT = { head: '1.22', ...Object.fromEntries(GUN_IDS.map((id) => [id, String(GUNS[id].icon.w / GUNS[id].icon.h)])) };
+const ASPECT = { head: '1.22', ...Object.fromEntries(GUN_IDS.map((id) => { const { w = 1, h = 1 } = drawnIcon(id); return [id, String(w / h)]; })) };
 
 function setIcon(el, kind, color) {
   el.innerHTML = ICONS[kind] ?? '';
