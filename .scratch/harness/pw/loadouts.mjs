@@ -1,5 +1,5 @@
-// Live loadout smoke: every primary and every sidearm, picked through the
-// loadout message the client sends on joining. For each pair the browser
+// Live loadout smoke: every primary and every sidearm, chosen through the
+// pick the client sends inside its join message. For each pair the browser
 // (re)joins with the pair saved, spawns, fires the primary (a scoped gun
 // scopes first), switches to the sidearm and fires it. A watcher socket
 // checks the server spawned the pair and fired each gun; the page's HUD must
@@ -49,6 +49,7 @@ const hud = () => page.evaluate(() => ({
   name: document.getElementById('wname').textContent,
   mag: Number(document.getElementById('mag').textContent),
   corr: Number(/corr (\d+) mm/.exec(document.getElementById('stats')?.textContent ?? '')?.[1] ?? 0),
+  spread: Number(/spread ([\d.]+)°/.exec(document.getElementById('stats')?.textContent ?? '')?.[1] ?? NaN),
 }));
 
 // Fire the held gun, sampling the HUD: autos hold for four rounds, anything else
@@ -57,7 +58,12 @@ const hud = () => page.evaluate(() => ({
 async function fire(id) {
   const w = GUNS[id], samples = [];
   const sample = async () => { const h = await hud(); samples.push(h); return h; };
-  if (w.scope) { await page.mouse.down({ button: 'right' }); await sleep(w.scope.inSeconds * 1000 + 300); }
+  if (w.scope) {
+    await page.mouse.down({ button: 'right' });
+    await sleep(w.scope.inSeconds * 1000);
+    // The scoped cone, not the hip's, or the scope never engaged (polled: a starved page answers late).
+    for (const end = Date.now() + 5000; Date.now() < end && !((samples.scopeSpread = (await hud()).spread) <= w.scope.spread + 0.2); await sleep(100));
+  }
   for (let c = 0; c < (w.mode === 'auto' ? 1 : 3); c++) {
     const before = (await sample()).mag;
     await page.mouse.down();
@@ -98,12 +104,15 @@ async function runPair(i, primary, secondary) {
   const from = seen.spawns.length; // before the join: a rejoin past its respawn time spawns at once
   await page.click('#join-form button');
   if (i === 0) {
-    await until('tester in the lobby', () => (me = seen.players.find((p) => p.name === 'Tester')?.id) != null);
-    await sleep(300); // the loadout message follows the welcome
+    await until('tester in the lobby', () => seen.players.some((p) => p.name === 'Tester'));
+    await sleep(300);
     watcher.send(JSON.stringify({ t: 'start' }));
   }
-  await page.waitForSelector('#menu:not([hidden])', { timeout: 15000 });
-  await until(`tester spawned with ${primary} + ${secondary}`, () => seen.spawns.slice(from).some((s) => s.id === me && s.primary === primary && s.secondary === secondary), 15000);
+  // The tester's id, read again each join: a long run can outlast the match,
+  // and a tester dropped as it ends rejoins the next one as a new player
+  // (the 15 s scoreboard first).
+  await page.waitForSelector('#menu:not([hidden])', { timeout: 30000 });
+  await until(`tester spawned with ${primary} + ${secondary}`, () => seen.spawns.slice(from).some((s) => s.id === (me = seen.players.find((p) => p.name === 'Tester' && p.connected)?.id) && s.primary === primary && s.secondary === secondary), 30000);
   seen.dropped = false; // the reload's own disconnect is over
   // The longest the page's main thread went without running a 50 ms timer.
   await page.evaluate(() => { let t = performance.now(); window.__stall = 0; setInterval(() => { const n = performance.now(); window.__stall = Math.max(window.__stall, n - t); t = n; }, 50); });
@@ -119,10 +128,11 @@ async function runPair(i, primary, secondary) {
     const end = await settle(count);
     samples.push(end);
     const fired = count();
-    const jumps = samples.filter((s, k) => k && s.mag > samples[k - 1].mag && s.mag !== GUNS[id].mag).length; // a refill other than a reload
-    const r = { id, slot, fired, mag: `${start.mag} -> ${end.mag}`, name: end.name, corrMax: Math.max(...samples.map((s) => s.corr)), jumps, stall: Math.round(await page.evaluate(() => window.__stall)) };
-    r.ok = fired > 0 && start.name === GUNS[id].name && end.name === GUNS[id].name && jumps === 0 && r.corrMax < 50
-      && (end.mag === start.mag - fired || (GUNS[id].perShell && end.mag >= start.mag - fired) || end.mag === GUNS[id].mag);
+    const jumps = samples.filter((s, k) => k && s.mag > samples[k - 1].mag).length; // no gun here empties, so any refill is a correction
+    const scoped = !GUNS[id].scope || samples.scopeSpread <= GUNS[id].scope.spread + 0.2;
+    const r = { id, slot, fired, ...(GUNS[id].scope && { scopeSpread: samples.scopeSpread }), mag: `${start.mag} -> ${end.mag}`, name: end.name, corrMax: Math.max(...samples.map((s) => s.corr)), jumps, stall: Math.round(await page.evaluate(() => window.__stall)) };
+    r.ok = fired > 0 && scoped && start.name === GUNS[id].name && end.name === GUNS[id].name && jumps === 0 && r.corrMax < 50
+      && (end.mag === start.mag - fired || (GUNS[id].perShell && end.mag >= start.mag - fired));
     rs.push(r);
     console.log(JSON.stringify(r));
   }
@@ -133,15 +143,15 @@ async function runPair(i, primary, secondary) {
 
 for (const [i, primary] of PRIMARIES.entries()) {
   const secondary = SECONDARIES[i % SECONDARIES.length];
-  for (;;) {
+  for (let tries = 0; ; tries++) {
     const rs = await runPair(i + drops, primary, secondary);
     // A starved headless page (SwiftShader on a loaded machine) can freeze for
     // seconds: its inputs then reach the server in a lump, past what the input
     // buffer keeps, and the netcode rightly corrects, or it stops answering
     // pings for DEAD_MS and is dropped while predicting alone. Neither is the
     // gun's fault, so a pair that failed through a freeze of over 1.5 s, or a
-    // drop, runs again (a few times at most). A failure without one stands.
-    if (!seen.dropped && rs.every((r) => r.ok || r.stall < 1500) || drops >= 6) { results.push(...rs); break; }
+    // drop, runs again (four times a pair at most). A failure without one stands.
+    if (!seen.dropped && rs.every((r) => r.ok || r.stall < 1500) || tries >= 4) { results.push(...rs); break; }
     drops++;
     console.log(JSON.stringify({ rerun: primary, dropped: seen.dropped, retry: drops }));
   }
@@ -150,6 +160,10 @@ for (const [i, primary] of PRIMARIES.entries()) {
   await dump();
   throw e;
 }
+// The loadout picker (B) over the last pair, to check it fits the view.
+await page.keyboard.press('KeyB');
+await sleep(600);
+await page.screenshot({ path: path.join(out, `loadout-picker-${vw}x${vh}.png`) });
 watcher.close();
 await browser.close();
 const bad = results.filter((r) => !r.ok);

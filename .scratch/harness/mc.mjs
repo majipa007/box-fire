@@ -9,7 +9,7 @@
 // trial fires the gun the way it is meant to be fired, tick by tick through
 // stepWeapon: autos hold the trigger, semis click as fast as the gun allows,
 // a burst gun clicks as each burst comes up, a scoped gun scopes in first
-// (the scope time is not counted) and the shotgun pumps. A magazine that runs
+// (the scope time is counted, see TTK below) and the shotgun pumps. A magazine that runs
 // dry reloads and the reload counts. Recoil kick is client camera only and is
 // assumed pulled down; the server's spread and bloom are all simulated.
 // Conditions:
