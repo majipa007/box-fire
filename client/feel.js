@@ -155,9 +155,10 @@ export function resetFeel() {
 // Once per frame, before the camera is placed. look is the live aim
 // ({ yaw, pitch }), which this kicks and recovers; me is our mover, or null
 // when we are not playing; trigger is spraying(arsenal); heat is the
-// arsenal's spray heat, which widens the real cone.
+// arsenal's spray heat, which widens the real cone; scoped (arsenal:
+// scopedIn) narrows it to a scoped gun's scope cone.
 // Returns view.
-export function updateFeel(frameMs, now, look, me, weapon, trigger, heat = 0) {
+export function updateFeel(frameMs, now, look, me, weapon, trigger, heat = 0, scoped = false) {
   const dt = Math.min(frameMs, MAX_DT_MS);
   me ??= STILL;
 
@@ -205,7 +206,7 @@ export function updateFeel(frameMs, now, look, me, weapon, trigger, heat = 0) {
   look.yaw = seenYaw = yaw;
 
   // Crosshair.
-  crosshair.cone = spreadDegrees(weapon, me, heat); // the real cone, spray bloom included
+  crosshair.cone = spreadDegrees(weapon, me, heat, scoped); // the real cone, spray bloom included (arsenal: scoped)
   spread += (crosshair.cone - spread) * ease(LOOK.spreadHalfLife, dt);
   bloom *= 2 ** (-dt / LOOK.bloomHalfLife);
   crosshair.spread = spread + bloom;

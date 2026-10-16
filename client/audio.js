@@ -14,6 +14,7 @@ import { shotRng } from '../shared/rng.js';
 import { prepareMap } from '../shared/collision.js';
 import { SHOT_RANGE, POWER_COLORS } from '../shared/constants.js';
 import { KEY } from '../shared/movement.js';
+import { baseGun } from '../shared/guns/index.js'; // arsenal: guns without their own model or sound borrow a launch gun's
 // Namespaces, not named imports, for both power-up wires: the engine wave's
 // padsFor and entity tuple are gone (or going) from the bible's modules, and
 // one missing named import fails the whole page.
@@ -978,6 +979,7 @@ function muffleTo(hz) {
 // --- Weapons and the world. dist in metres, pan from -1 (left) to 1 (right). ---
 // weapon: 'rifle' | 'pistol' | 'shotgun' | 'bolt'.
 export const gunshot = safe((weapon, dist = 0, pan = 0) => {
+  weapon = baseGun(weapon); // arsenal
   const kind = GUNSHOTS[weapon] && weapon !== 'transient' ? weapon : 'rifle';
   const pri = dist > 0 ? PRI.gun : PRI.self;
   play(`gun.${kind}`, { dist, pan, pri });

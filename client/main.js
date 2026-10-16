@@ -16,9 +16,9 @@ import { prepareMap } from '../shared/collision.js';
 import { initCharacters, setShadows as rigShadows } from './characters.js'; // characters: map, sun and camera; the shadows setting
 import { SUN_DIR } from './world.js'; // characters: for the shadows-off fallback
 import { Vector3 } from 'three';
-import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf, hitboxes, shotHeat } from '../shared/weapons.js'; // effects: hitboxes; weapons: shotHeat
+import { freshLife, eyeOf, aimDir, traceShot, shotDirs, weaponOf, hitboxes, shotHeat, scopedIn, scopeShare } from '../shared/weapons.js'; // effects: hitboxes; weapons: shotHeat; arsenal: scope
 import { shotRng } from '../shared/rng.js';
-import { WEAPONS } from '../shared/constants.js'; // hud: reload progress
+import { WEAPONS, PRIMARIES, SECONDARIES } from '../shared/constants.js'; // hud: reload progress; arsenal: the saved loadout
 import * as characters from './characters.js'; // hud: nameTags()
 
 const STEP_MS = 1000 / TICK_RATE;
@@ -50,7 +50,11 @@ const net = connect({
     mapId = m.map;
     seed = m.seed;
     ui.showRoom();
-    if (ui.settings.primary !== 'rifle') net.send({ t: 'loadout', primary: ui.settings.primary });
+    // arsenal: the saved loadout, each id only if this build still lists it.
+    const lo = { t: 'loadout' };
+    if (PRIMARIES.includes(ui.settings.primary)) lo.primary = ui.settings.primary;
+    if (SECONDARIES.includes(ui.settings.secondary)) lo.secondary = ui.settings.secondary;
+    if (lo.primary || lo.secondary) net.send(lo);
     loadStage();
   },
   lobby(m) {
@@ -94,7 +98,7 @@ const net = connect({
     audio.event(m, myId, heard); // audio: the engine's pickups, uses and blasts (client/powerups.js plays the bible's)
     if (m.e === 'pickup' && m.id === myId) ui.powerToast(m.k); // hud: (powerups: client/powerups.js toasts the bible's 'pick')
     if (m.e === 'spawn' && m.id === myId) {
-      Object.assign(self, freshLife(m.x, m.y, m.z, m.primary)); // exactly as the server builds it
+      Object.assign(self, freshLife(m.x, m.y, m.z, m.primary, m.secondary)); // exactly as the server builds it (arsenal: both picks)
       self.pending = [];
       prev = { x: m.x, y: m.y, z: m.z };
       input.look.yaw = m.yaw;
@@ -164,12 +168,14 @@ addEventListener('keydown', (e) => {
   if (card && !e.repeat) vote(card.id);
 });
 
-// null toggles the picker; a primary is chosen for the next spawn.
-function pick(primary) {
-  if (!primary) return ui.showPicker(!ui.pickerOpen());
-  ui.settings.primary = primary;
+// null toggles the picker; a gun is chosen for the next spawn (arsenal: a
+// primary or a sidearm, by its registry slot).
+function pick(id) {
+  if (!id) return ui.showPicker(!ui.pickerOpen());
+  const slot = WEAPONS[id].slot;
+  ui.settings[slot] = id;
   ui.saveSettings();
-  net.send({ t: 'loadout', primary });
+  net.send({ t: 'loadout', [slot]: id });
   ui.showPicker(!self.alive); // stays up on the respawn screen
 }
 
@@ -241,7 +247,7 @@ function ownShot(inp) {
   const origin = eyeOf(self.mover);
   const targets = shotTargets(); // effects: in their slot colours
   const muzzle = muzzleWorld(render.camera, ownMuzzle).toArray(); // where the drawn gun's muzzle shows
-  const dirs = shotDirs(inp.yaw, inp.pitch, weaponOf(self.arsenal), self.mover, shotRng(seed, myId, self.shots), shotHeat(self.arsenal)); // effects: named, for the count; weapons: the bloomed cone, as the server rolls it
+  const dirs = shotDirs(inp.yaw, inp.pitch, weaponOf(self.arsenal), self.mover, shotRng(seed, myId, self.shots), shotHeat(self.arsenal), scopedIn(self.arsenal)); // effects: named, for the count; weapons: the bloomed cone, as the server rolls it; arsenal: scoped
   const ends = []; // audio: world hits only; the host confirms player hits
   const all = []; // effects: every pellet's end
   for (const dir of dirs) {
@@ -451,9 +457,13 @@ function frame(now) {
   if (me) {
     const a = Math.min(1, Math.max(0, (now - stepStart) / STEP_MS - steps)); // between the last two steps
     eye = lerp(eye, me.crouch ? EYE_CROUCH : EYE_STAND, Math.min(1, frameMs / 60)); // ease, don't snap
-    const v = updateFeel(frameMs, now, input.look, self.alive && lobby.phase === 'playing' ? me : null, weaponOf(self.arsenal), spraying(self.arsenal), self.arsenal.heat); // feel:; weapons: the real heat for the crosshair
+    const v = updateFeel(frameMs, now, input.look, self.alive && lobby.phase === 'playing' ? me : null, weaponOf(self.arsenal), spraying(self.arsenal), self.arsenal.heat, scopedIn(self.arsenal)); // feel:; weapons: the real heat for the crosshair; arsenal: scoped
     render.setView(lerp(prev.x, me.x, a) + v.x, lerp(prev.y, me.y, a) + eye + v.y, lerp(prev.z, me.z, a) + v.z, input.look.yaw, input.look.pitch, v.roll); // feel: offsets, roll
-    render.setFovKick(v.fov); // feel: Nitro widens the view
+    // arsenal: a scope zooms toward its fov and slows the mouse by its sens, as far in as it is.
+    const scope = WEAPONS[weaponOf(self.arsenal)].scope;
+    const zoom = scope ? scopeShare(self.arsenal) : 0;
+    render.setFovKick(v.fov + (scope ? (scope.fov - ui.settings.fov) * zoom : 0)); // feel: Nitro widens the view
+    input.setSensitivity(ui.settings.sens * (scope ? 1 + (scope.sens - 1) * zoom : 1));
     // feel: the crosshair gap for the HUD, as --spread (CSS px) on #hud.
     const gap = Math.round(spreadPixels(crosshair.spread, render.camera.fov, innerHeight));
     if (gap !== shownGap) document.getElementById('hud').style.setProperty('--spread', `${(shownGap = gap)}px`);
@@ -464,7 +474,7 @@ function frame(now) {
     hudExtra.slowed = me.slow / TICK_RATE; // hud: ticks
     ui.updateHud(self.hp, weaponOf(self.arsenal), self.arsenal.mags[self.arsenal.slot], self.arsenal.reload > 0, hudExtra); // hud: extra (powerups.js drives ui.updatePowers)
     ui.threat(powerups.threats(myId), me, input.look.yaw); // hud:
-    setGun(weaponOf(self.arsenal), self.alive && lobby.phase === 'playing');
+    setGun(weaponOf(self.arsenal), self.alive && lobby.phase === 'playing' && !scopedIn(self.arsenal)); // arsenal: no gun in a full scope
     setSunShade(ui.settings.shadows && sunBlocked(eyeOf(me), world.boxes) ? 1 : 0); // viewmodel: darker in the sun's shadow, when shadows are drawn
   } else {
     orbitView(now);

@@ -2,11 +2,14 @@
 import { TICK_RATE } from '../../shared/constants.js';
 
 // A gun's role, read only from its numbers, so a new gun needs no bot code.
-export const roleOf = (w) => ((w.pellets ?? 1) > 1 ? 'close' : w.auto ? 'burst' : w.rps < 2 ? 'precision' : 'tap');
+// arsenal: a burst gun duty-fires like an auto; a scope, or a semi that
+// kills in two body hits, is a precision gun.
+const modeOf = (w) => w.mode ?? (w.auto ? 'auto' : 'semi');
+export const roleOf = (w) => ((w.pellets ?? 1) > 1 ? 'close' : modeOf(w) !== 'semi' ? 'burst' : w.scope || w.rps < 2 || w.dmg >= 45 ? 'precision' : 'tap');
 
-// Where a bot likes to fight from: a sidearm up close, a gun with falloff
-// well inside it, anything else at mid range.
-export const idealRange = (w, sidearm) => (sidearm ? 12 : w.falloff ? 0.6 * w.falloff.from : 18);
+// Where a bot likes to fight from: a sidearm up close, a scope far off
+// (arsenal), a gun with falloff well inside it, anything else at mid range.
+export const idealRange = (w, sidearm) => (sidearm ? 12 : w.scope ? 30 : w.falloff ? 0.6 * w.falloff.from : 18);
 
 // Per skill: react (s before the first shot at a new target), lag (s behind
 // what it sees) and lead (share of the seen velocity it leads by), flick
@@ -71,7 +74,8 @@ export function stepAim(a, sk, dt, eye, seen, speedShare, rand) {
 // Stand still to shoot (a precision gun always, otherwise if this target's
 // roll said so) in a rhythm: stop just before reacting, so the spread has
 // settled by the first shot, then stand 0.5 s and strafe 0.5 s in turn.
-export const standsToShoot = (a, w) => (a.steady || roleOf(w) === 'precision') && a.t >= a.react - 0.12 && (a.t - a.react + 0.12) % 1 < 0.5;
+// arsenal: a scoped gun stands throughout.
+export const standsToShoot = (a, w) => (a.steady || roleOf(w) === 'precision') && a.t >= a.react - 0.12 && (!!w.scope || (a.t - a.react + 0.12) % 1 < 0.5);
 
 // Pull the trigger this tick? Only when on target. A bot standing to shoot
 // a single-bullet gun also waits for the gun's current spread (deg) to fit
@@ -81,10 +85,11 @@ export const standsToShoot = (a, w) => (a.steady || roleOf(w) === 'precision') &
 // never on two ticks in a row (the trigger must come up between shots).
 export function shouldFire(a, sk, w, tick, spread, heat = 0) {
   if (!a.ready) return false;
-  if ((w.pellets ?? 1) === 1 && standsToShoot(a, w) && spread > a.tol) return false;
+  if ((w.pellets ?? 1) === 1 && (standsToShoot(a, w) || w.scope) && spread > a.tol) return false; // arsenal: a scope waits for its scoped cone
   if ((w.bloom ?? 0) * heat > sk.bloom * a.tol) return false;
-  if (w.auto) return tick % 30 < 30 * sk.duty;
+  if (modeOf(w) === 'auto') return tick % 30 < 30 * sk.duty;
   if (tick < a.click) return false;
-  a.click = tick + Math.max(2, Math.round(TICK_RATE / Math.min(sk.tapRate, w.rps)));
+  const rate = modeOf(w) === 'burst' ? w.rps / w.burst.count : w.rps; // arsenal: one click per burst cycle
+  a.click = tick + Math.max(2, Math.round(TICK_RATE / Math.min(sk.tapRate, rate)));
   return true;
 }

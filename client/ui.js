@@ -2,8 +2,9 @@
 // network, so they are only ever inserted with textContent; the only markup
 // written is the static SVG icons below. Per-frame setters only touch the
 // DOM when a value changes.
-import { PLAYER_COLORS, NAME_MAX, PRIMARIES, POWER_COLORS, WEAPONS, KILL_TARGET } from '../shared/constants.js';
+import { PLAYER_COLORS, NAME_MAX, PRIMARIES, SECONDARIES, POWER_COLORS, WEAPONS, KILL_TARGET } from '../shared/constants.js'; // arsenal: SECONDARIES
 import { byScore } from '../shared/protocol.js';
+import { baseGun } from '../shared/guns/index.js'; // arsenal: icon fallback
 
 // ---- Look: timings and the few colours CSS can't own. ----
 const LOOK = {
@@ -44,7 +45,7 @@ const SETTINGS_KEY = 'boxfire.settings';
 // 50% scale from the old low-end button) and keeps keys, sensitivity, FOV,
 // crosshair and primary.
 const GRAPHICS = { shadows: true, scale: 100, quality: 'default', msaa: true, dynres: true, bob: true, brightness: 1 };
-export const DEFAULTS = { v: 2, sens: 2, fov: 90, xsize: 4, xcolor: '#f2efe8', primary: 'rifle', ...GRAPHICS };
+export const DEFAULTS = { v: 2, sens: 2, fov: 90, xsize: 4, xcolor: '#f2efe8', primary: 'rifle', secondary: 'pistol', ...GRAPHICS }; // arsenal: secondary
 export function migrate(saved) {
   const s = saved && typeof saved === 'object' ? saved : {};
   return (Number(s.v) || 1) < 2 ? { ...s, ...GRAPHICS, v: 2 } : s;
@@ -96,8 +97,10 @@ const ACTION_NAMES = {
   jump: 'Jump', walk: 'Walk', crouch: 'Crouch', reload: 'Reload',
   primary: 'Primary weapon', pistol: 'Pistol', picker: 'Pick primary', scoreboard: 'Scoreboard',
   usePowerup: 'Use power-up', cyclePowerup: 'Next power-up', use: 'Use power-up', cycle: 'Next power-up',
+  aim: 'Aim / scope', // arsenal
 };
-const keyName = (code = '') => code.replace(/^Key|^Digit/, '').replace(/^(.+?)(Left|Right)$/, '$2 $1'); // ShiftLeft → Left Shift
+const MOUSE = ['Left mouse', 'Middle mouse', 'Right mouse', 'Mouse 4', 'Mouse 5']; // arsenal: Mouse<n> bindings
+const keyName = (code = '') => MOUSE[/^Mouse(\d)$/.exec(code)?.[1]] ?? code.replace(/^Key|^Digit/, '').replace(/^(.+?)(Left|Right)$/, '$2 $1'); // ShiftLeft → Left Shift
 let keys = {}; // the live bindings, for the power-up key labels
 
 export function initKeys(bindings) {
@@ -120,6 +123,13 @@ export function initKeys(bindings) {
     }));
   };
   // Capture phase, so the game never sees the key being bound.
+  // arsenal: a mouse button other than the left (fire) binds as Mouse<n>.
+  addEventListener('mousedown', (e) => {
+    if (!listening || e.button === 0) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    dispatchEvent(new KeyboardEvent('keydown', { code: `Mouse${e.button}` }));
+  }, true);
   addEventListener('keydown', (e) => {
     if (!listening) return;
     e.preventDefault();
@@ -197,6 +207,7 @@ const CHEVRON = svg('0 0 18 18', '<path d="M9 1.5 L16.5 15 L9 11 L1.5 15 Z" fill
 const ASPECT = { rifle: '3', shotgun: '3', pistol: '1.5', head: '1.22' }; // width / height of the viewBox; the rest are square
 
 function setIcon(el, kind, color) {
+  if (!ICONS[kind]) kind = baseGun(kind); // arsenal: a gun with no icon yet shows its class's launch gun
   el.innerHTML = ICONS[kind] ?? '';
   el.style.aspectRatio = ASPECT[kind] ?? '1';
   el.style.color = ITEM_COLORS[kind] ?? color ?? '';
@@ -256,7 +267,7 @@ export function updateHud(hp, weapon, mag, reloading, extra = NONE) {
   statusTag('slowed', slowed > 0, slowed, 'SLOWED');
   statusTag('shield', sh > 0, shieldSeconds, 'SHIELD');
   if (weapon !== last.weapon) {
-    $('wname').textContent = weapon;
+    $('wname').textContent = WEAPONS[weapon]?.name ?? weapon; // arsenal: the gun's own name
     setIcon($('wicon'), weapon);
     last.weapon = weapon;
     const ring = weapon === 'shotgun';
@@ -389,14 +400,21 @@ export function hideDeath() {
 }
 
 // The primary picker: B toggles it, the respawn screen shows it.
+// arsenal: a row of primaries, then a row of sidearms, numbered 1..9, 0 in
+// PICKS order (input.js maps the digit keys to the same list while it is open).
+export const PICKS = [...PRIMARIES, ...SECONDARIES];
 export function initPicker(onPick) {
-  for (const primary of PRIMARIES) $(`pick-${primary}`).addEventListener('click', () => onPick(primary));
+  PICKS.forEach((id, i) => {
+    const b = Object.assign(document.createElement('button'), { id: `pick-${id}`, type: 'button', textContent: `${(i + 1) % 10} · ${WEAPONS[id].name}` });
+    b.addEventListener('click', () => onPick(id));
+    $(`pick-${WEAPONS[id].slot}`).append(b);
+  });
 }
 
 export function showPicker(open) {
   if (!live()) return;
   $('picker').hidden = !open;
-  for (const primary of PRIMARIES) $(`pick-${primary}`).classList.toggle('chosen', settings.primary === primary);
+  for (const id of PICKS) $(`pick-${id}`)?.classList.toggle('chosen', settings[WEAPONS[id].slot] === id); // arsenal
 }
 
 export const pickerOpen = () => !$('picker').hidden;

@@ -13,6 +13,7 @@
 import * as THREE from 'three';
 import { PLAYER_COLORS, STAND_HEIGHT, CROUCH_HEIGHT, PLAYER_WIDTH, RUN_SPEED, MAX_PLAYERS } from '../shared/constants.js';
 import { rayBox } from '../shared/collision.js';
+import { baseGun } from '../shared/guns/index.js'; // arsenal: guns without their own model or sound borrow a launch gun's
 
 const D = Math.PI / 180;
 
@@ -545,7 +546,7 @@ function dress(rig, slot) {
 // last frame (just joined, respawned or un-hidden), so snap rather than blend,
 // and assemble the body.
 function animate(rig, p, dt, fresh, boxes, now) {
-  rig.weapon = GUNS[p.weapon] ? p.weapon : 'rifle';
+  rig.weapon = GUNS[p.weapon] ? p.weapon : GUNS[baseGun(p.weapon)] ? baseGun(p.weapon) : 'rifle'; // arsenal: class fallback
   rig.ground = groundBelow(p, boxes);
   const air = p.y - rig.ground > AIR_GAP ? 1 : 0;
   const h = clamp(dt, 0, 0.1);

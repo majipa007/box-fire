@@ -190,3 +190,45 @@ test('a bot walks toward a shot it heard beyond the wall, to the nearest floor i
   const { left } = afterShot([12.6, 0, -12], [24, 1.6, -6.6]);
   assert.ok(left < 9, `still ${left.toFixed(1)} m from the shot after 2 s`);
 });
+
+// ---- arsenal: loadouts and scopes ----
+import { WEAPONS, PRIMARIES, SECONDARIES } from '../../shared/constants.js';
+import { KEY } from '../../shared/movement.js';
+import { decodeClient } from '../../shared/protocol.js';
+
+test('a bot asks for a random primary and sidearm on joining, and a new pair each time it dies', () => {
+  const bot = createBot(1, { rand: shotRng(4, 0, 0) });
+  const first = bot.out.shift();
+  assert.deepEqual(decodeClient(JSON.stringify(first)), first, 'a loadout the server accepts');
+  assert.deepEqual([first.primary, first.secondary], [bot.primary, bot.secondary]);
+  onMessage(bot, { t: 'welcome', id: 1, map: 'arena_01' });
+  const seen = new Set();
+  for (let i = 0; i < 60; i++) {
+    onMessage(bot, { t: 'event', e: 'kill', k: 2, v: 1, w: 'rifle' });
+    const m = bot.out.shift();
+    assert.ok(PRIMARIES.includes(m.primary) && SECONDARIES.includes(m.secondary));
+    seen.add(m.primary).add(m.secondary);
+  }
+  assert.equal(seen.size, PRIMARIES.length + SECONDARIES.length, 'every gun comes up');
+  onMessage(bot, { t: 'event', e: 'kill', k: 1, v: 2, w: 'rifle' });
+  assert.equal(bot.out.length, 0, 'a kill of its own changes nothing');
+});
+
+test('a sniper bot scopes in on a foe it can see, stands still, and fires only once fully scoped', () => {
+  const foe = [-12, 0, -12];
+  const { bot, snap } = situation({ at: [-17, 0, -17], yaw: yawTo(1, 1), primary: 'sniper', foes: [[2, ...foe, ALIVE]] });
+  let scoped = 0, fired = 0, moved = 0;
+  for (let t = 1001; t <= 1120; t++) {
+    const s = snap(t);
+    s.me.arsenal.scope = WEAPONS.sniper.scope.inSeconds * Math.min(1, scoped / (WEAPONS.sniper.scope.inSeconds * 60)); // what the server steps
+    onMessage(bot, s);
+    const inp = think(bot, budget());
+    if (inp.keys & KEY.AIM) scoped++; else scoped = 0;
+    if (inp.fire && scoped < WEAPONS.sniper.scope.inSeconds * 60) assert.fail(`fired at ${t} before it was scoped in`);
+    if (inp.fire) fired++;
+    if (bot.aim.t > bot.aim.react && inp.keys & (KEY.FORWARD | KEY.BACK | KEY.LEFT | KEY.RIGHT)) moved++;
+  }
+  assert.ok(scoped > 30, 'held the scope');
+  assert.ok(fired > 0, 'and fired');
+  assert.equal(moved, 0, 'standing to shoot once it had reacted');
+});

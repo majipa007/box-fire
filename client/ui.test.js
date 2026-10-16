@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { migrate, DEFAULTS, ICONS, bearing } from './ui.js';
 import { POWER_IDS } from '../shared/protocol.js';
-import { PRIMARIES } from '../shared/constants.js';
+import { PRIMARIES, SECONDARIES } from '../shared/constants.js';
+import { baseGun } from '../shared/guns/index.js'; // arsenal
 
 test('a v1 settings object migrates to v2 with shadows on, keeping keys, aim and crosshair', () => {
   const v1 = { sens: 3.2, fov: 104, scale: 50, shadows: false, xsize: 7, xcolor: '#00ff00', primary: 'shotgun', keys: { jump: 'KeyF' } };
@@ -22,7 +23,8 @@ test('v2 settings are left alone, and junk storage falls back to the defaults', 
 });
 
 test('every power-up, weapon and the headshot has an icon', () => {
-  for (const id of [...POWER_IDS, ...PRIMARIES, 'pistol', 'head']) assert.match(ICONS[id] ?? '', /^<svg viewBox/, id);
+  // arsenal: a gun without an icon of its own yet shows its class's launch gun (shared/guns baseGun).
+  for (const id of [...POWER_IDS, ...PRIMARIES, ...SECONDARIES, 'head']) assert.match(ICONS[id] ?? ICONS[baseGun(id)] ?? '', /^<svg viewBox/, id);
 });
 
 test('threat bearings run clockwise from straight ahead', () => {

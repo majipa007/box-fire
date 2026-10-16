@@ -6,8 +6,8 @@
 import { KEY } from '../../shared/movement.js';
 import { PLAYER_FLAGS } from '../../shared/protocol.js';
 import { clearLine } from '../../shared/powerups.js';
-import { eyeOf, weaponOf, spreadDegrees } from '../../shared/weapons.js';
-import { TICK_RATE, DT, POWER_CAPACITY, MAX_HP, WEAPONS, RUN_SPEED } from '../../shared/constants.js';
+import { eyeOf, weaponOf, spreadDegrees, scopedIn } from '../../shared/weapons.js'; // arsenal: scopedIn
+import { TICK_RATE, DT, POWER_CAPACITY, MAX_HP, WEAPONS, RUN_SPEED, PRIMARIES, SECONDARIES } from '../../shared/constants.js'; // arsenal: the slots
 import { navFor, createRoute, follow, floorReachable } from './nav.js';
 import { SKILLS, createAim, acquire, stepAim, shouldFire, standsToShoot, idealRange, roleOf, yawTo } from './aim.js';
 
@@ -22,9 +22,18 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 // Scratch points, reused every tick.
 const HEAD = [0, 0, 0], CHEST = [0, 0, 0], SEEN = [0, 0, 0], PT = [0, 0, 0];
 
-export function createBot(n, { skill = 'normal', passive = false, primary = 'rifle', rand = Math.random } = {}) {
-  return {
-    n, skill, sk: SKILLS[skill], passive, primary, rand,
+// arsenal: a random primary and sidearm from the registry, for the next
+// spawn; the loadout message waits in bot.out for tools/bot.js to send.
+function rollLoadout(bot) {
+  bot.primary = PRIMARIES[Math.floor(bot.rand() * PRIMARIES.length)];
+  bot.secondary = SECONDARIES[Math.floor(bot.rand() * SECONDARIES.length)];
+  bot.out.push({ t: 'loadout', primary: bot.primary, secondary: bot.secondary });
+}
+
+// primary, secondary: fixed picks for every life (tests); left out, each life rolls its own.
+export function createBot(n, { skill = 'normal', passive = false, primary, secondary, rand = Math.random } = {}) {
+  const bot = {
+    n, skill, sk: SKILLS[skill], passive, rand, out: [], fixed: primary !== undefined, // arsenal: out, fixed
     id: null, nav: null, tick: 0, me: null, ps: [], pd: [], players: [], spawned: false, seq: 0,
     aim: createAim(), target: null, goal: null, nextThink: n % THINK, route: createRoute(),
     mem: new Map(), hist: new Map(), noise: { x: 0, y: 0, z: 0, tick: -1e9 }, fresh: false,
@@ -32,6 +41,12 @@ export function createBot(n, { skill = 'normal', passive = false, primary = 'rif
     padWait: new Map(), strafe: 1, flipAt: 0, hurtTick: -1e9, pickTick: -1e9, shockAt: null,
     input: { s: 0, rt: 0, keys: 0, yaw: 0, pitch: 0, fire: false, shot: 0, slot: 0 },
   };
+  if (bot.fixed) {
+    bot.primary = primary;
+    bot.secondary = secondary ?? 'pistol';
+    bot.out.push({ t: 'loadout', primary: bot.primary, secondary: bot.secondary });
+  } else rollLoadout(bot);
+  return bot;
 }
 
 // A map id from welcome or lobby. Unlisted ids are ignored. A new map clears
@@ -75,6 +90,7 @@ function onEvent(bot, e) {
     }
   } else if (e.e === 'kill') {
     bot.mem.delete(e.v);
+    if (e.v === bot.id && !bot.fixed) rollLoadout(bot); // arsenal: a new pair for the next life
   } else if (e.e === 'pick' && e.id === bot.id) bot.pickTick = bot.tick;
 }
 
@@ -210,13 +226,17 @@ export function think(bot, budget) {
     if (bot.target !== g.id) { bot.target = g.id; acquire(a, sk, rand); }
     const dx = tgt.x - m.x, dz = tgt.z - m.z, d = Math.hypot(dx, dz) || 1, ux = dx / d, uz = dz / d;
     stepAim(a, sk, DT, eye, seenPoint(bot, g.id, tgt), Math.hypot(m.vx, m.vz) / RUN_SPEED, rand);
-    if (!tgt.prot && !bot.passive) inp.fire = shouldFire(a, sk, w, bot.tick, spreadDegrees(wname, m, ars.heat), ars.heat);
+    if (w.scope && !bot.passive) keys |= KEY.AIM; // arsenal: scope in on a target; shouldFire waits for the scoped cone
+    if (!tgt.prot && !bot.passive) inp.fire = shouldFire(a, sk, w, bot.tick, spreadDegrees(wname, m, ars.heat, scopedIn(ars)), ars.heat);
     // The pistol when the primary is empty up close, or when a close-range
     // primary cannot reach; back to the primary once in its range.
     const primary = WEAPONS[ars.primary], range0 = idealRange(primary, false);
     if (ars.slot === 0 && mag === 0 && d < 12) inp.slot = 1;
     else if (roleOf(primary) === 'close' && ars.slot === 0 && d > 2 * range0) inp.slot = 1;
     else if (roleOf(primary) === 'close' && ars.slot === 1 && d < 1.5 * range0 && ars.mags[0] > 0) inp.slot = 0;
+    // arsenal: a scoped primary is no gun for a face-to-face: the sidearm in close, back out past 13.5 m.
+    else if (primary.scope && ars.slot === 0 && d < 0.25 * range0) inp.slot = 1;
+    else if (primary.scope && ars.slot === 1 && d > 0.45 * range0 && ars.mags[0] > 0) inp.slot = 0;
     if (!standsToShoot(a, w)) {
       // Close in or back off along a route, strafing on top.
       if (bot.tick >= bot.flipAt) { bot.strafe = rand() < 0.5 ? -1 : 1; bot.flipAt = bot.tick + Math.round((0.3 + 0.6 * rand()) * TICK_RATE); }

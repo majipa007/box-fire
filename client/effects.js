@@ -16,6 +16,7 @@ import { SHOT_RANGE, POWER_COLORS, POWERS } from '../shared/constants.js';
 import { prepareMap, rayBox } from '../shared/collision.js';
 import { hitboxes } from '../shared/weapons.js';
 import { PLAYER_FLAGS } from '../shared/protocol.js';
+import { baseGun } from '../shared/guns/index.js'; // arsenal: guns without their own model or sound borrow a launch gun's
 
 // ---------------------------------------------------------------------------
 // Look: every number from the bible's table, for the art pass. Metres,
@@ -1117,6 +1118,7 @@ const budget = { chips: Infinity, puffs: Infinity };
 // a hole. surface: the map box index classifyHit gives. weapon: 'rifle',
 // 'pistol', 'pellet' (one shotgun pellet) or 'bolt'.
 export function impact(point, normal, surface, weapon = 'rifle') {
+  weapon = baseGun(weapon); // arsenal
   const s = surfaces[surface] ?? { kind: 'concrete', base: toColor(MATERIALS[0].base) };
   const n = _u.fromArray(normal);
   const w = weapon === 'shotgun' ? 'pellet' : weapon;
@@ -1185,6 +1187,7 @@ export function shieldHit(point, dir) {
 // the camera is on us, and shows nothing. At most LOOK.caps chips and puffs
 // per call, however many pellets.
 export function shot({ from, eye = from, ends, weapon = 'rifle', targets = [] }) {
+  weapon = baseGun(weapon); // arsenal
   const w = weapon === 'bolt' ? 'bolt' : ends.length > 1 ? 'pellet' : weapon;
   budget.chips = LOOK.caps.chips;
   budget.puffs = LOOK.caps.puffs;
@@ -1234,6 +1237,7 @@ export function muzzle(pos, dir) {
 // plus `carry`, the shooter's velocity, when given. Only within 15 m of the
 // camera, and never on Low.
 export function casing(pos, dir, weapon = 'rifle', carry) {
+  weapon = baseGun(weapon); // arsenal
   const L = LOOK.casing;
   if (quality === 'low') return;
   if (cam.set && cam.pos.distanceToSquared(_p.fromArray(pos)) > L.range * L.range) return;

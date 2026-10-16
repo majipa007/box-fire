@@ -8,6 +8,7 @@ export class Player {
   mover = null; // null until spawned
   arsenal = null;
   primary = 'rifle';
+  secondary = 'pistol'; // arsenal: the sidearm pick, applied at the next spawn
   hp = 0;
   pw = null; // POWER-UPS: inventory and Shield (shared/powerups.js createPowers)
   pk = 0; // POWER-UPS: kills by power-ups this match
