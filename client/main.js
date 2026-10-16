@@ -50,11 +50,6 @@ const net = connect({
     mapId = m.map;
     seed = m.seed;
     ui.showRoom();
-    // arsenal: the saved loadout, each id only if this build still lists it.
-    const lo = { t: 'loadout' };
-    if (PRIMARIES.includes(ui.settings.primary)) lo.primary = ui.settings.primary;
-    if (SECONDARIES.includes(ui.settings.secondary)) lo.secondary = ui.settings.secondary;
-    if (lo.primary || lo.secondary) net.send(lo);
     loadStage();
   },
   lobby(m) {
@@ -154,7 +149,10 @@ ui.onJoin((raw) => {
   audio.ambience(true); // audio: the quarry's wind
   const name = cleanName(raw);
   if (!name) return ui.showJoinError('bad-name');
-  net.send({ t: 'join', name });
+  // arsenal: the saved loadout rides on join, so a drop-in player's first life
+  // uses it; each id only if this build still lists it in that slot.
+  const { primary, secondary } = ui.settings;
+  net.send({ t: 'join', name, ...(PRIMARIES.includes(primary) && { primary }), ...(SECONDARIES.includes(secondary) && { secondary }) });
 });
 ui.onStart(() => net.send({ t: 'start' }));
 ui.onEndMatch(() => net.send({ t: 'end_match' }));

@@ -37,8 +37,9 @@ function startBot(n) {
   const ws = new WebSocket(url);
   bot.ws = ws;
   ws.onopen = () => {
-    ws.send(JSON.stringify({ t: 'join', name: `bot${n}`, bot: true }));
-    flush(bot); // arsenal: the first loadout
+    // arsenal: the first life's pair rides on join (a mid-match join spawns at once).
+    ws.send(JSON.stringify({ t: 'join', name: `bot${n}`, bot: true, primary: bot.primary, secondary: bot.secondary }));
+    bot.out.length = 0;
   };
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);

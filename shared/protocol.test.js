@@ -91,3 +91,12 @@ test('arsenal: the aim (scope) key is its own held bit inside the 16-bit check',
   assert.ok(KEY.AIM <= 0xffff);
   for (const [name, bit] of Object.entries(KEY)) if (name !== 'AIM') assert.equal(bit & KEY.AIM, 0, name);
 });
+
+// arsenal: a drop-in player's first life uses their pick, so join can carry it.
+test('join may carry a primary and a sidearm, each checked against its own slot; a bad id is dropped, never the join', () => {
+  assert.deepEqual(decodeClient('{"t":"join","name":"Sam","primary":"sniper","secondary":"handcannon"}'),
+    { t: 'join', name: 'Sam', bot: false, primary: 'sniper', secondary: 'handcannon' });
+  assert.deepEqual(decodeClient('{"t":"join","name":"Sam","primary":"pistol","secondary":"rifle"}'), { t: 'join', name: 'Sam', bot: false });
+  assert.deepEqual(decodeClient('{"t":"join","name":"Sam","primary":"__proto__","secondary":"smg"}'), { t: 'join', name: 'Sam', bot: false });
+  assert.deepEqual(decodeClient('{"t":"join","name":"Sam","secondary":"machinepistol"}'), { t: 'join', name: 'Sam', bot: false, secondary: 'machinepistol' });
+});
