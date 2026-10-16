@@ -275,7 +275,7 @@ const STYLE = {
     kick: { back: 0.025, up: 1.6 * DEG, roll: 1.5 * DEG, halflife: 0.035 }, casing: [0.01, 0.022, 'brass'],
     left: HANDGUN_LEFT, seat: [0.05, -0.17, 0.03], // the support hand under the long magazine's base plate, so the magazine stands up out of the fist
     arms: handgunArms,
-    reload: (seat) => handgunReload(seat, [0.12, 0.18, -0.06, 0.35, 0.2, -1.1], { drop: 0.94, approach: [[0.01, -0.08, 0], [0, -0.04, 0]] }), // the pistol's roll, raised so the long magazine has room below; it comes up close under the grip
+    reload: (seat) => handgunReload(seat, [0.14, 0.18, -0.06, 0.35, 0.05, -0.7], { drop: 0.94, approach: [[0.01, -0.08, 0], [0, -0.04, 0]] }), // on top of the canted rest, about the pistol's roll, raised so the long magazine has room below; it comes up close under the grip
   },
   handcannon: { // a revolver: a big slow kick, no casings at the shot
     rest: [0.17, -0.17, -0.5, 0, 0.1, 0], anchor: [0, 0.065, -0.06], flash: 0.2,

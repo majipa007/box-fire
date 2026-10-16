@@ -334,9 +334,9 @@ async function suite() {
         }
         if (t >= sampleAt[looks.length]) looks.push(seen(weapon, newMag));
       }
-      // As much in sight as the Mason's (0.27): neither glove, sleeve nor gun hides it.
+      // Near as much in sight as the Mason's (0.27): neither glove, sleeve nor gun hides it.
       const shown = looks.reduce((a, b) => a + b, 0) / looks.length;
-      assert.ok(looks.length === sampleAt.length && shown >= 0.15, `the new magazine is in sight on its way up (${looks.map((v) => v.toFixed(2)).join(' ')})`);
+      assert.ok(looks.length === sampleAt.length && shown >= 0.2, `the new magazine is in sight on its way up (${looks.map((v) => v.toFixed(2)).join(' ')})`);
       assert.ok(dropped, 'the old magazine drops in view first');
       assert.ok(clear > 40, `the gun keeps clear of the crosshair (${clear.toFixed(0)} px)`);
       assert.equal(seats, 1, 'one seat');
