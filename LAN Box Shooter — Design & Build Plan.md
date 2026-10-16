@@ -80,7 +80,7 @@ Trust boundary: one bad packet must never crash the host or put NaN into the sha
 | `lobby` | server → client | players (id, name, ping, colour slot, kills, deaths, connected), host id, phase, phase end tick | on change; ping refreshes every 1 s |
 | `start` | host → server | — | once |
 | `end_match` | host → server | — | on demand |
-| `loadout` | client → server | primary: rifle or shotgun | on change |
+| `loadout` | client → server | primary and/or secondary: gun ids of that slot (`docs/guns.md`) | on join and on change |
 | `input` | client → server | seq, render tick (fractional), keys bitmask, yaw, pitch, fire, shot number, weapon slot | 60 Hz |
 | `snapshot` | server → client | tick, your last acked seq, players\[ id, pos, yaw, pitch, crouch, hp, weapon, state \], plus your own velocity, on-ground, both magazines, cooldown, reload and switch timers | 60 Hz |
 | `event` | server → client | kill (killer, victim, weapon, headshot), hit (attacker, victim, damage, headshot: hit marker for the attacker, red arc for the victim), shot (shooter, weapon, origin, one impact per pellet: everyone but the shooter draws the tracers and hears it), spawn, match\_end | on occurrence |
