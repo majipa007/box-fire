@@ -304,7 +304,7 @@
   /* While the panel is up with the cursor free, the pause menu waits underneath. */
   body:has(#picker:not([hidden])) #menu { display: none; }
   #picker { position: relative; pointer-events: auto; max-width: calc(100vw - 16px); padding: calc(12 * var(--u)) calc(14 * var(--u)) calc(14 * var(--u)); text-shadow: none;
-    background: rgba(21, 23, 28, 0.86); border: 1px solid var(--line); clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px)); }
+    background: rgba(21, 23, 28, 0.93); border: 1px solid var(--line); clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px)); }
   #picker::before { content: ""; position: absolute; left: 0; top: 0; width: calc(64 * var(--u)); height: calc(3 * var(--u)); background: var(--accent); }
   .pick-row { display: flex; gap: calc(8 * var(--u)); }
   .pick-row + .pick-row { margin-top: calc(8 * var(--u)); }
@@ -343,6 +343,8 @@
   #pick-summary .ico { height: calc(22 * var(--u)); color: var(--text); }
   #pick-summary .plus { color: var(--dim); margin: 0 calc(4 * var(--u)); }
   .pi-foot { display: flex; align-items: center; justify-content: space-between; gap: calc(10 * var(--u)); }
+  .pk-esc { display: none; } /* the respawn screen keeps the lock: Esc frees the cursor for the cards */
+  #respawn:has(#death:not([hidden])) .pk-esc { display: contents; }
   #pick-keys { display: flex; align-items: center; flex-wrap: wrap; gap: calc(4 * var(--u)); font: 700 calc(10 * var(--u))/1 var(--font); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
   #pick-done { font-size: calc(12 * var(--u)); padding: calc(6 * var(--u)) calc(16 * var(--u)); }
 
@@ -433,7 +435,7 @@
         <div id="pick-info">
           <div class="pi-head"><span class="eyebrow">Loadout</span><span class="dim">applies at your next spawn</span></div>
           <div id="pick-summary"></div>
-          <div class="pi-foot"><span id="pick-keys"><b class="key">1</b>–<b class="key">7</b> primary <b class="key">8</b><b class="key">9</b><b class="key">0</b> sidearm <b class="key" id="pick-bkey">B</b> close</span>
+          <div class="pi-foot"><span id="pick-keys"><b class="key">1</b>–<b class="key">7</b> primary <b class="key">8</b><b class="key">9</b><b class="key">0</b> sidearm <b class="key" id="pick-bkey">B</b> close<span class="pk-esc"> <b class="key">Esc</b> mouse</span></span>
             <button id="pick-done" class="ghost" type="button">Done</button></div>
         </div>
       </div>
