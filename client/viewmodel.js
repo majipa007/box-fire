@@ -269,7 +269,8 @@ const STYLE = {
     cycle: { slide: [[0, 0, 0, 0.03], [0.06]] }, // slide recoils 0.03 m
   },
   machinepistol: { // a handgun that sprays: a light, quick kick and the pistol's reload, the long magazine through the grip
-    rest: [0.17, -0.17, -0.5, 0, 0.1, 0], anchor: [0, 0.07, -0.06], flash: 0.12,
+    // Canted 17° and turned in, so it never reads as the Rivet: the compensator shows past the fists.
+    rest: [0.15, -0.15, -0.5, 0, 0.3, -0.3], anchor: [0, 0.07, -0.06], flash: 0.12,
     kick: { back: 0.025, up: 1.6 * DEG, roll: 1.5 * DEG, halflife: 0.035 }, casing: [0.01, 0.022, 'brass'],
     left: HANDGUN_LEFT, seat: [0.05, -0.17, 0.03], // the support hand under the long magazine's base plate, so the magazine stands up out of the fist
     arms: handgunArms,

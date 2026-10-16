@@ -345,6 +345,35 @@ async function suite() {
     });
   }
 
+  // Which cells of a 64 × 36 grid over the screen show the gun itself (not
+  // the gloves, sleeves or nothing), traced from the eye.
+  function gunMask(weapon) {
+    const mesh = rig(weapon);
+    const boxes = vm.MODELS[weapon].boxes;
+    vm.viewScene.updateMatrixWorld(true);
+    mesh.boundingSphere = mesh.boundingBox = null;
+    const mask = [];
+    for (let j = 0; j < 36; j++) {
+      for (let i = 0; i < 64; i++) {
+        sight.setFromCamera({ x: (i + 0.5) / 32 - 1, y: (j + 0.5) / 18 - 1 }, vm.viewCamera);
+        const hit = sight.intersectObject(mesh, false)[0];
+        const b = hit && boxes[Math.floor(hit.face.a / 24)];
+        mask.push(!!b && ['body', 'slide', 'part'].includes(b.part) && b.color !== 'glove');
+      }
+    }
+    return mask;
+  }
+  test('at rest the Nailer stands apart from the Rivet: a different outline, its compensator and red-dot sight in sight', () => {
+    spawn('pistol');
+    const rivet = gunMask('pistol');
+    spawn('machinepistol');
+    const nailer = gunMask('machinepistol');
+    const both = nailer.filter((v, i) => v && rivet[i]).length / nailer.filter((v, i) => v || rivet[i]).length;
+    const comp = seen('machinepistol', (b) => b.hot && b.color === 'dark');
+    const dot = seen('machinepistol', (b) => b.part === 'body' && b.color === 'dark' && b.size[1] > 0.025 && b.at[1] - b.size[1] / 2 > 0.105); // a tall box on top of the receiver
+    assert.ok(both < 0.6 && comp >= 0.3 && dot >= 0.3, `outlines overlap ${both.toFixed(2)}; in sight: compensator ${comp.toFixed(2)}, sight ${dot.toFixed(2)}`);
+  });
+
   test('the Sledge swings its cylinder out, a speedloader comes up in the hand, and the cylinder closes home', () => {
     spawn('handcannon');
     const w = WEAPONS.handcannon;
