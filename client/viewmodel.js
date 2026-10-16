@@ -167,12 +167,14 @@ const handgunArms = () => [
 // fetches a new one off screen; the hand brings it up in view from 0.33 and
 // seats it at 0.6 (the click); a slap at `slap` (the left hand's pivot
 // offset) at 0.76. `extra` adds tracks (a bolt, a feed cover).
-function magReload(seat, tilt, slap, extra) {
+// `lift` brings a long magazine up higher; `drop` scales its first fall, for
+// a magazine near the camera.
+function magReload(seat, tilt, slap, { lift = 0, drop = 1, ...extra } = {}) {
   const at = (d, ...rot) => [...add(seat, d), ...rot];
   return {
     gun: [[0], [0.14, ...tilt], [0.72, ...tilt], [0.76, ...add(tilt, [0, -0.008, 0.016, 0.05, 0, 3 * DEG])], [0.8, ...tilt], [0.94]],
-    part: [[0.14], [0.2, 0.02, -0.15, 0.01, 0.3, 0, 0.2], [0.27, 0.1, -0.8, 0.03, 0.8, 0, 0.5], [0.6]],
-    left: [[0.1], [0.18, ...at([-0.005, -0.13, -0.06], 0.2)], [0.27, ...at([0.095, -0.63, -0.01], 0.3)], [0.34, ...at([0.075, -0.08, 0])], [0.5, ...at([0.025, -0.03, 0])],
+    part: [[0.14], [0.2, 0.02 * drop, -0.15 * drop, 0.01, 0.3 * drop, 0, 0.2 * drop], [0.27, 0.1, -0.8, 0.03, 0.8, 0, 0.5], [0.6]],
+    left: [[0.1], [0.18, ...at([-0.005, -0.13, -0.06], 0.2)], [0.27, ...at([0.095, -0.63, -0.01], 0.3)], [0.34, ...at([0.075, lift - 0.08, 0])], [0.5, ...at([0.025, lift - 0.03, 0])],
       [0.6, ...seat], [0.64, ...seat], [0.71, ...slap], [0.76, ...add(slap, [0.005, 0.01, -0.02])], [0.88]],
     hold: [0.3, 0.6], // the new magazine is in the hand, the old one gone
     ...extra,
@@ -196,6 +198,7 @@ const handgunReload = (seat, tilt) => ({
 // reload and cycle tracks, from the gun's magazine seat when it has one.
 const RIFLE_TILT = [0.03, 0.09, 0.04, 0.2, 0.1, -25 * DEG]; // raised, turned and tilted 25° so the magazine well shows; the gun stays 57 px clear of the crosshair at 720p
 const PISTOL_TILT = [0.08, 0.12, -0.06, 0.15, 0.2, -1.1]; // on its side, so the grip opens toward the support hand, clear of the HUD
+const BULLPUP_TILT = [0.0, 0.16, 0.0, -0.3, 0.35, -35 * DEG]; // raised high and turned in, the well behind the grip toward the middle
 const STYLE = {
   rifle: {
     rest: [0.2, -0.19, -0.6, 0.03, 0.08, 0], anchor: [0, 0.075, -0.07], flash: 0.18,
@@ -203,6 +206,24 @@ const STYLE = {
     arms: longArms,
     // Bolt slap at 0.76 by the left side of the receiver.
     reload: (seat) => magReload(seat, RIFLE_TILT, [-0.045, -0.02, 0.27]),
+  },
+  smg: { // light and quick: a small kick, a fast spring
+    rest: [0.19, -0.18, -0.55, 0.03, 0.08, 0], anchor: [0, 0.075, -0.07], flash: 0.14,
+    kick: { back: 0.022, up: 1.4 * DEG, roll: 1.2 * DEG, halflife: 0.035 }, casing: [0.01, 0.022, 'brass'],
+    arms: longArms,
+    reload: (seat) => magReload(seat, add(RIFLE_TILT, [0, 0.04, 0, 0, 0, 0]), [-0.04, 0, 0.1], { lift: 0.07, drop: 0.75 }), // slaps the charging knob
+  },
+  burst: { // the bullpup's well is behind the grip, so the left hand reaches back for it
+    rest: [0.2, -0.19, -0.58, 0.03, 0.08, 0], anchor: [0, 0.08, 0.1], flash: 0.16,
+    kick: { back: 0.03, up: 2 * DEG, roll: 1 * DEG, halflife: 0.04 }, casing: [0.012, 0.035, 'brass'],
+    arms: longArms,
+    reload: (seat) => magReload(seat, BULLPUP_TILT, [-0.05, 0, 0.2], { lift: 0.1, drop: 0.8 }),
+  },
+  marksman: { // heavy single shots: a deep, slower kick
+    rest: [0.2, -0.19, -0.6, 0.03, 0.08, 0], anchor: [0, 0.09, -0.06], flash: 0.2,
+    kick: { back: 0.06, up: 4.5 * DEG, roll: 1 * DEG, halflife: 0.07 }, casing: [0.014, 0.045, 'brass'],
+    arms: longArms,
+    reload: (seat) => magReload(seat, RIFLE_TILT, [-0.045, 0, 0.22]),
   },
   pistol: {
     rest: [0.17, -0.17, -0.5, 0, 0.1, 0], anchor: [0, 0.06, -0.055], flash: 0.12,
@@ -246,8 +267,11 @@ function model(look, s) {
 }
 export const MODELS = Object.fromEntries(Object.keys(WEAPONS).filter((id) => STYLE[WEAPONS[id].class] && WEAPONS[id].look).map((id) => [id, model(WEAPONS[id].look, STYLE[WEAPONS[id].class])]));
 
-// Box sizes [width, height, length] per weapon, for other players' guns.
-export const GUN_SHAPES = { rifle: [0.045, 0.06, 0.5], pistol: [0.04, 0.07, 0.2], shotgun: [0.065, 0.065, 0.46] };
+// Each gun's overall size [width, height, length] from its look (rotations ignored).
+export const GUN_SHAPES = Object.fromEntries(Object.keys(MODELS).map((id) => {
+  const ps = WEAPONS[id].look.parts;
+  return [id, [0, 1, 2].map((k) => Math.max(...ps.map((p) => p.at[k] + p.s[k] / 2)) - Math.min(...ps.map((p) => p.at[k] - p.s[k] / 2)))];
+}));
 
 // ---- Springs and tracks: plain numbers, no allocation per frame.
 

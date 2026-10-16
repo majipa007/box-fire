@@ -54,6 +54,10 @@ async function suite() {
   }
   const near = (a, b, tol, what) => assert.ok(Math.abs(a - b) <= tol, `${what}: ${a} vs ${b}`);
 
+  // arsenal: every gun is drawn from the look in its own gun file, nothing else.
+  const { GUN_IDS } = await import('../shared/guns/index.js');
+  const DRAWN = ['rifle', 'pistol', 'shotgun', 'smg', 'burst', 'marksman'];
+  const MAGS = DRAWN.filter((id) => !['shotgun', 'handcannon'].includes(id)); // the magazine reloads
   test('the spring gives the same answer at any frame rate and never overshoots', () => {
     const a = vm.spring(1);
     const b = vm.spring(1);
@@ -91,15 +95,12 @@ async function suite() {
     assert.deepEqual([...vm.sampleTrack(undefined, 0.5, out)], [0, 0, 0, 0, 0, 0]);
   });
 
-  test('each weapon is one skinned mesh in the bible palette, resting where §3.2 puts it', async () => { // arsenal: async for baseGun
-    // arsenal: a gun without a model of its own yet draws its class's launch gun (shared/guns baseGun).
-    const { baseGun } = await import('../shared/guns/index.js');
-    for (const id of Object.keys(WEAPONS)) assert.ok(vm.MODELS[baseGun(id)] && vm.GUN_SHAPES[baseGun(id)], `${id} draws something`);
-    assert.deepEqual(Object.keys(vm.MODELS).sort(), ['pistol', 'rifle', 'shotgun']);
-    assert.deepEqual(Object.keys(vm.GUN_SHAPES).sort(), ['pistol', 'rifle', 'shotgun']); // other players' guns
+  test('each weapon is one skinned mesh in the bible palette, resting where §3.2 puts it', () => {
+    assert.deepEqual(Object.keys(vm.MODELS).sort(), [...DRAWN].sort());
+    assert.deepEqual(Object.keys(vm.GUN_SHAPES).sort(), [...DRAWN].sort()); // other players' guns
     const rests = { rifle: [0.2, -0.19, -0.6], pistol: [0.17, -0.17, -0.5], shotgun: [0.2, -0.2, -0.58] };
     for (const [name, m] of Object.entries(vm.MODELS)) {
-      assert.deepEqual(m.rest.slice(0, 3), rests[name]);
+      if (rests[name]) assert.deepEqual(m.rest.slice(0, 3), rests[name]); // the launch guns where the bible's table puts them
       assert.ok(m.boxes.every((b) => b.color in vm.LOOK.colors), `${name} names an unknown colour`);
       const mesh = rig(name);
       assert.ok(mesh.isSkinnedMesh && mesh.children.length === 1, name); // the root bone only: one draw
@@ -114,9 +115,6 @@ async function suite() {
     assert.deepEqual(vm.LOOK.colors.metal + vm.LOOK.colors.tan + vm.LOOK.colors.dark, '#2e3136#b9a27a#1b1d22');
   });
 
-  // arsenal: every gun is drawn from the look in its own gun file, nothing else.
-  const { GUN_IDS } = await import('../shared/guns/index.js');
-  const DRAWN = ['rifle', 'pistol', 'shotgun'];
   test('each gun is drawn from its own look: every look box is in the model, on its tagged bone', () => {
     const BONE_OF = { mag: 'part', pump: 'part', slide: 'slide', bolt: 'slide', cover: 'slide' };
     for (const id of DRAWN) {
@@ -134,7 +132,7 @@ async function suite() {
   });
 
   test('at peak, with the flash up and casings flying, the view pass is ≤ 4 draws and ≤ 1.5k triangles', () => {
-    for (const w of ['rifle', 'pistol', 'shotgun']) {
+    for (const w of DRAWN) { // two shots each: every gun fires, flashes and throws its casing
       spawn(w);
       vm.gunKick();
       frames(28); // the shotgun's shell is out at the pump
@@ -255,7 +253,7 @@ async function suite() {
   const oldMag = (b) => b.part === 'part';
   const newMag = (b) => b.part === 'shell';
 
-  for (const weapon of ['rifle', 'pistol']) {
+  for (const weapon of MAGS) {
     test(`a ${weapon} reload drops the magazine in view, brings the new one up in the hand, and swaps them unseen`, () => {
       spawn(weapon);
       const w = WEAPONS[weapon];
