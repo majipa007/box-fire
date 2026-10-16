@@ -323,12 +323,6 @@ test('every gun plays its own recipe, from its gun file; others borrow, and noth
   for (const odd of ['transient', '__proto__', 'nope', undefined]) assert.equal(gunSound(odd), 'gun.rifle', String(odd));
 });
 
-test('no gun sounds like the launch gun it used to borrow', () => {
-  for (const id of GUN_IDS.filter((g) => baseGun(g) !== g)) {
-    assert.notDeepEqual(render(`gun.${id}`).subarray(0, ms(80)), render(`gun.${baseGun(id)}`).subarray(0, ms(80)), id);
-  }
-});
-
 // Character, as relations between renders. win: the 10 ms RMS around sample i.
 const win = (a, i) => rms(a, Math.max(0, i - ms(5)), Math.min(a.length, i + ms(5)));
 const peakWin = (a, to = a.length) => { let p = 0; for (let i = 0; i < to; i += 48) p = Math.max(p, win(a, i)); return p; };
@@ -387,7 +381,16 @@ test('the Ratchet is crisp: brighter and shorter than the Mason, so three rounds
   assert.ok(ring(gun('burst')) < ring(gun('rifle')));
 });
 
-import { cadence, casingDelay } from './audio.js';
+test('no gun sounds like the launch gun it used to borrow: a 25% gap in brightness, ring or low end', () => {
+  const traits = (id) => { const s = gun(id); return [brightness(s, ms(40)), ring(s), lowShare(s, ms(60))]; };
+  for (const id of GUN_IDS.filter((g) => baseGun(g) !== g)) {
+    const [a, b] = [traits(id), traits(baseGun(id))];
+    const gap = Math.max(...a.map((v, k) => Math.abs(Math.log(v / b[k]))));
+    assert.ok(gap > Math.log(1.25), `${id} vs ${baseGun(id)}: [${a.map((v) => v.toFixed(3))}] vs [${b.map((v) => v.toFixed(3))}]`);
+  }
+});
+
+import { cadence, casingDelay, CASING_ACTION } from './audio.js';
 
 test('the soundboard fires each gun at its real cadence: sprays at their rate, three-round bursts, a slow bolt', () => {
   const gaps = (t) => t.slice(1).map((v, i) => +(v - t[i]).toFixed(4));
@@ -403,6 +406,8 @@ test('the soundboard fires each gun at its real cadence: sprays at their rate, t
 
 test('brass: a revolver keeps it, a pump or bolt drops it when the action opens, the rest at once', () => {
   assert.equal(casingDelay('handcannon'), null);
-  for (const id of ['shotgun', 'sniper']) assert.ok(casingDelay(id) > CASING_DELAY + 0.3, id);
+  for (const id of ['shotgun', 'sniper']) { // it lands after the action opens, and before the next shot covers it
+    assert.ok(casingDelay(id) > CASING_ACTION[id] + 0.1 && casingDelay(id) < 1 / GUNS[id].rps - 0.05, `${id}: ${casingDelay(id)} s`);
+  }
   for (const id of ['rifle', 'pistol', 'smg', 'lmg', 'burst', 'marksman', 'machinepistol', 'bolt-or-unknown']) assert.equal(casingDelay(id), CASING_DELAY, id);
 });

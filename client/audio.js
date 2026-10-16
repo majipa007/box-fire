@@ -138,11 +138,14 @@ export const LAND = { minAir: 0.2, fullVy: 6.3, step: 1.4, stepRate: 0.82 };
 // Own casings (§5): a 4.2 kHz tink this long after the shot, and a smaller bounce.
 export const CASING_DELAY = 0.38;
 // arsenal: a pump or bolt throws its case when the action opens (the
-// pumpBack and boltBack layers' `at`); a revolver keeps its brass (null).
+// pumpBack and boltBack layers' `at`), from the gun's side, so it lands
+// sooner: inside the cycle, before the next shot; a revolver keeps its brass (null).
 export const CASING_ACTION = { shotgun: 0.42, sniper: 0.45, handcannon: null };
+const CASING_ACTION_FALL = 0.2;
 export const casingDelay = (weapon) => {
-  const at = Object.hasOwn(CASING_ACTION, weapon) ? CASING_ACTION[weapon] : 0;
-  return at === null ? null : at + CASING_DELAY;
+  if (!Object.hasOwn(CASING_ACTION, weapon)) return CASING_DELAY;
+  const at = CASING_ACTION[weapon];
+  return at === null ? null : at + CASING_ACTION_FALL;
 };
 
 // Your own confirmations (§5): instant, dry, never jittered, so they read at once.
