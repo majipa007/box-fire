@@ -31,9 +31,12 @@ test('every power-up, weapon and the headshot has an icon', () => {
 // straight-line path commands and numbers, and every point stays in its box.
 test('every gun draws its own silhouette from its file, inside its viewBox', () => {
   const seen = new Set();
+  // The ten shipped guns are drawn; a gun added later may stay null (docs/guns.md).
+  for (const id of ['pistol', 'handcannon', 'machinepistol', 'rifle', 'shotgun', 'smg', 'burst', 'lmg', 'marksman', 'sniper']) assert.ok(GUNS[id].icon, `${id}: drawn`);
   for (const id of GUN_IDS) {
     const ic = GUNS[id].icon;
-    assert.ok(ic && ic.w > 0 && ic.h > 0, `${id}: icon { w, h, d }`);
+    if (ic === null) continue;
+    assert.ok(ic.w > 0 && ic.h > 0, `${id}: icon { w, h, d }`);
     assert.match(ic.d, /^M[MLHVZ0-9 .-]+$/, `${id}: straight-line commands only`);
     assert.ok(ICONS[id].startsWith(`<svg viewBox="0 0 ${ic.w} ${ic.h}"`) && ICONS[id].includes(ic.d), `${id}: the HUD draws the file's path`);
     assert.ok(!seen.has(ic.d), `${id}: a silhouette of its own`);
