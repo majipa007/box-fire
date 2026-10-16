@@ -18,6 +18,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WEAPONS, SWITCH_SECONDS, RUN_SPEED } from '../shared/constants.js';
 import { rayBox } from '../shared/collision.js';
+import { scopedIn } from '../shared/weapons.js';
 import { self } from './net.js';
 
 const DEG = Math.PI / 180;
@@ -740,6 +741,7 @@ const vmState = { mover: { vx: 0, vy: 0, vz: 0, grounded: true, crouch: false },
 let wanted = 'rifle'; // the weapon the arsenal holds
 let shown = null; // the weapon on screen; lags `wanted` until a switch is down
 let raise = false; // just became visible: come up from below
+let scopedAway = false; // hidden by a full scope, not by death: no raise on the way out
 let shots = 0; // own shots since the last frame
 let lastNow = null;
 let lastYaw = 0;
@@ -778,6 +780,7 @@ const SNAP = 0.5; // rad in one frame: a respawn or a teleport, not a turn
 export function setGun(weapon, visible) {
   wanted = MODELS[weapon] ? weapon : 'rifle';
   if (visible && !pose.visible) raise = true;
+  if (!visible) scopedAway = self.alive && !!self.arsenal && scopedIn(self.arsenal);
   pose.visible = visible;
 }
 
@@ -871,7 +874,7 @@ export function updateViewmodel(now, camera, scene, renderer) {
   castT += dt;
   if (raise) {
     raise = false;
-    switchT = LOOK.switchPose.out; // come up from the bottom
+    if (!scopedAway) switchT = LOOK.switchPose.out; // come up from the bottom
     lastYaw = camera.rotation.y;
     lastPitch = camera.rotation.x;
     turnYaw = turnPitch = 0;

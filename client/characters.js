@@ -91,8 +91,9 @@ export const PARTS = [
 // Each third-person gun comes from the same look as the first-person one
 // (shared/guns/*.js): the boxes sharing a `tp` tag merge into one box, their
 // bounds with rotations included, coloured as the biggest of them; untagged
-// details drop. At most 4 boxes, so 10 players stay inside 10k triangles; the
-// 'body' box is the one with an outline. Gun space is the look's, squashed to
+// details drop. At most 4 boxes, so 10 players stay inside 10k triangles (the
+// worst case is 9,920: a 5th box would break it); the 'body' box is the one
+// with an outline. Gun space is the look's, squashed to
 // the soldier's proportions: a long gun keeps its cross-section and loses
 // length, a sidearm grows a little all round.
 function gunParts(g) {

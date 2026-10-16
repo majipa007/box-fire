@@ -425,6 +425,30 @@ async function suite() {
     frames(60);
   });
 
+  test('out of a full scope the Surveyor is simply back where it rests; after a death it comes up from below', () => {
+    spawn('sniper');
+    const rest = gun.position.y;
+    self.arsenal.scope = WEAPONS.sniper.scope.inSeconds; // scoped in: main.js hides the gun
+    vm.setGun('sniper', false);
+    frames(20);
+    camera.rotation.y = 1; // turned while scoped: no sway snap on the way out
+    self.arsenal.scope = 0; // let go of aim
+    vm.setGun('sniper', true);
+    frames(1);
+    near(gun.position.y, rest, 0.01, 'no raise from below');
+    near(gun.rotation.y, vm.MODELS.sniper.base[4], 0.01, 'no swing from the turn');
+    self.alive = false; // shot dead while scoped: the next show is a respawn
+    self.arsenal.scope = WEAPONS.sniper.scope.inSeconds;
+    vm.setGun('sniper', false);
+    frames(20);
+    Object.assign(self, freshLife(0, 0, 0, 'sniper'));
+    vm.setGun('sniper', true);
+    frames(1);
+    assert.ok(gun.position.y < rest - 0.1, 'raised from below');
+    camera.rotation.y = 0;
+    frames(60);
+  });
+
   test('the Piledriver opens its feed cover for the box swap and shuts it after', () => {
     spawn('lmg');
     const cover = bone('lmg', 3);

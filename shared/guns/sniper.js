@@ -21,8 +21,8 @@ export default {
       { c: 'metal', s: [0.04, 0.04, 0.004], at: [0, 0.152, 0.139] }, // its glass, glinting the sky
       { c: 'metal', s: [0.022, 0.026, 0.026], at: [0, 0.182, -0.07] }, // elevation turret
       { c: 'metal', s: [0.026, 0.022, 0.026], at: [0.031, 0.15, -0.07] }, // windage turret
-      { c: 'metal', s: [0.05, 0.03, 0.024], at: [0, 0.118, -0.14] }, // rings
-      { c: 'metal', s: [0.05, 0.03, 0.024], at: [0, 0.118, 0.02] },
+      { c: 'metal', s: [0.05, 0.03, 0.024], at: [0, 0.118, -0.14], tp: 'top' }, // rings: in third person they join the scope to the receiver
+      { c: 'metal', s: [0.05, 0.03, 0.024], at: [0, 0.118, 0.02], tp: 'top' },
       { c: 'dark', s: [0.03, 0.02, 0.03], at: [0, 0.01, -0.48] }, // bipod mount
       { c: 'dark', s: [0.012, 0.012, 0.2], at: [-0.017, 0.012, -0.37] }, // folded bipod
       { c: 'dark', s: [0.012, 0.012, 0.2], at: [0.017, 0.012, -0.37] },
