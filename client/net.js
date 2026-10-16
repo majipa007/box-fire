@@ -2,7 +2,7 @@
 // the snapshot buffer other players are interpolated from.
 import { encode, PLAYER_FLAGS, WEAPON_IDS } from '../shared/protocol.js';
 import { step } from '../shared/movement.js';
-import { stepWeapon } from '../shared/weapons.js';
+import { stepWeapon, moveFactor } from '../shared/weapons.js'; // arsenal: moveFactor
 import { stepPowers } from '../shared/powerups.js'; // powerups: inventory step
 import { TICK_RATE, INTERP_DELAY_TICKS, SNAP_DISTANCE } from '../shared/constants.js';
 
@@ -37,7 +37,7 @@ export const self = { mover: null, arsenal: null, hp: 0, alive: false, pending: 
 // the inventory step used or fired on it (stepPowers), else null.
 export function predict(input, boxes) {
   input.s = ++self.seq;
-  step(self.mover, input, boxes);
+  step(self.mover, input, boxes, moveFactor(self.arsenal)); // arsenal: the held gun's pace, as the server steps it
   const fired = stepWeapon(self.arsenal, input);
   input.power = self.pw ? stepPowers(self.pw, self.mover, self.arsenal, input) : null; // powerups: after the gun, as on the server
   if (fired) self.shots++;
@@ -60,7 +60,7 @@ export function reconcile(snapshot, boxes) {
   if (me.pw) self.pw = { ...me.pw, inv: [...me.pw.inv] }; // powerups: the server's inventory
   self.pending = me.alive ? self.pending.filter((i) => i.s > snapshot.ack) : [];
   for (const i of self.pending) {
-    step(self.mover, i, boxes);
+    step(self.mover, i, boxes, moveFactor(self.arsenal)); // arsenal
     stepWeapon(self.arsenal, i);
     if (self.pw) stepPowers(self.pw, self.mover, self.arsenal, i); // powerups: replayed; its results are ignored
   }

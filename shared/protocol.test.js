@@ -75,3 +75,28 @@ test('start and end_match carry no payload', () => {
   assert.deepEqual(decodeClient('{"t":"start","extra":1}'), { t: 'start' });
   assert.deepEqual(decodeClient('{"t":"end_match","why":"x"}'), { t: 'end_match' });
 });
+
+// arsenal: { primary, secondary }, each checked against its registry slot.
+test('loadout carries a primary, a sidearm or both, each from its own slot of the registry', () => {
+  assert.deepEqual(decodeClient('{"t":"loadout","primary":"shotgun","secondary":"handcannon"}'), { t: 'loadout', primary: 'shotgun', secondary: 'handcannon' });
+  assert.deepEqual(decodeClient('{"t":"loadout","secondary":"handcannon"}'), { t: 'loadout', secondary: 'handcannon' });
+  for (const bad of [{}, { secondary: 'rifle' }, { primary: 'rifle', secondary: 'rifle' }, { primary: 'rifle', secondary: 'bazooka' }, { secondary: '__proto__' },
+    { secondary: 'constructor' }, { primary: 'shotgun', secondary: null }, { secondary: ['pistol'] }]) {
+    assert.equal(decodeClient(JSON.stringify({ t: 'loadout', ...bad })), null, JSON.stringify(bad));
+  }
+});
+
+test('arsenal: the aim (scope) key is its own held bit inside the 16-bit check', () => {
+  assert.equal(decodeClient(JSON.stringify({ ...input, k: KEY.AIM | KEY.FORWARD })).keys, KEY.AIM | KEY.FORWARD);
+  assert.ok(KEY.AIM <= 0xffff);
+  for (const [name, bit] of Object.entries(KEY)) if (name !== 'AIM') assert.equal(bit & KEY.AIM, 0, name);
+});
+
+// arsenal: a drop-in player's first life uses their pick, so join can carry it.
+test('join may carry a primary and a sidearm, each checked against its own slot; a bad id is dropped, never the join', () => {
+  assert.deepEqual(decodeClient('{"t":"join","name":"Sam","primary":"sniper","secondary":"handcannon"}'),
+    { t: 'join', name: 'Sam', bot: false, primary: 'sniper', secondary: 'handcannon' });
+  assert.deepEqual(decodeClient('{"t":"join","name":"Sam","primary":"pistol","secondary":"rifle"}'), { t: 'join', name: 'Sam', bot: false });
+  assert.deepEqual(decodeClient('{"t":"join","name":"Sam","primary":"__proto__","secondary":"smg"}'), { t: 'join', name: 'Sam', bot: false });
+  assert.deepEqual(decodeClient('{"t":"join","name":"Sam","secondary":"machinepistol"}'), { t: 'join', name: 'Sam', bot: false, secondary: 'machinepistol' });
+});

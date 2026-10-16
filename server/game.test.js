@@ -99,3 +99,38 @@ test('a switch brings fresh spawns, pads, no entities and an empty rewind histor
   assert.equal(back.player.name, 'Bob');
   assert.equal(back.out.find((m) => m.t === 'welcome').map, 'b', 'a rejoin by name');
 });
+
+// arsenal: a loadout is a primary and a sidearm, applied at the next spawn.
+test('loadout: both picks apply at the next spawn, a primary-only message keeps the sidearm, and snapshots name the held gun', async () => {
+  const { WEAPON_IDS } = await import('../shared/protocol.js');
+  const game = newGame();
+  const alice = join(game, 'Alice', { loopback: true });
+  join(game, 'Bob');
+  game.handle(alice, { t: 'loadout', primary: 'shotgun', secondary: 'handcannon' });
+  game.handle(alice, { t: 'start' });
+  const spawn = alice.out.find((m) => m.e === 'spawn' && m.id === alice.player.id);
+  assert.deepEqual([spawn.primary, spawn.secondary], ['shotgun', 'handcannon'], 'the client builds the same arsenal from the event');
+  assert.deepEqual([alice.player.arsenal.primary, alice.player.arsenal.secondary], ['shotgun', 'handcannon']);
+
+  game.handle(alice, { t: 'loadout', primary: 'rifle' });
+  assert.equal(alice.player.arsenal.primary, 'shotgun', 'not before the next spawn');
+  for (let s = 1; s <= 4; s++) game.handle(alice, { t: 'input', s, rt: game.tick, keys: 0, yaw: 0, pitch: 0, fire: false, shot: 0, slot: 1 });
+  for (let i = 0; i < 4; i++) game.step();
+  const snap = alice.out.filter((m) => m.t === 'snapshot').at(-1);
+  assert.equal(WEAPON_IDS[snap.ps.find((p) => p[0] === alice.player.id)[8]], 'handcannon');
+
+  game.spawn(alice.player);
+  assert.deepEqual([alice.player.arsenal.primary, alice.player.arsenal.secondary], ['rifle', 'handcannon']);
+});
+
+// arsenal: attach() spawns a drop-in player at once, so the pick must ride on join.
+test('loadout: a player who joins mid-match with a pick spawns with it on the first life', () => {
+  const game = newGame();
+  const alice = join(game, 'Alice', { loopback: true });
+  game.handle(alice, { t: 'start' });
+  const late = conn();
+  game.handle(late, { t: 'join', name: 'bot7', bot: true, primary: 'sniper', secondary: 'handcannon' });
+  const spawn = alice.out.find((m) => m.e === 'spawn' && m.id === late.player.id);
+  assert.deepEqual([spawn.primary, spawn.secondary], ['sniper', 'handcannon']);
+  assert.deepEqual([late.player.arsenal.primary, late.player.arsenal.secondary], ['sniper', 'handcannon']);
+});

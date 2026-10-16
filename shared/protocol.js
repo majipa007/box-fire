@@ -1,6 +1,7 @@
 // Wire format: JSON objects tagged by `t`. Client messages are validated
 // here because they arrive from the network; server messages are trusted.
-import { NAME_MAX, PRIMARIES, PITCH_LIMIT, MAPS } from './constants.js';
+import { NAME_MAX, PRIMARIES, SECONDARIES, PITCH_LIMIT, MAPS } from './constants.js';
+import { GUN_IDS } from './guns/index.js'; // arsenal
 
 export const encode = (msg) => JSON.stringify(msg);
 
@@ -10,7 +11,7 @@ export const encode = (msg) => JSON.stringify(msg);
 // protection; BUBBLE (a power-up Shield), NITRO and SLOWED are power-up
 // effects.
 export const PLAYER_FLAGS = { CROUCH: 1, ALIVE: 2, SHIELDED: 4, BUBBLE: 8, NITRO: 16, SLOWED: 32 };
-export const WEAPON_IDS = ['rifle', 'pistol', 'shotgun'];
+export const WEAPON_IDS = GUN_IDS; // arsenal: the registry order (shared/guns/index.js)
 
 // POWER-UPS: ids on the wire (never part of WEAPON_IDS), and entity types.
 export const POWER_IDS = ['shunt', 'bolt', 'barge', 'shock', 'mine', 'nitro', 'shield'];
@@ -58,11 +59,21 @@ export function decodeClient(raw) {
   switch (m.t) {
     case 'join': {
       const name = cleanName(m.name);
-      return name && { t: 'join', name, bot: m.bot === true };
+      // arsenal: an optional pick for the first life; an id not listed in its slot is dropped, never the join.
+      return name && { t: 'join', name, bot: m.bot === true,
+        ...(PRIMARIES.includes(m.primary) && { primary: m.primary }), ...(SECONDARIES.includes(m.secondary) && { secondary: m.secondary }) };
     }
     case 'start': return { t: 'start' };
     case 'end_match': return { t: 'end_match' };
-    case 'loadout': return PRIMARIES.includes(m.primary) ? { t: 'loadout', primary: m.primary } : null;
+    case 'loadout': {
+      // arsenal: a primary, a sidearm or both; each named one must be a
+      // listed id of its own slot (never a lookup on an untrusted key).
+      const { primary, secondary } = m;
+      if (primary === undefined && secondary === undefined) return null;
+      if (primary !== undefined && !PRIMARIES.includes(primary)) return null;
+      if (secondary !== undefined && !SECONDARIES.includes(secondary)) return null;
+      return { t: 'loadout', ...(primary !== undefined && { primary }), ...(secondary !== undefined && { secondary }) };
+    }
     case 'vote': return MAPS.includes(m.map) ? { t: 'vote', map: m.map } : null; // a listed id, never a path
     case 'input': {
       const { s, rt, k, y, p, n, w } = m;

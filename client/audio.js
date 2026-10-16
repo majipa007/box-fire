@@ -12,8 +12,10 @@
 // ?debug&sfx plays every sound in turn (BOARD, about 600 ms apart).
 import { shotRng } from '../shared/rng.js';
 import { prepareMap } from '../shared/collision.js';
-import { SHOT_RANGE, POWER_COLORS } from '../shared/constants.js';
+import { SHOT_RANGE, POWER_COLORS, DT } from '../shared/constants.js';
+import { createArsenal, stepWeapon } from '../shared/weapons.js'; // the soundboard's cadences
 import { KEY } from '../shared/movement.js';
+import { GUNS, GUN_IDS, baseGun } from '../shared/guns/index.js'; // arsenal: each gun's recipe is its file's `sound`; one without borrows a launch gun's
 // Namespaces, not named imports, for both power-up wires: the engine wave's
 // padsFor and entity tuple are gone (or going) from the bible's modules, and
 // one missing named import fails the whole page.
@@ -57,28 +59,11 @@ const CHIME = [[1, 1, 1], [2, 0.25, 0.6], [3, 0.12, 0.4]];
 const semis = (n) => 2 ** (n / 12);
 
 // Gunshots (§5): an 8 ms 4 kHz transient (its own bank, skipped beyond
-// TRANSIENT_RANGE), a band-passed body, a sine thump, a tail, and the
+// TRANSIENT_RANGE), and each gun's own recipe from the `sound` field of its
+// file in shared/guns/: a band-passed body, a sine thump, a tail, and the
 // mechanism (bolt, slide, pump). Each also slaps back off the quarry.
 export const GUNSHOTS = {
-  rifle: { level: -7, n: 4, drive: 2, slap: true, layers: {
-    body: { src: 'noise', mode: 'bp', f: 2200, q: 0.9, a: 0.0006, dur: 0.13 },
-    thump: { src: 'sine', f: 90, f1: 45, sweep: 0.12, a: 0.001, dur: 0.12, g: 0.9 },
-    tail: { src: 'noise', mode: 'lp', f: 2000, f1: 350, glide: 0.12, a: 0.006, d: 0.1, g: 0.3 },
-    bolt: { src: 'noise', mode: 'bp', f: 3200, q: 3, at: 0.05, a: 0.0005, d: 0.006, g: 0.15 },
-  } },
-  pistol: { level: -9, n: 4, drive: 1.8, slap: true, layers: {
-    body: { src: 'noise', mode: 'bp', f: 3200, q: 1.1, a: 0.0004, dur: 0.08 },
-    thump: { src: 'sine', f: 90, f1: 45, sweep: 0.12, a: 0.001, dur: 0.12, g: 0.7 },
-    tail: { src: 'noise', mode: 'lp', f: 2600, f1: 500, glide: 0.08, a: 0.004, d: 0.07, g: 0.22 },
-    slide: { src: 'noise', mode: 'bp', f: 3800, q: 3, at: 0.04, a: 0.0005, d: 0.005, g: 0.18 },
-  } },
-  shotgun: { level: -5, n: 3, drive: 2.5, slap: true, layers: {
-    body: { src: 'noise', mode: 'bp', f: 900, q: 0.6, a: 0.001, dur: 0.3 },
-    thump: { src: 'sine', f: 70, f1: 35, sweep: 0.18, a: 0.002, dur: 0.18 },
-    tail: { src: 'noise', mode: 'lp', f: 1300, f1: 250, glide: 0.2, a: 0.01, d: 0.2, g: 0.35 },
-    pumpBack: { src: 'noise', mode: 'bp', f: 1700, q: 2, at: 0.42, a: 0.002, d: 0.022, g: 0.16 },
-    pumpFwd: { src: 'noise', mode: 'bp', f: 2600, q: 2.5, at: 0.55, a: 0.001, d: 0.016, g: 0.2 },
-  } },
+  ...Object.fromEntries(GUN_IDS.filter((id) => GUNS[id].sound).map((id) => [id, { slap: true, ...GUNS[id].sound }])),
   // A Bolt shot (§4.8): a square wave diving 1.9 kHz → 350 Hz over 140 ms, and crackle.
   bolt: { level: -8, n: 3, drive: 1.5, slap: true, layers: {
     zap: { src: 'sine', f: 1900, f1: 350, sweep: 0.14, a: 0.0005, dur: 0.14, partials: SQUARE },
@@ -152,6 +137,16 @@ export const FOOTSTEPS = {
 export const LAND = { minAir: 0.2, fullVy: 6.3, step: 1.4, stepRate: 0.82 };
 // Own casings (§5): a 4.2 kHz tink this long after the shot, and a smaller bounce.
 export const CASING_DELAY = 0.38;
+// arsenal: a pump or bolt throws its case when the action opens (the
+// pumpBack and boltBack layers' `at`), from the gun's side, so it lands
+// sooner: inside the cycle, before the next shot; a revolver keeps its brass (null).
+export const CASING_ACTION = { shotgun: 0.42, sniper: 0.45, handcannon: null };
+const CASING_ACTION_FALL = 0.2;
+export const casingDelay = (weapon) => {
+  if (!Object.hasOwn(CASING_ACTION, weapon)) return CASING_DELAY;
+  const at = CASING_ACTION[weapon];
+  return at === null ? null : at + CASING_ACTION_FALL;
+};
 
 // Your own confirmations (§5): instant, dry, never jittered, so they read at once.
 export const CONFIRMS = {
@@ -976,13 +971,20 @@ function muffleTo(hz) {
 }
 
 // --- Weapons and the world. dist in metres, pan from -1 (left) to 1 (right). ---
-// weapon: 'rifle' | 'pistol' | 'shotgun' | 'bolt'.
-export const gunshot = safe((weapon, dist = 0, pan = 0) => {
-  const kind = GUNSHOTS[weapon] && weapon !== 'transient' ? weapon : 'rifle';
+// The bank a weapon fires: its own recipe, else its launch gun's
+// (baseGun), else the rifle's. Never the bare transient.
+const ownShot = (w) => typeof w === 'string' && w !== 'transient' && Object.hasOwn(GUNSHOTS, w);
+export const gunSound = (weapon) => `gun.${ownShot(weapon) ? weapon : ownShot(baseGun(weapon)) ? baseGun(weapon) : 'rifle'}`;
+
+function fire(weapon, dist, pan, delay) {
+  const name = gunSound(weapon);
   const pri = dist > 0 ? PRI.gun : PRI.self;
-  play(`gun.${kind}`, { dist, pan, pri });
-  if (kind !== 'bolt' && finite(dist) <= TRANSIENT_RANGE) play('gun.transient', { dist, pan, pri });
-});
+  play(name, { dist, pan, pri, delay });
+  if (name !== 'gun.bolt' && finite(dist) <= TRANSIENT_RANGE) play('gun.transient', { dist, pan, pri, delay });
+}
+
+// weapon: a gun id (shared/guns) or 'bolt'.
+export const gunshot = safe((weapon, dist = 0, pan = 0) => fire(weapon, dist, pan, 0));
 
 // A shot's bullet ends ([x, y, z] each) from origin: surface hits and the
 // odd ricochet. heard(x, z) → [dist, pan] places each one.
@@ -1035,8 +1037,11 @@ export function ground(grounded, feet) {
   } catch (e) { fail(e); }
 }
 
-// An own shot's case hits the ground a moment later.
-export const casing = safe(() => play('casing', { delay: CASING_DELAY, pri: PRI.step }));
+// An own shot's case hits the ground a moment later (casingDelay), if it throws one.
+export const casing = safe((weapon) => {
+  const delay = casingDelay(weapon);
+  if (delay !== null) play('casing', { delay, pri: PRI.step });
+});
 
 // The map, for impact and footstep surfaces, and its id, for the engine
 // wave's pads. Works before start().
@@ -1267,15 +1272,38 @@ const BOARD_STEP = 0.6;
 const once = (fn) => (k) => k === 0 && fn();
 const near = [6, 0.7];
 const far = [35, -0.6];
+
+// When a gun fires over `seconds` with the trigger worked as fast as it
+// takes (held for autos, clicked every other step for the rest), stepped by
+// shared/weapons.js itself, so the board plays the cadence the game does.
+export function cadence(id, seconds) {
+  const side = GUNS[id].slot === 'secondary';
+  const a = createArsenal(side ? 'rifle' : id, side ? id : 'pistol');
+  a.mags = [Infinity, Infinity];
+  const input = { slot: side ? 1 : 0, keys: 0, fire: false };
+  a.slot = input.slot;
+  const times = [];
+  for (let k = 0; k * DT < seconds - 1e-9; k++) {
+    input.fire = GUNS[id].mode === 'auto' || k % 2 === 0;
+    if (stepWeapon(a, input)) times.push(k * DT);
+  }
+  return times;
+}
+const spray = (id, seconds, dist = 0, pan = 0) => once(() => { for (const t of cadence(id, seconds)) fire(id, dist, pan, t); });
+const TAIL_STEPS = { sniper: 3, handcannon: 2, marksman: 2, shotgun: 2 }; // board steps a long tail gets
 export const BOARD = [
-  ...['rifle', 'pistol', 'shotgun', 'bolt'].map((w) => [w, BOARD_STEP, once(() => gunshot(w))]),
-  ['rifle 6 m right', BOARD_STEP, once(() => gunshot('rifle', ...near))],
-  ['shotgun 35 m left', BOARD_STEP, once(() => gunshot('shotgun', ...far))],
+  ...[...GUN_IDS, 'bolt'].map((w) => [`${GUNS[w]?.name ?? w} (${w})`, BOARD_STEP * (TAIL_STEPS[w] ?? 1), once(() => gunshot(w))]),
+  ...GUN_IDS.filter((w) => GUNS[w].mode !== 'semi').map((w) => [`${GUNS[w].name} spray`, 1.4, spray(w, 1)]),
+  ['Sledge 6 m right', BOARD_STEP * 2, once(() => gunshot('handcannon', ...near))],
+  ['Surveyor 35 m left', BOARD_STEP * 3, once(() => gunshot('sniper', ...far))],
+  ['Piledriver spray 20 m left', 1.4, spray('lmg', 1, 20, -0.6)],
+  ['Crusher 35 m left', BOARD_STEP, once(() => gunshot('shotgun', ...far))],
   ...Object.keys(IMPACTS).map((s) => [`impact ${s}`, BOARD_STEP, once(() => play(`impact.${s}`, { dist: 4 }))]),
   ['ricochet', BOARD_STEP, once(() => play('ricochet', { dist: 4, pan: 0.5 }))],
   ...Object.keys(FOOTSTEPS).map((s) => [`steps ${s}`, BOARD_STEP, (k) => k % 4 === 0 && footstep(0, 0, s)]),
   ['landing', BOARD_STEP, once(() => landing(6.3))],
   ['casing', BOARD_STEP, once(() => casing('rifle'))],
+  ['casing after the pump', BOARD_STEP * 2, once(() => casing('shotgun'))],
   ...['body', 'head', 'shield'].map((h) => [`hit ${h}`, BOARD_STEP, once(() => hit(h))]),
   ['kill', BOARD_STEP, once(() => kill())],
   ['hurt', BOARD_STEP, once(() => hurt())],

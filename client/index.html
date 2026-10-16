@@ -130,6 +130,28 @@
     transform: translate(-50%, -50%); box-shadow: 0 0 0 1px rgba(21, 23, 28, 0.6), inset 0 0 0 1px rgba(21, 23, 28, 0.6); }
   #crosshair.ring s { display: block; }
 
+  /* arsenal: the scope, once a scoped gun is all the way in (#hud.scoped, the
+     frame the gun leaves the screen). Edges darkened to a ring of radius --sr,
+     a duplex reticle in the crosshair's cream on an ink outline, a gold dot.
+     Washes, the hit marker and the panels still draw over it; name tags only
+     inside the glass. */
+  #hud { --sr: min(44vh, 44vw); }
+  #scope { inset: 0; visibility: hidden; opacity: 0; transform: scale(1.08); transition: opacity 90ms ease-out, transform 140ms ease-out, visibility 0s 140ms;
+    background: radial-gradient(circle calc(var(--sr) * 0.75) at calc(50% - var(--sr) * 0.32) calc(50% - var(--sr) * 0.38), rgba(242, 239, 232, 0.06), transparent),
+      radial-gradient(circle, transparent calc(var(--sr) * 0.8), rgba(5, 6, 9, 0.42) calc(var(--sr) - 1px), rgba(5, 6, 9, 0.95) var(--sr)); }
+  #hud.scoped #scope { visibility: visible; opacity: 1; transform: none; transition: opacity 90ms ease-out, transform 140ms ease-out; }
+  #hud.scoped #crosshair { display: none; }
+  #hud.scoped #tags { clip-path: circle(var(--sr) at 50% 50%); }
+  #scope svg { position: absolute; left: 50%; top: 50%; width: calc(2 * var(--sr)); height: calc(2 * var(--sr)); transform: translate(-50%, -50%); overflow: visible; fill: none; stroke-linecap: square; }
+  #scope .ink { stroke: var(--ink); stroke-width: 3.5px; opacity: 0.8; }
+  #scope .lit { stroke: var(--text); stroke-width: 1.25px; }
+  #scope .post.ink { stroke-width: 7px; }
+  #scope .post.lit { stroke-width: 4px; }
+  #scope .rim.ink { stroke-width: 5px; opacity: 1; }
+  #scope .rim.lit { stroke: rgba(242, 239, 232, 0.35); stroke-width: 1.5px; }
+  #scope .dot { fill: var(--accent); stroke: var(--ink); stroke-width: 1.5px; }
+  #scope-zoom { position: absolute; left: calc(50% + var(--sr) * 0.42); top: calc(50% + var(--sr) * 0.5); font: 700 calc(18 * var(--u)) var(--font); letter-spacing: 0.12em; color: var(--text); opacity: 0.85; }
+
   /* Hit marker: 4 diagonal strokes, 5 px out. Kill: a big red X. */
   #hitmarker, #killx { left: 50%; top: 50%; width: 0; height: 0; opacity: 0; }
   #hitmarker i { position: absolute; left: -1px; top: -4px; width: 2px; height: 8px; background: var(--hc, #fff); box-shadow: 0 0 0 1px var(--ink); }
@@ -226,7 +248,9 @@
   #wname { font: 700 calc(13 * var(--u)) var(--font); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
   #wicon { height: calc(16 * var(--u)); color: var(--text); }
   #ammo-line { display: flex; align-items: baseline; justify-content: flex-end; gap: calc(6 * var(--u)); }
-  #mag { font: 700 calc(44 * var(--u))/1 var(--font); font-variant-numeric: tabular-nums; }
+  #mag { font: 700 calc(44 * var(--u))/1 var(--font); font-variant-numeric: tabular-nums; min-width: calc(var(--digits, 2) * 1ch); text-align: right; }
+  /* arsenal: a burst gun's fire mode, a chip before its icon. */
+  #wmode { font: 700 calc(11 * var(--u))/1 var(--font); letter-spacing: 0.14em; color: var(--accent); padding: calc(3 * var(--u)) calc(6 * var(--u)); border: 1px solid rgba(217, 180, 90, 0.55); text-shadow: none; }
   #reserve { font: 600 calc(20 * var(--u)) var(--font); color: var(--dim); }
   #ammo.low #mag { color: var(--danger); }
   #ammo.reloading #mag { color: var(--dim); }
@@ -264,19 +288,65 @@
   #padcue.full .ico { display: none; }
   #powerups { display: none !important; } /* hud: the provisional strip from powerups.js; ui.js draws the slots */
 
-  /* Death card at 38% height, the primary picker below it. */
-  #death { left: 50%; top: 38%; transform: translate(-50%, -50%); min-width: calc(340 * var(--u)); text-align: center; padding: calc(16 * var(--u)) calc(30 * var(--u)) calc(18 * var(--u));
-    background: rgba(21, 23, 28, 0.78); clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px)); }
+  /* arsenal: the respawn screen. The death card stacks over the loadout panel,
+     centred between the top-centre plates and the HP and ammo plates (tops at
+     110u), so both fit at 960 x 540 (where --u is 0.8). */
+  #respawn { left: 0; right: 0; top: calc(116 * var(--u)); bottom: calc(112 * var(--u)); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(6 * var(--u)); }
+  #death { display: grid; grid-template-columns: auto auto; justify-content: center; align-items: center; column-gap: calc(24 * var(--u)); min-width: calc(360 * var(--u)); text-align: center;
+    padding: calc(8 * var(--u)) calc(30 * var(--u)) calc(10 * var(--u)); background: rgba(21, 23, 28, 0.78); clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px)); }
+  #death .eyebrow, #death-killer { grid-column: 1 / -1; }
   #death .eyebrow { font-size: calc(14 * var(--u)); }
-  #death-killer { font: 700 calc(28 * var(--u))/1.2 var(--font); letter-spacing: 0.04em; margin: calc(4 * var(--u)) 0 calc(8 * var(--u)); }
+  #death-killer { font: 700 calc(28 * var(--u))/1.2 var(--font); letter-spacing: 0.04em; margin: 0 0 calc(4 * var(--u)); }
   #death-how { display: flex; align-items: center; justify-content: center; gap: calc(10 * var(--u)); font-size: calc(14 * var(--u)); color: var(--dim); }
   #death-how .ico { height: calc(24 * var(--u)); color: var(--text); }
-  #death-timer { margin-top: calc(10 * var(--u)); font: 700 calc(18 * var(--u)) var(--font); letter-spacing: 0.06em; }
+  #death-timer { font: 700 calc(18 * var(--u)) var(--font); letter-spacing: 0.06em; }
   #death-timer b { color: var(--accent); }
-  #picker { left: 50%; top: 58%; transform: translateX(-50%); pointer-events: auto; text-align: center; padding: 12px 18px; font-size: 14px;
-    background: rgba(21, 23, 28, 0.78); border: 1px solid var(--line); }
-  #picker button { margin: 10px 4px 0; color: var(--text); background: rgba(242, 239, 232, 0.1); font-size: 13px; }
-  #picker button.chosen { color: var(--ink); background: var(--accent); }
+  /* While the panel is up with the cursor free, the pause menu waits underneath. */
+  body:has(#picker:not([hidden])) #menu { display: none; }
+  #picker { position: relative; pointer-events: auto; max-width: calc(100vw - 16px); padding: calc(12 * var(--u)) calc(14 * var(--u)) calc(14 * var(--u)); text-shadow: none;
+    background: rgba(21, 23, 28, 0.93); border: 1px solid var(--line); clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px)); }
+  #picker::before { content: ""; position: absolute; left: 0; top: 0; width: calc(64 * var(--u)); height: calc(3 * var(--u)); background: var(--accent); }
+  .pick-row { display: flex; gap: calc(8 * var(--u)); }
+  .pick-row + .pick-row { margin-top: calc(8 * var(--u)); }
+  .pick-label { writing-mode: vertical-rl; transform: rotate(180deg); width: calc(14 * var(--u)); text-align: center; font: 700 calc(10 * var(--u))/1 var(--font); letter-spacing: 0.3em; text-transform: uppercase; color: var(--dim);
+    border-right: 1px solid var(--line); padding-right: calc(4 * var(--u)); }
+  #pick-primary, #pick-secondary { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, calc(138 * var(--u))); gap: calc(6 * var(--u)); }
+  /* A gun card: key and fire mode, silhouette, name, class, four 10-segment bars. */
+  .gcard { display: flex; flex-direction: column; gap: calc(2 * var(--u)); padding: calc(7 * var(--u)) calc(9 * var(--u)) calc(9 * var(--u)); text-align: left; text-transform: none; letter-spacing: normal;
+    font: 600 calc(12 * var(--u))/1.2 var(--font); color: var(--text); background: rgba(242, 239, 232, 0.06); box-shadow: inset 0 0 0 1px var(--line); clip-path: none; outline: none; }
+  .gcard:hover { background: rgba(242, 239, 232, 0.13); }
+  .gcard:focus-visible { box-shadow: inset 0 0 0 2px var(--text); }
+  .gcard * { pointer-events: none; } /* the button is always the click target */
+  .gcard.chosen { background: linear-gradient(180deg, rgba(217, 180, 90, 0.26), rgba(217, 180, 90, 0.1)); box-shadow: inset 0 0 0 2px var(--accent), 0 0 calc(14 * var(--u)) rgba(217, 180, 90, 0.25); }
+  .gcard.chosen:focus-visible { box-shadow: inset 0 0 0 2px var(--accent), inset 0 0 0 4px rgba(242, 239, 232, 0.55); }
+  .gc-top { display: flex; align-items: center; justify-content: space-between; }
+  .gcard .key { font-size: calc(10 * var(--u)); }
+  .gcard.chosen .key { color: var(--ink); background: var(--accent); border-color: var(--accent); }
+  .gc-mode { font: 700 calc(9.5 * var(--u))/1 var(--font); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); }
+  .gcard .ico { align-self: center; height: calc(24 * var(--u)); margin: calc(1 * var(--u)) 0 calc(3 * var(--u)); color: var(--text); }
+  .gc-name { font: 700 calc(15 * var(--u))/1.1 var(--font); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+  .gcard.chosen .gc-name { color: var(--accent); }
+  .gc-class { font: 700 calc(9.5 * var(--u))/1.2 var(--font); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); white-space: nowrap; margin-bottom: calc(3 * var(--u)); }
+  .gc-stats { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: calc(3 * var(--u)) calc(6 * var(--u)); }
+  .gc-label { font: 700 calc(9 * var(--u))/1 var(--font); letter-spacing: 0.1em; color: var(--dim); }
+  .gc-bar { position: relative; height: calc(5 * var(--u)); background: rgba(242, 239, 232, 0.14);
+    -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(10% - 1.5px), transparent 0 10%); mask: repeating-linear-gradient(90deg, #000 0 calc(10% - 1.5px), transparent 0 10%); }
+  .gc-bar i { position: absolute; inset: 0; transform-origin: left; background: var(--text); }
+  .gcard.chosen .gc-bar i { background: var(--accent); }
+  /* Beside the sidearms: the loadout so far, the keys, Done. */
+  #pick-info { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; gap: calc(6 * var(--u)); padding: calc(8 * var(--u)) calc(12 * var(--u));
+    border: 1px dashed rgba(242, 239, 232, 0.16); }
+  .pi-head { display: flex; align-items: baseline; gap: calc(10 * var(--u)); }
+  .pi-head .eyebrow { font-size: calc(13 * var(--u)); color: var(--text); }
+  .pi-head .dim { font-size: calc(12 * var(--u)); }
+  #pick-summary { display: flex; align-items: center; gap: calc(10 * var(--u)); font: 700 calc(20 * var(--u))/1 var(--font); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); white-space: nowrap; }
+  #pick-summary .ico { height: calc(22 * var(--u)); color: var(--text); }
+  #pick-summary .plus { color: var(--dim); margin: 0 calc(4 * var(--u)); }
+  .pi-foot { display: flex; align-items: center; justify-content: space-between; gap: calc(10 * var(--u)); }
+  .pk-esc { display: none; } /* the respawn screen keeps the lock: Esc frees the cursor for the cards */
+  #respawn:has(#death:not([hidden])) .pk-esc { display: contents; }
+  #pick-keys { display: flex; align-items: center; flex-wrap: wrap; gap: calc(4 * var(--u)); font: 700 calc(10 * var(--u))/1 var(--font); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
+  #pick-done { font-size: calc(12 * var(--u)); padding: calc(6 * var(--u)) calc(16 * var(--u)); }
 
   /* Scoreboard. Between matches (.over) its map cards take clicks, and the pause
      menu waits underneath until the next match starts. */
@@ -309,6 +379,20 @@
 </head>
 <body>
 <div id="hud" hidden>
+  <div id="scope"><!-- arsenal: the scope overlay; viewBox units are hundredths of the ring's radius -->
+    <svg viewBox="-100 -100 200 200" aria-hidden="true">
+      <defs>
+        <path id="sc-hair" vector-effect="non-scaling-stroke" d="M-100 0H-5M5 0H100M0 -100V-5M0 5V100M-12 -2V2M-2 -12H2M12 -2V2M-2 12H2M-24 -3.5V3.5M-3.5 -24H3.5M24 -3.5V3.5M-3.5 24H3.5M-36 -2V2M-2 -36H2M36 -2V2M-2 36H2M-48 -3.5V3.5M-3.5 -48H3.5M48 -3.5V3.5M-3.5 48H3.5"/>
+        <path id="sc-post" vector-effect="non-scaling-stroke" d="M-100 0H-62M62 0H100M0 62V100"/>
+        <circle id="sc-rim" vector-effect="non-scaling-stroke" r="99.5"/>
+      </defs>
+      <use href="#sc-rim" class="rim ink"/><use href="#sc-rim" class="rim lit"/>
+      <use href="#sc-hair" class="ink"/><use href="#sc-post" class="post ink"/>
+      <use href="#sc-hair" class="lit"/><use href="#sc-post" class="post lit"/>
+      <circle class="dot" vector-effect="non-scaling-stroke" r="1.3"/>
+    </svg>
+    <span id="scope-zoom"></span>
+  </div>
   <div id="vignette"></div>
   <div id="lowhp"></div>
   <div id="shieldtint" hidden></div>
@@ -332,21 +416,30 @@
     <div id="bars"><div id="hpbar" class="bar"><i id="hp-ghost"></i><i id="hp-fill"></i></div><div id="shieldbar" class="bar" hidden><i></i></div></div>
   </div>
   <div id="ammo" class="panel">
-    <div id="wline"><span id="wicon" class="ico"></span><span id="wname"></span></div>
+    <div id="wline"><span id="wmode" hidden></span><span id="wicon" class="ico"></span><span id="wname"></span></div>
     <div id="ammo-line"><div id="reload"></div><span id="mag"></span><span id="reserve">/ ∞</span></div>
   </div>
   <div id="toast"></div>
   <div id="padcue" class="panel" hidden><span class="ico"></span><span></span></div>
   <div id="powers"></div>
-  <div id="death" hidden>
-    <div class="eyebrow">Eliminated by</div>
-    <div id="death-killer"></div>
-    <div id="death-how"><span id="death-icon" class="ico"></span><span id="death-hp"></span></div>
-    <div id="death-timer"></div>
-  </div>
-  <div id="picker" hidden>
-    <div>Primary for your next spawn <span class="dim">(B to close)</span></div>
-    <button id="pick-rifle">1 · Rifle</button><button id="pick-shotgun">2 · Shotgun</button>
+  <div id="respawn"><!-- arsenal: the death card over the loadout panel -->
+    <div id="death" hidden>
+      <div class="eyebrow">Eliminated by</div>
+      <div id="death-killer"></div>
+      <div id="death-how"><span id="death-icon" class="ico"></span><span id="death-hp"></span></div>
+      <div id="death-timer"></div>
+    </div>
+    <div id="picker" hidden>
+      <div class="pick-row"><span class="pick-label">Primary</span><div id="pick-primary"></div></div>
+      <div class="pick-row"><span class="pick-label">Sidearm</span><div id="pick-secondary"></div>
+        <div id="pick-info">
+          <div class="pi-head"><span class="eyebrow">Loadout</span><span class="dim">applies at your next spawn</span></div>
+          <div id="pick-summary"></div>
+          <div class="pi-foot"><span id="pick-keys"><b class="key">1</b>–<b class="key">7</b> primary <b class="key">8</b><b class="key">9</b><b class="key">0</b> sidearm <b class="key" id="pick-bkey">B</b> close<span class="pk-esc"> <b class="key">Esc</b> mouse</span></span>
+            <button id="pick-done" class="ghost" type="button">Done</button></div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 <div id="menu" class="screen" hidden>

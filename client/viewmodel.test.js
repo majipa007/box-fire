@@ -54,6 +54,10 @@ async function suite() {
   }
   const near = (a, b, tol, what) => assert.ok(Math.abs(a - b) <= tol, `${what}: ${a} vs ${b}`);
 
+  // arsenal: every gun is drawn from the look in its own gun file, nothing else.
+  const { GUN_IDS } = await import('../shared/guns/index.js');
+  const DRAWN = GUN_IDS;
+  const MAGS = DRAWN.filter((id) => !['shotgun', 'handcannon'].includes(id)); // the magazine reloads
   test('the spring gives the same answer at any frame rate and never overshoots', () => {
     const a = vm.spring(1);
     const b = vm.spring(1);
@@ -92,11 +96,11 @@ async function suite() {
   });
 
   test('each weapon is one skinned mesh in the bible palette, resting where §3.2 puts it', () => {
-    assert.deepEqual(Object.keys(vm.MODELS).sort(), Object.keys(WEAPONS).sort());
-    assert.deepEqual(Object.keys(vm.GUN_SHAPES).sort(), Object.keys(WEAPONS).sort()); // other players' guns
+    assert.deepEqual(Object.keys(vm.MODELS).sort(), [...DRAWN].sort());
+    assert.deepEqual(Object.keys(vm.GUN_SHAPES).sort(), [...DRAWN].sort()); // other players' guns
     const rests = { rifle: [0.2, -0.19, -0.6], pistol: [0.17, -0.17, -0.5], shotgun: [0.2, -0.2, -0.58] };
     for (const [name, m] of Object.entries(vm.MODELS)) {
-      assert.deepEqual(m.rest.slice(0, 3), rests[name]);
+      if (rests[name]) assert.deepEqual(m.rest.slice(0, 3), rests[name]); // the launch guns where the bible's table puts them
       assert.ok(m.boxes.every((b) => b.color in vm.LOOK.colors), `${name} names an unknown colour`);
       const mesh = rig(name);
       assert.ok(mesh.isSkinnedMesh && mesh.children.length === 1, name); // the root bone only: one draw
@@ -111,8 +115,24 @@ async function suite() {
     assert.deepEqual(vm.LOOK.colors.metal + vm.LOOK.colors.tan + vm.LOOK.colors.dark, '#2e3136#b9a27a#1b1d22');
   });
 
+  test('each gun is drawn from its own look: every look box is in the model, on its tagged bone', () => {
+    const BONE_OF = { mag: 'part', pump: 'part', slide: 'slide', bolt: 'slide', cover: 'slide' };
+    for (const id of DRAWN) {
+      const look = WEAPONS[id].look;
+      assert.ok(look && look.parts.length >= 8, `${id} has a look`);
+      const m = vm.MODELS[id];
+      for (const p of look.parts) {
+        assert.ok(p.c in vm.LOOK.colors, `${id}: unknown colour ${p.c}`);
+        assert.ok(m.boxes.some((b) => b.part === (BONE_OF[p.bone] ?? 'body') && b.color === p.c && b.size === p.s && b.at === p.at), `${id}: a look box is missing`);
+      }
+      assert.deepEqual(m.muzzle, look.muzzle, `${id}: the flash sits on the look's muzzle`);
+      const front = Math.min(...look.parts.filter((p) => p.hot).map((p) => p.at[2] - p.s[2] / 2));
+      assert.ok(Math.abs(front - look.muzzle[2]) < 0.03, `${id}: the muzzle is at the front of the barrel`);
+    }
+  });
+
   test('at peak, with the flash up and casings flying, the view pass is ≤ 4 draws and ≤ 1.5k triangles', () => {
-    for (const w of ['rifle', 'pistol', 'shotgun']) {
+    for (const w of DRAWN) { // two shots each: every gun fires, flashes and throws its casing
       spawn(w);
       vm.gunKick();
       frames(28); // the shotgun's shell is out at the pump
@@ -125,7 +145,7 @@ async function suite() {
         draws++;
         tris += (o.geometry.index.count / 3) * (o.isInstancedMesh ? o.instanceMatrix.count : 1); // every casing live
       });
-      assert.ok(rig('flash').visible && rig('casings').visible, w);
+      assert.ok(rig('flash').visible && rig('casings').visible === !!vm.MODELS[w].casing, w); // a revolver keeps its cases
       assert.ok(draws <= 4 && tris <= 1500, `${w}: ${draws} draws, ${tris} triangles`);
       frames(60);
     }
@@ -228,12 +248,47 @@ async function suite() {
     });
     return { share: inside / n, low };
   }
+  // How much of some boxes the player actually sees: the share of points on
+  // their faces (a 3 × 3 grid on each) whose line of sight from the eye meets
+  // one of those boxes first, so arms, hands or the gun in front count against it.
+  const sight = new THREE.Raycaster();
+  const eye = new THREE.Vector3();
+  const mid = new THREE.Vector3();
+  const faceCorners = Array.from({ length: 24 }, () => new THREE.Vector3());
+  const point = new THREE.Vector3();
+  function seen(weapon, pick) {
+    const mesh = rig(weapon);
+    const boxes = vm.MODELS[weapon].boxes;
+    vm.viewScene.updateMatrixWorld(true);
+    mesh.boundingSphere = mesh.boundingBox = null; // the skinned bounds move with the bones
+    vm.viewCamera.getWorldPosition(eye);
+    const pos = mesh.geometry.attributes.position;
+    let n = 0;
+    let shown = 0;
+    boxes.forEach((b, k) => {
+      if (!pick(b)) return;
+      mid.set(0, 0, 0);
+      faceCorners.forEach((v, i) => mid.add(mesh.applyBoneTransform(k * 24 + i, v.fromBufferAttribute(pos, k * 24 + i)).applyMatrix4(mesh.matrixWorld)));
+      mid.divideScalar(24);
+      for (let f = 0; f < 6; f++) {
+        const [a, b1, c, d] = faceCorners.slice(f * 4, f * 4 + 4); // (u, v) = (0, 1), (1, 1), (0, 0), (1, 0)
+        for (const u of [0.2, 0.5, 0.8]) for (const v of [0.2, 0.5, 0.8]) {
+          n++;
+          point.copy(c).lerp(d, u).lerp(corner.copy(a).lerp(b1, u), v).lerp(mid, 0.05);
+          sight.set(eye, corner.copy(point).sub(eye).normalize());
+          const hit = sight.intersectObject(mesh, false)[0];
+          if (hit && pick(boxes[Math.floor(hit.face.a / 24)]) && Math.abs(corner.copy(point).project(vm.viewCamera).x) <= 1 && Math.abs(corner.y) <= 1) shown++;
+        }
+      }
+    });
+    return n ? shown / n : 0;
+  }
   // The power-up slots at 1280 × 720: x 560–720, y 630–705, in NDC.
   const underHud = (c) => c.some((v, i) => i % 2 === 0 && Math.abs(v) < 0.125 && c[i + 1] < 1 - (2 * 630) / 720 && c[i + 1] > 1 - (2 * 705) / 720);
   const oldMag = (b) => b.part === 'part';
   const newMag = (b) => b.part === 'shell';
 
-  for (const weapon of ['rifle', 'pistol']) {
+  for (const weapon of MAGS) {
     test(`a ${weapon} reload drops the magazine in view, brings the new one up in the hand, and swaps them unseen`, () => {
       spawn(weapon);
       const w = WEAPONS[weapon];
@@ -246,6 +301,8 @@ async function suite() {
       let clear = Infinity; // px at 720p from the crosshair to the nearest corner of the gun
       let dropped = false;
       let seats = 0;
+      const looks = []; // how much of the new magazine shows on its way up
+      const sampleAt = [0.38, 0.425, 0.47, 0.515, 0.56];
       self.arsenal.reload = w.reload;
       while (self.arsenal.reload > 0) {
         const wasOld = onScreen(weapon, oldMag);
@@ -275,7 +332,11 @@ async function suite() {
           assert.equal(held.share, 1, `${t}: the new magazine is on screen`);
           assert.ok(!underHud(heldCorners), `${t}: and clear of the HUD`);
         }
+        if (t >= sampleAt[looks.length]) looks.push(seen(weapon, newMag));
       }
+      // Near as much in sight as the Mason's (0.27): neither glove, sleeve nor gun hides it.
+      const shown = looks.reduce((a, b) => a + b, 0) / looks.length;
+      assert.ok(looks.length === sampleAt.length && shown >= 0.2, `the new magazine is in sight on its way up (${looks.map((v) => v.toFixed(2)).join(' ')})`);
       assert.ok(dropped, 'the old magazine drops in view first');
       assert.ok(clear > 40, `the gun keeps clear of the crosshair (${clear.toFixed(0)} px)`);
       assert.equal(seats, 1, 'one seat');
@@ -283,6 +344,127 @@ async function suite() {
       assert.ok(mag.position.distanceTo(new THREE.Vector3(...vm.MODELS[weapon].pivots.part)) < 1e-3, 'seated');
     });
   }
+
+  // Which cells of a 64 × 36 grid over the screen show the gun itself (not
+  // the gloves, sleeves or nothing), traced from the eye.
+  function gunMask(weapon) {
+    const mesh = rig(weapon);
+    const boxes = vm.MODELS[weapon].boxes;
+    vm.viewScene.updateMatrixWorld(true);
+    mesh.boundingSphere = mesh.boundingBox = null;
+    const mask = [];
+    for (let j = 0; j < 36; j++) {
+      for (let i = 0; i < 64; i++) {
+        sight.setFromCamera({ x: (i + 0.5) / 32 - 1, y: (j + 0.5) / 18 - 1 }, vm.viewCamera);
+        const hit = sight.intersectObject(mesh, false)[0];
+        const b = hit && boxes[Math.floor(hit.face.a / 24)];
+        mask.push(!!b && ['body', 'slide', 'part'].includes(b.part) && b.color !== 'glove');
+      }
+    }
+    return mask;
+  }
+  test('at rest the Nailer stands apart from the Rivet: a different outline, its compensator and red-dot sight in sight', () => {
+    spawn('pistol');
+    const rivet = gunMask('pistol');
+    spawn('machinepistol');
+    const nailer = gunMask('machinepistol');
+    const both = nailer.filter((v, i) => v && rivet[i]).length / nailer.filter((v, i) => v || rivet[i]).length;
+    const comp = seen('machinepistol', (b) => b.hot && b.color === 'dark');
+    const dot = seen('machinepistol', (b) => b.part === 'body' && b.color === 'dark' && b.size[1] > 0.025 && b.at[1] - b.size[1] / 2 > 0.105); // a tall box on top of the receiver
+    assert.ok(both < 0.6 && comp >= 0.3 && dot >= 0.3, `outlines overlap ${both.toFixed(2)}; in sight: compensator ${comp.toFixed(2)}, sight ${dot.toFixed(2)}`);
+  });
+
+  test('the Sledge swings its cylinder out, a speedloader comes up in the hand, and the cylinder closes home', () => {
+    spawn('handcannon');
+    const w = WEAPONS.handcannon;
+    const cyl = bone('handcannon', 1);
+    const loader = bone('handcannon', 4);
+    const home = new THREE.Vector3(...vm.MODELS.handcannon.pivots.part);
+    const corners = [];
+    let out = false;
+    let loaded = false;
+    self.arsenal.reload = w.reload;
+    while (self.arsenal.reload > 0) {
+      self.arsenal.reload = Math.max(0, self.arsenal.reload - 1 / 60);
+      frames(1);
+      const t = 1 - self.arsenal.reload / w.reload;
+      assert.ok(cyl.scale.x > 0, `${t.toFixed(2)}: the cylinder never vanishes`);
+      if (t > 0.3 && t < 0.6 && cyl.rotation.z > 1.2 && cyl.position.x < home.x - 0.005) out = true;
+      if (t > 0.42 && t < 0.56 && loader.scale.x > 0 && onScreen('handcannon', (b) => b.part === 'shell', corners).share === 1 && !underHud(corners)) loaded = true;
+    }
+    assert.ok(out, 'the cylinder swings out to the left');
+    assert.ok(loaded, 'the speedloader is in the hand, on screen and clear of the HUD');
+    frames(60);
+    assert.equal(loader.scale.x, 0, 'no speedloader after the reload');
+    assert.ok(cyl.position.distanceTo(home) < 1e-3 && Math.abs(cyl.rotation.z) < 1e-3, 'the cylinder is home');
+  });
+
+  test('the Surveyor works its bolt after a shot: up and back, the case flies at the pull, home by the next shot', () => {
+    spawn('sniper');
+    const bolt = bone('sniper', 3);
+    const home = new THREE.Vector3(...vm.MODELS.sniper.pivots.slide);
+    const casings = rig('casings');
+    const cycle = 1 / WEAPONS.sniper.rps;
+    vm.gunKick();
+    frames(2);
+    assert.equal(casings.count, 0, 'no case at the shot');
+    for (const [t, back] of [[0.05, false], [0.36, true], [0.74, false]]) {
+      self.arsenal.cooldown = cycle - t;
+      frames(30); // pinned: let the bolt get there
+      const z = bolt.position.z - home.z;
+      assert.ok(back ? z > 0.05 && bolt.rotation.z > 0.5 : Math.abs(z) < 0.005, `${t} s: bolt ${z.toFixed(3)} m back, turned ${bolt.rotation.z.toFixed(2)}`);
+    }
+    self.arsenal.cooldown = 0;
+    frames(30);
+    assert.ok(bolt.position.distanceTo(home) < 1e-3, 'home');
+    vm.gunKick();
+    frames(14); // 0.23 s: the bolt has not reached the pull
+    assert.equal(casings.count, 0, 'not yet');
+    frames(10); // 0.4 s
+    assert.equal(casings.count, 1, 'out at the pull');
+    frames(60);
+  });
+
+  test('out of a full scope the Surveyor is simply back where it rests; after a death it comes up from below', () => {
+    spawn('sniper');
+    const rest = gun.position.y;
+    self.arsenal.scope = WEAPONS.sniper.scope.inSeconds; // scoped in: main.js hides the gun
+    vm.setGun('sniper', false);
+    frames(20);
+    camera.rotation.y = 1; // turned while scoped: no sway snap on the way out
+    self.arsenal.scope = 0; // let go of aim
+    vm.setGun('sniper', true);
+    frames(1);
+    near(gun.position.y, rest, 0.01, 'no raise from below');
+    near(gun.rotation.y, vm.MODELS.sniper.base[4], 0.01, 'no swing from the turn');
+    self.alive = false; // shot dead while scoped: the next show is a respawn
+    self.arsenal.scope = WEAPONS.sniper.scope.inSeconds;
+    vm.setGun('sniper', false);
+    frames(20);
+    Object.assign(self, freshLife(0, 0, 0, 'sniper'));
+    vm.setGun('sniper', true);
+    frames(1);
+    assert.ok(gun.position.y < rest - 0.1, 'raised from below');
+    camera.rotation.y = 0;
+    frames(60);
+  });
+
+  test('the Piledriver opens its feed cover for the box swap and shuts it after', () => {
+    spawn('lmg');
+    const cover = bone('lmg', 3);
+    const w = WEAPONS.lmg;
+    let open = false;
+    self.arsenal.reload = w.reload;
+    while (self.arsenal.reload > 0) {
+      self.arsenal.reload = Math.max(0, self.arsenal.reload - 1 / 60);
+      frames(1);
+      const t = 1 - self.arsenal.reload / w.reload;
+      if (t > 0.3 && t < 0.6 && cover.rotation.x < -0.6) open = true;
+    }
+    assert.ok(open, 'the cover lifts while the box is out');
+    frames(60);
+    assert.ok(Math.abs(cover.rotation.x) < 1e-3, 'shut');
+  });
 
   test('each shell shows in the left hand, outside the glove and on screen, until it is pushed in', () => {
     spawn('shotgun');

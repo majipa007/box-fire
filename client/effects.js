@@ -16,18 +16,27 @@ import { SHOT_RANGE, POWER_COLORS, POWERS } from '../shared/constants.js';
 import { prepareMap, rayBox } from '../shared/collision.js';
 import { hitboxes } from '../shared/weapons.js';
 import { PLAYER_FLAGS } from '../shared/protocol.js';
+import { GUNS, GUN_IDS } from '../shared/guns/index.js'; // arsenal: each gun's look by its class (LOOK.guns)
 
 // ---------------------------------------------------------------------------
 // Look: every number from the bible's table, for the art pass. Metres,
 // seconds and m/s; [min, max] pairs are ranges picked from at random.
 // 'pellet' is one shotgun pellet; counts are per bullet or pellet.
+//
+// arsenal: LOOK.guns, per gun class:
+//   tracer  length m, width × LOOK.tracer.width (and its per-metre growth),
+//           alpha, flight speed m/s, tail colour; vapour: a trail that forms
+//           behind the round and hangs `life` s after it lands (width m, alpha);
+//   flash   others' muzzle flash: star and glow m across, life s;
+//   chips   concrete chips a round knocks off; hole, its decal m across;
+//   casing  a LOOK.casing key, or null: a revolver keeps its brass.
 const LOOK = {
   nearFade: [0.3, 1.5], // m from the camera: particles fade (cubes shrink) to nothing inside this
   gravity: 20,
   cubes: { restitution: 0.3, minBounce: 0.8, slide: 0.6, groundDrag: 6, settle: 12, shrink: 0.6, shade: 0.08 },
   caps: { chips: 12, puffs: 3 }, // per shot event, however many pellets
   concrete: {
-    chips: { rifle: 5, pistol: 4, pellet: 2, bolt: 3 }, size: [0.025, 0.05], speed: [2, 4], life: [0.6, 1],
+    size: [0.025, 0.05], speed: [2, 4], life: [0.6, 1], // chips per round: LOOK.guns, LOOK.bolt
     puff: '#d9d2c4', puffAlpha: 0.5, puffSize: [0.25, 0.6], puffLife: 0.4,
     decal: ['#2a2724', '#e4ded2'],
   },
@@ -35,16 +44,29 @@ const LOOK = {
   steel: { sparks: 6, px: 3, speed: [6, 10], life: 0.2, color: '#ff8a3d', decal: ['#2a2a2a', '#b0b0b0'] },
   spark: { core: '#fff1c9', edge: '#3a2a20', stretch: 0.035, maxPx: 48 }, // a hot core, the rim colour, a dark edge; streaked over `stretch` s of flight, at most maxPx long
   shade: [0.36, 0.4, 0.48], // unlit puffs in the sun's shadow take this (linear) tint of skylight
-  decal: { size: { rifle: 0.07, pistol: 0.06, pellet: 0.045, bolt: 0.08 }, core: 0.42, halo: 0.85, lift: 0.004, minFit: 0.6 },
+  decal: { core: 0.42, halo: 0.85, lift: 0.004, minFit: 0.6 }, // sizes per round: LOOK.guns, LOOK.bolt
   player: { cubes: 4, headCubes: 7, size: [0.04, 0.07], speed: [1.5, 3], life: 0.5, white: '#ffffff', unknown: '#9a9fa8' },
   shield: { sparks: 5, size: 0.05, speed: [3, 5], life: 0.25, color: '#66fff0', edge: '#15171c' },
-  tracer: { length: { rifle: 3, pistol: 2, pellet: 1.5 }, width: 0.02, widthPerM: 0.0012, speed: 400, core: '#fff1c9', tail: '#ffb85c', fringe: '#3a2a20', fringeAlpha: 0.45 },
-  bolt: { width: 0.06, widthPerM: 0.001, zig: 0.05, life: 0.14, core: '#e8f4ff', body: '#2e9bff', fringe: '#15171c', fringeAlpha: 0.4, sparks: 6 },
-  muzzle: { star: 0.35, glow: 0.6, life: 0.05, color: '#ffd27a' }, // warms to #ff8a3d at the edge
+  tracer: { width: 0.02, widthPerM: 0.0012, speed: 400, core: '#fff1c9', tail: '#ffb85c', fringe: '#3a2a20', fringeAlpha: 0.45, vapour: '#e9e5dc' },
+  bolt: { width: 0.06, widthPerM: 0.001, zig: 0.05, life: 0.14, core: '#e8f4ff', body: '#2e9bff', fringe: '#15171c', fringeAlpha: 0.4, sparks: 6, chips: 3, hole: 0.08 },
+  muzzle: { color: '#ffd27a' }, // warms to #ff8a3d at the edge; sizes per gun: LOOK.guns
+  guns: {
+    pistol: { tracer: { length: 2, width: 1, alpha: 1 }, flash: { star: 0.35, glow: 0.6, life: 0.05 }, chips: 4, hole: 0.06, casing: 'pistol' },
+    handcannon: { tracer: { length: 2.6, width: 1.7, alpha: 1, tail: '#ffcf7a' }, flash: { star: 0.7, glow: 1.15, life: 0.075 }, chips: 7, hole: 0.085, casing: null },
+    machinepistol: { tracer: { length: 1.2, width: 0.6, alpha: 0.42 }, flash: { star: 0.24, glow: 0.42, life: 0.035 }, chips: 3, hole: 0.05, casing: 'pistol' },
+    rifle: { tracer: { length: 3, width: 1, alpha: 1 }, flash: { star: 0.35, glow: 0.6, life: 0.05 }, chips: 5, hole: 0.07, casing: 'rifle' },
+    shotgun: { tracer: { length: 1.5, width: 1, alpha: 1 }, flash: { star: 0.62, glow: 1.05, life: 0.065 }, chips: 2, hole: 0.045, casing: 'shotgun' },
+    smg: { tracer: { length: 1.6, width: 0.7, alpha: 0.5 }, flash: { star: 0.27, glow: 0.48, life: 0.04 }, chips: 4, hole: 0.06, casing: 'pistol' },
+    burst: { tracer: { length: 2.6, width: 0.9, alpha: 0.85 }, flash: { star: 0.32, glow: 0.55, life: 0.04 }, chips: 5, hole: 0.065, casing: 'rifle' },
+    lmg: { tracer: { length: 3.5, width: 1.35, alpha: 1, tail: '#ff9548' }, flash: { star: 0.46, glow: 0.8, life: 0.055 }, chips: 5, hole: 0.075, casing: 'rifle' },
+    marksman: { tracer: { length: 4.5, width: 1.5, alpha: 1, speed: 600, vapour: { width: 0.025, life: 0.35, alpha: 0.3 } }, flash: { star: 0.46, glow: 0.8, life: 0.06 }, chips: 7, hole: 0.08, casing: 'rifle' },
+    sniper: { tracer: { length: 8, width: 2.6, alpha: 1, speed: 900, tail: '#fff3d6', vapour: { width: 0.045, life: 0.7, alpha: 0.42 } }, flash: { star: 0.62, glow: 1.25, life: 0.07 }, chips: 9, hole: 0.09, casing: 'sniper' },
+  },
   casing: {
     rifle: { size: [0.012, 0.012, 0.035], color: '#c9a24e' },
     pistol: { size: [0.01, 0.01, 0.022], color: '#c9a24e' },
     shotgun: { size: [0.024, 0.024, 0.06], color: '#b33a2e' },
+    sniper: { size: [0.016, 0.016, 0.06], color: '#c9a24e' },
     speed: 2, up: 1.6, jitter: 0.3, spin: 15, life: 2, range: 15,
   },
   blast: {
@@ -66,6 +88,10 @@ const LOOK = {
   },
   pickup: { cubes: 10, size: 0.05, speed: 2, life: 0.3, ring: 1, band: 0.12 },
 };
+// A weapon's LOOK.guns entry: by its class, 'pellet' being the shotgun's,
+// and the rifle's for anything unknown.
+const gunLook = (w) => LOOK.guns[w === 'pellet' ? 'shotgun' : GUNS[w]?.class] ?? LOOK.guns.rifle;
+
 // Pool sizes; the Low preset uses half of the first four.
 const POOLS = { cubes: 1024, sparks: 512, dust: 256, decals: 256, streaks: 256, glows: 64 };
 // Map materials by box `color` when the map has no `materials` (bible §2.1),
@@ -88,6 +114,7 @@ const BEAM = 1;
 const RING = 2;
 const BAND = 3;
 const PUFF = 4;
+const VAPOUR = 5; // drawn as a soft BEAM that grows behind its round
 
 export const effectsGroup = new THREE.Group();
 
@@ -173,6 +200,8 @@ export function initEffects({ boxes: prepared, map, quality: q = 'default', sunD
   if (typeof location !== 'undefined') {
     const p = new URLSearchParams(location.search);
     if (p.has('debug') && p.has('fx')) debug.scale = Number(p.get('fx')) || 1;
+    if (p.has('gun')) debug.guns = [p.get('gun')]; // arsenal: ?debug&fx&gun=sniper
+    if (p.has('hold')) debug.hold = Number(p.get('hold')) || 0; // arsenal: &hold=0.25 freezes the loop there
   }
 }
 // Kept for main.js: the map alone, default quality.
@@ -185,6 +214,7 @@ export function clearEffects() {
   for (const pool of [sparks, dust, streak, glow]) pool.n = pool.next = 0;
   decals.count = decalNext = 0;
   debug.targets = null; // ?debug&fx picks its boxes again
+  debug.t = debug.shots = debug.booms = debug.deaths = 0; // and starts over (a &hold still waits for the match)
 }
 
 // Sizes in pixels need the drawing buffer's height, which follows render scale.
@@ -675,7 +705,8 @@ void main() {
     float half_ = max(0.5 * vMetres.y - vParam.y, 1e-4);
     float d = abs(vUv.y * 0.5 * vMetres.y - zig) / half_;
     if (d > 1.0) discard;
-    o = profile(d, vParam.w > 0.5 ? vec3(1.0) : uBeamCore, vColor.rgb, uDark, ${LOOK.bolt.fringeAlpha.toFixed(2)});
+    if (vParam.w > 1.5) o = vec4(mix(vec3(1.0), vColor.rgb, smoothstep(0.0, 0.5, d)), (1.0 - d) * (1.0 - d)); // vapour: soft all the way out
+    else o = profile(d, vParam.w > 0.5 ? vec3(1.0) : uBeamCore, vColor.rgb, uDark, ${LOOK.bolt.fringeAlpha.toFixed(2)});
   } else if (style == 2) {
     float r = length(vec2(vUv.x * 2.0 - 1.0, vUv.y)) * vMetres.x;
     float t = (vMetres.x - r) / max(vMetres.y, 1e-4); // 0 on the leading edge, 1 on the inner
@@ -808,8 +839,9 @@ function updateStreaks(dt) {
     const k = kind[i];
     const i3 = i * 3;
     const i4 = i * 4;
-    // A tracer lives until its tail reaches the impact; the rest by the clock.
-    const t = k === TRACER ? (age[i] * LOOK.tracer.speed) / len[i] : age[i] / life[i];
+    // A tracer lives until its tail reaches the impact (its life holds its speed);
+    // a vapour trail for its life after its round lands (b holds the speed); the rest by the clock.
+    const t = k === TRACER ? (age[i] * life[i]) / len[i] : k === VAPOUR ? (age[i] - len[i] / b[i]) / life[i] : age[i] / life[i];
     if (t >= 1) {
       moveItem(streakFields, i, --streak.n);
       continue;
@@ -818,14 +850,25 @@ function updateStreaks(dt) {
     D[i4] = k;
     D[i4 + 1] = D[i4 + 2] = D[i4 + 3] = 0;
     if (k === TRACER) {
-      const back = age[i] * LOOK.tracer.speed;
+      const back = age[i] * life[i];
       const front = Math.min(back + a[i], len[i]); // never past the impact
       for (let j = 0; j < 3; j++) {
         A[i4 + j] = p[i3 + j] + d[i3 + j] * back;
         B[i4 + j] = p[i3 + j] + d[i3 + j] * front;
       }
-      A[i4 + 3] = LOOK.tracer.width;
-      B[i4 + 3] = LOOK.tracer.widthPerM;
+      A[i4 + 3] = LOOK.tracer.width * b[i]; // b: the gun's width factor
+      B[i4 + 3] = LOOK.tracer.widthPerM * b[i];
+    } else if (k === VAPOUR) { // from the muzzle to the tracer's tail: never ahead of the round
+      const far = Math.min(age[i] * b[i], len[i]);
+      for (let j = 0; j < 3; j++) {
+        A[i4 + j] = p[i3 + j];
+        B[i4 + j] = p[i3 + j] + d[i3 + j] * far;
+      }
+      A[i4 + 3] = a[i];
+      B[i4 + 3] = 0;
+      D[i4] = BEAM;
+      D[i4 + 3] = 2; // a soft edge, not the Bolt's dark fringe
+      if (t > 0) alpha *= 1 - t * t;
     } else if (k === BEAM) {
       for (let j = 0; j < 3; j++) {
         A[i4 + j] = p[i3 + j];
@@ -1114,12 +1157,13 @@ const budget = { chips: Infinity, puffs: Infinity };
 
 // A bullet hitting the map at `point`, on the face with outward unit `normal`:
 // chips, splinters or sparks by the face's material, a puff on concrete, and
-// a hole. surface: the map box index classifyHit gives. weapon: 'rifle',
-// 'pistol', 'pellet' (one shotgun pellet) or 'bolt'.
+// a hole. surface: the map box index classifyHit gives. weapon: a gun id,
+// 'pellet' (one shotgun pellet) or 'bolt'.
 export function impact(point, normal, surface, weapon = 'rifle') {
   const s = surfaces[surface] ?? { kind: 'concrete', base: toColor(MATERIALS[0].base) };
   const n = _u.fromArray(normal);
-  const w = weapon === 'shotgun' ? 'pellet' : weapon;
+  const w = weapon;
+  const round = w === 'bolt' ? LOOK.bolt : gunLook(w); // arsenal: chips and hole by class
   if (s.kind === 'steel' || w === 'bolt') {
     const L = LOOK.steel;
     const rim = w === 'bolt' ? toColor(LOOK.bolt.body) : toColor(L.color);
@@ -1137,7 +1181,7 @@ export function impact(point, normal, surface, weapon = 'rifle') {
     }
   } else if (s.kind === 'concrete') {
     const L = LOOK.concrete;
-    for (let k = Math.min(L.chips[w] ?? L.chips.rifle, budget.chips); k > 0; k--, budget.chips--) {
+    for (let k = Math.min(round.chips, budget.chips); k > 0; k--, budget.chips--) {
       const size = rand(L.size);
       _p.fromArray(point).addScaledVector(n, size); // off the face, so the push-out can't sink it
       randomUnit(_v).multiplyScalar(1.2).addScaledVector(n, rand(L.speed));
@@ -1151,7 +1195,7 @@ export function impact(point, normal, surface, weapon = 'rifle') {
     }
   }
   const look = LOOK[s.kind];
-  spawnDecal(point, normal, LOOK.decal.size[w] ?? LOOK.decal.size.rifle, toColor(look.decal[0]), toColor(look.decal[1]), DECAL_HOLE, boxes[surface]);
+  spawnDecal(point, normal, round.hole, toColor(look.decal[0]), toColor(look.decal[1]), DECAL_HOLE, boxes[surface]);
 }
 const DECAL_HOLE = [LOOK.decal.core, 1, LOOK.decal.halo];
 
@@ -1184,8 +1228,9 @@ export function shieldHit(point, dir) {
 // `color` and `bubble` (or the BUBBLE flag); a hit on nobody we know near
 // the camera is on us, and shows nothing. At most LOOK.caps chips and puffs
 // per call, however many pellets.
+let lastWeapon = 'rifle'; // arsenal: the gun of the last shot(), for muzzle() when none is named
 export function shot({ from, eye = from, ends, weapon = 'rifle', targets = [] }) {
-  const w = weapon === 'bolt' ? 'bolt' : ends.length > 1 ? 'pellet' : weapon;
+  const w = (lastWeapon = weapon);
   budget.chips = LOOK.caps.chips;
   budget.puffs = LOOK.caps.puffs;
   for (const end of ends) {
@@ -1203,12 +1248,16 @@ export function shot({ from, eye = from, ends, weapon = 'rifle', targets = [] })
 }
 
 // A tracer streak from `from` (the muzzle) to `to` (where the shot ended),
-// flying at bullet speed. weapon picks its length.
+// flying at bullet speed. weapon (a gun id or 'pellet') picks its length,
+// width, alpha, speed and tail, and whether a vapour trail hangs behind it.
 export function addTracer(from, to, weapon = 'rifle') {
   const dist = Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
   if (dist < 0.01) return;
+  const t = gunLook(weapon).tracer;
   _v.set(to[0] - from[0], to[1] - from[1], to[2] - from[2]).divideScalar(dist);
-  spawnStreak(TRACER, _p.fromArray(from), _v, dist, LOOK.tracer.length[weapon] ?? LOOK.tracer.length.rifle, 0, toColor(LOOK.tracer.tail), 1, 1);
+  spawnStreak(TRACER, _p.fromArray(from), _v, dist, t.length, t.width, toColor(t.tail ?? LOOK.tracer.tail), t.alpha, t.speed ?? LOOK.tracer.speed);
+  const vap = t.vapour;
+  if (vap) spawnStreak(VAPOUR, _p, _v, dist, vap.width, t.speed ?? LOOK.tracer.speed, toColor(LOOK.tracer.vapour), vap.alpha, vap.life);
 }
 
 // A Bolt: an instant zigzag beam from `from` to `to`, gone in 140 ms.
@@ -1220,14 +1269,15 @@ export function beam(from, to) {
   spawnStreak(BEAM, _p.fromArray(from), _v, dist, L.width, L.widthPerM, toColor(L.body), 1, L.life, Math.random());
 }
 
-// Someone else's muzzle flash at `pos`, the gun pointing along `dir`.
-export function muzzle(pos, dir) {
-  const L = LOOK.muzzle;
-  const c = toColor(L.color);
+// Someone else's muzzle flash at `pos`, the gun pointing along `dir`, sized
+// by `weapon`'s class (the last shot()'s gun when not given).
+export function muzzle(pos, dir, weapon = lastWeapon) {
+  const f = gunLook(weapon).flash;
+  const c = toColor(LOOK.muzzle.color);
   _p.fromArray(pos);
   if (dir) _p.addScaledVector(_v.fromArray(dir), 0.05);
-  spawnGlow(_p, L.star, L.star, c, 1, L.life, true, true);
-  spawnGlow(_p, L.glow, L.glow, c, 0.6, L.life, false, true);
+  spawnGlow(_p, f.star, f.star, c, 1, f.life, true, true);
+  spawnGlow(_p, f.glow, f.glow, c, 0.6, f.life, false, true);
 }
 
 // A spent case thrown from `pos` along unit `dir` (the shooter's right),
@@ -1235,9 +1285,9 @@ export function muzzle(pos, dir) {
 // camera, and never on Low.
 export function casing(pos, dir, weapon = 'rifle', carry) {
   const L = LOOK.casing;
-  if (quality === 'low') return;
+  const look = L[gunLook(weapon).casing]; // arsenal: undefined for a revolver
+  if (quality === 'low' || !look) return;
   if (cam.set && cam.pos.distanceToSquared(_p.fromArray(pos)) > L.range * L.range) return;
-  const look = L[weapon] ?? L.rifle;
   randomUnit(_v).multiplyScalar(L.jitter).addScaledVector(_u.fromArray(dir), L.speed);
   _v.y += L.up;
   if (carry) _v.add(_u.fromArray(carry));
@@ -1435,6 +1485,7 @@ export function updateEffects(now, camera) {
   }
   if (debug.scale) {
     dt *= debug.scale;
+    if (debug.hold) dt = Math.min(dt, Math.max(0, debug.hold - debug.t)); // &hold=s: time stops at s, for stills
     debugLoop(dt);
   }
   clock.value += dt;
@@ -1448,11 +1499,13 @@ export function updateEffects(now, camera) {
 
 // ---------------------------------------------------------------------------
 // ?debug&fx[=timescale]: a scripted loop in front of the camera. Every 300 ms
-// a shot at the nearest concrete, wood and steel box in turn (rifle, rifle,
-// pistol, shotgun, Bolt), a power-up blast of each kind in turn every
-// 800 ms, and a death burst every 4 s, a headshot every other time.
-const debug = { scale: 0, t: 0, shots: 0, booms: 0, deaths: 0, targets: null, right: new THREE.Vector3(), focus: new THREE.Vector3() };
-const DEBUG_WEAPONS = ['rifle', 'rifle', 'pistol', 'shotgun', 'bolt'];
+// a shot at the nearest concrete, wood and steel box in turn (every gun in
+// turn, then a Bolt), a power-up blast of each kind in turn every 800 ms,
+// and a death burst every 4 s, a headshot every other time. &gun=<id>: only
+// that gun, every 120 ms, and nothing else, for stills of its tracer and flash;
+// &hold=<s>: effect time stops s seconds in, so a still catches it mid-flight.
+const debug = { scale: 0, t: 0, shots: 0, booms: 0, deaths: 0, targets: null, right: new THREE.Vector3(), focus: new THREE.Vector3(), guns: null, hold: 0 };
+const DEBUG_WEAPONS = [...GUN_IDS, 'bolt'];
 const DEBUG_BOOMS = ['shunt', 'mine', 'barge', 'shock', 'fizzle'];
 const SLOT_COLORS = ['#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#ff7eb6'];
 // A stand-in rig, feet at the origin facing -z: [part, centre, size, colour (null: slot)].
@@ -1483,30 +1536,35 @@ function debugLoop(dt) {
       });
     }
   }
-  if (debug.t >= debug.shots * 0.3) {
+  if (debug.t >= debug.shots * (debug.guns ? 0.12 : 0.3)) {
     const n = debug.shots++;
-    const from = _p.copy(cam.pos).addScaledVector(right, -2.5).addScaledVector(cam.fwd, 1.5).toArray();
+    const from = _p.copy(cam.pos).addScaledVector(right, debug.guns ? -1 : -2.5).addScaledVector(cam.fwd, 1.5).toArray(); // &gun: the muzzle in view
     from[1] -= 0.3;
+    const list = debug.guns ?? DEBUG_WEAPONS;
+    const weapon = list[n % list.length];
     if (n % 4 === 3) { // a miss into the sky, across the view
       _v.copy(cam.fwd).multiplyScalar(0.8).addScaledVector(right, 0.9).add(_u.set(0, 0.3, 0)).normalize();
-      shot({ from, ends: [from.map((o, a) => o + _v.getComponent(a) * SHOT_RANGE)], weapon: 'rifle' });
+      shot({ from, ends: [from.map((o, a) => o + _v.getComponent(a) * SHOT_RANGE)], weapon: debug.guns ? weapon : 'rifle' });
     }
     const target = boxes[debug.targets[['concrete', 'wood', 'steel'][n % 4]]];
-    const weapon = DEBUG_WEAPONS[n % DEBUG_WEAPONS.length];
+    const pellets = GUNS[weapon]?.pellets ?? 1;
     if (target) {
       const ends = [];
-      for (let k = weapon === 'shotgun' ? 12 : 1; k > 0; k--) {
-        const aim = [0, 1, 2].map((a) => target.min[a] + (target.max[a] - target.min[a]) * (0.5 + (Math.random() - 0.5) * (weapon === 'shotgun' ? 0.9 : 0.6)));
+      for (let k = pellets; k > 0; k--) {
+        const aim = [0, 1, 2].map((a) => target.min[a] + (target.max[a] - target.min[a]) * (0.5 + (Math.random() - 0.5) * (pellets > 1 ? 0.9 : 0.6)));
         const dir = _v.set(aim[0] - from[0], aim[1] - from[1], aim[2] - from[2]).normalize().toArray();
         let t = SHOT_RANGE;
         for (const { min, max } of boxes) t = Math.min(t, rayBox(from, dir, min, max));
         ends.push(from.map((o, a) => o + dir[a] * t));
       }
       shot({ from, ends, weapon });
-      muzzle(from);
-      casing(from, right.toArray(), weapon === 'bolt' ? 'rifle' : weapon);
+      if (weapon !== 'bolt') {
+        muzzle(from);
+        casing(from, right.toArray(), weapon);
+      }
     }
   }
+  if (debug.guns) return;
   if (debug.t >= 0.5 + debug.booms * 0.8) {
     const kind = DEBUG_BOOMS[debug.booms++ % DEBUG_BOOMS.length];
     const side = (debug.booms % 3) - 1;

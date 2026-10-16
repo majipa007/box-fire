@@ -176,3 +176,13 @@ test('releasing the keys on the ground stops the player quickly', () => {
   run(s, { keys: 0, yaw: 0 }, world(), 12); // 0.2 s
   assert.equal(Math.hypot(s.vx, s.vz), 0);
 });
+
+// arsenal: the held gun's move multiplier (weapons.js moveFactor) rides in as
+// step()'s fourth argument; leaving it out is full speed.
+test('a move factor scales every speed: half of 5.5 m/s running, half of 2.7 walking', () => {
+  for (const [keys, speed] of [[KEY.FORWARD, 5.5], [KEY.FORWARD | KEY.WALK, 2.7]]) {
+    const s = createMover(0, 0, 0);
+    for (let i = 0; i < 60; i++) step(s, { keys, yaw: 0 }, world(), 0.5);
+    assert.ok(Math.abs(Math.hypot(s.vx, s.vz) - speed / 2) < 1e-9, `${Math.hypot(s.vx, s.vz)} m/s`);
+  }
+});
