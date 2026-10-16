@@ -233,17 +233,33 @@ function setText(id, text) {
   shown[id] = text;
   $(id).textContent = text;
 }
-const last = { hp: -1, weapon: '', mag: -1, maxMag: -1, reload: -1, reloading: null, low: null, shield: -1, ring: null, gap: -1, clock: -1, rank: -1, of: -1, leader: null, leaderKills: -1 };
+const last = { hp: -1, weapon: '', mag: -1, maxMag: -1, reload: -1, reloading: null, low: null, shield: -1, ring: null, scope: '', gap: -1, clock: -1, rank: -1, of: -1, leader: null, leaderKills: -1 };
 const tagLast = { nitro: -1, slowed: -1, shield: -1 }; // tenths of a second shown, -1 hidden
 const NONE = {};
 
 // arsenal: the fire mode the ammo panel names: a burst gun's burst, else nothing.
 export const fireMode = (id) => (WEAPONS[id]?.mode === 'burst' ? `BURST ×${WEAPONS[id].burst.count}` : '');
 
-// extra: { maxMag, reloadFrac (0 → 1), shield (hp), shieldSeconds, nitro and slowed (seconds left) }
+// arsenal: the scope overlay's zoom label once a scoped gun is all the way in
+// (share 1, when the gun leaves the screen), else null. fov is the player's.
+const tanHalf = (deg) => Math.tan((deg * Math.PI) / 360);
+export function scopeOverlay(id, share, fov) {
+  const s = WEAPONS[id]?.scope;
+  return s && share >= 1 ? `${(tanHalf(fov) / tanHalf(s.fov)).toFixed(1)}×` : null;
+}
+
+// extra: { maxMag, reloadFrac (0 → 1), shield (hp), shieldSeconds, nitro and slowed (seconds left),
+// scope (arsenal: 0 → 1, scopeShare: how far in a scoped gun is) }
 export function updateHud(hp, weapon, mag, reloading, extra = NONE) {
   if (!live()) return;
-  const { maxMag = WEAPONS[weapon]?.mag ?? 0, reloadFrac = 0, shield = 0, shieldSeconds = 0, nitro = 0, slowed = 0 } = extra;
+  const { maxMag = WEAPONS[weapon]?.mag ?? 0, reloadFrac = 0, shield = 0, shieldSeconds = 0, nitro = 0, slowed = 0, scope = 0 } = extra;
+  const scopeKey = scope >= 1 ? weapon : ''; // arsenal: no string is built unless this changes
+  if (scopeKey !== last.scope) {
+    const zoom = scopeOverlay(weapon, scope, settings.fov);
+    $('hud').classList.toggle('scoped', !!zoom);
+    if (zoom) $('scope-zoom').textContent = zoom;
+    last.scope = scopeKey;
+  }
   if (hp !== last.hp) {
     $('hp').textContent = hp;
     $('hp-fill').style.transform = `scaleX(${Math.max(0, hp) / 100})`;
@@ -915,7 +931,7 @@ function startDemo() {
     if (DEMO === 'death') showDeath('bot4', 3, { color: PLAYER_COLORS[3], weapon: 'sniper', killerHp: 64 }); // arsenal: the respawn screen
     if (DEMO === 'death' || DEMO === 'picker') showPicker(true); // arsenal: hud=picker, the panel on B
     const [gun, mag] = { feed: ['burst', 14], picker: ['lmg', 68], scope: ['sniper', 4] }[DEMO] ?? ['rifle', 17]; // arsenal: a burst's mode, the belt, the scope
-    updateHud(64, gun, mag, false, { maxMag: WEAPONS[gun].mag, shield: 30, shieldSeconds: 5.2, nitro: 2.6 });
+    updateHud(64, gun, mag, false, { maxMag: WEAPONS[gun].mag, shield: 30, shieldSeconds: 5.2, nitro: 2.6, scope: DEMO === 'scope' ? 1 : 0 }); // arsenal: hud=scope, all the way in
     updatePowers({ inv: ['shunt', 'bolt', 'shield'], sel: 1, cd: 24, bolts: 0 });
     updateMatchInfo(287, { name: 'bot4', kills: 17, slot: 3 }, { rank: 3, of: 8 });
     renderNameTags([

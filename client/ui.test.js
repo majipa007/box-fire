@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { migrate, DEFAULTS, ICONS, bearing, fireMode, gunStats } from './ui.js';
+import { migrate, DEFAULTS, ICONS, bearing, fireMode, gunStats, scopeOverlay } from './ui.js';
 import { POWER_IDS } from '../shared/protocol.js';
 import { PRIMARIES, SECONDARIES } from '../shared/constants.js';
 import { GUNS, GUN_IDS } from '../shared/guns/index.js'; // arsenal
@@ -83,4 +83,14 @@ test('the loadout stat bars rank the roster the way its numbers do', () => {
   assert.equal(least('mobility'), 'lmg');
   assert.ok(s.sniper.mobility < s.marksman.mobility && s.marksman.mobility < s.rifle.mobility);
   assert.equal(s.smg.mobility, s.pistol.mobility, 'guns with no pace of their own move alike');
+});
+
+// arsenal: the scope overlay shows once a scoped gun is all the way in, and
+// names its magnification against the player's own field of view.
+test('the scope overlay shows only fully scoped, with the zoom the fov gives', () => {
+  assert.equal(scopeOverlay('sniper', 1, 90), '3.7×', 'tan 45° / tan 15°');
+  assert.equal(scopeOverlay('sniper', 1, 110), '5.3×', 'a wider view zooms further');
+  assert.equal(scopeOverlay('sniper', 0.99, 90), null, 'still on the way in: the gun is up');
+  assert.equal(scopeOverlay('sniper', 0, 90), null);
+  for (const id of GUN_IDS.filter((g) => !GUNS[g].scope)) assert.equal(scopeOverlay(id, 1, 90), null, id);
 });
