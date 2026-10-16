@@ -176,7 +176,7 @@ function magReload(seat, tilt, slap, { lift = 0, drop = 1, ...extra } = {}) {
     part: [[0.14], [0.2, 0.02 * drop, -0.15 * drop, 0.01, 0.3 * drop, 0, 0.2 * drop], [0.27, 0.1, -0.8, 0.03, 0.8, 0, 0.5], [0.6]],
     left: [[0.1], [0.18, ...at([-0.005, -0.13, -0.06], 0.2)], [0.27, ...at([0.095, -0.63, -0.01], 0.3)], [0.34, ...at([0.075, lift - 0.08, 0])], [0.5, ...at([0.025, lift - 0.03, 0])],
       [0.6, ...seat], [0.64, ...seat], [0.71, ...slap], [0.76, ...add(slap, [0.005, 0.01, -0.02])], [0.88]],
-    hold: [0.3, 0.6], // the new magazine is in the hand, the old one gone
+    hold: [0.28, 0.6], // the new magazine is in the hand, the old one gone
     ...extra,
   };
 }
@@ -185,8 +185,8 @@ function magReload(seat, tilt, slap, { lift = 0, drop = 1, ...extra } = {}) {
 // home at 0.76 while the support hand waits under the grip.
 const handgunReload = (seat, tilt, lift = 0) => ({
   gun: [[0], [0.14, ...tilt], [0.8, ...tilt], [0.94]],
-  part: [[0.14], [0.2, 0, -0.12, 0.01, 0.3], [0.27, 0, -0.7, 0.02, 0.6], [0.6]],
-  left: [[0.1], [0.18, 0, -0.25, 0.05, 0.1], [0.26, 0, -0.6 - lift, 0.05], [0.33, 0.06, lift - 0.2, 0.03], [0.5, 0.05, lift - 0.15, 0.03], [0.6, ...seat], [0.8, ...seat], [0.94]],
+  part: [[0.14], [0.2, 0, -0.12, 0.01, 0.3], [0.27, 0, -0.7 - 2 * lift, 0.02, 0.6], [0.6]],
+  left: [[0.1], [0.18, 0, -0.25, 0.05, 0.1], [0.26, 0, -0.6 - 4 * lift, 0.05], [0.33, 0.06, lift - 0.2, 0.03], [0.5, 0.05, lift - 0.15, 0.03], [0.6, ...seat], [0.8, ...seat], [0.94]],
   hold: [0.28, 0.6],
   slide: [[0.72], [0.76, 0, 0, 0.03], [0.78]],
 });
@@ -195,7 +195,7 @@ const handgunReload = (seat, tilt, lift = 0) => ({
 // swung out on its crane by 0.14, faces us; the muzzle tips up at 0.2 to dump
 // the cases; the left hand comes back from below with a speedloader, seats it
 // at 0.56 and lets go at 0.64; the wrist flicks the cylinder shut at 0.77.
-const REVOLVER_TILT = [0.06, 0.1, -0.04, 0.2, 0.2, -0.9];
+const REVOLVER_TILT = [-0.02, 0.1, 0, 0.35, 0.7, -0.4];
 const CYLINDER_OUT = [-0.012, -0.005, 0, 0, 0, 1.45];
 // The speedloader in gun space where it seats, behind the swung-out
 // cylinder, and where the left hand's pivot is then (its fingers on the knob).
@@ -204,7 +204,7 @@ const SPEEDLOADER = [
   box('shell', 'dark', [0.046, 0.046, 0.006], [-0.054, 0.061, 0.037]), // plate
   box('shell', 'metal', [0.018, 0.018, 0.03], [-0.054, 0.061, 0.055]), // knob
 ];
-const LOADER_SEAT = [-0.038, 0.026, 0.084];
+const LOADER_SEAT = [-0.01, 0.06, 0.13];
 const revolverReload = {
   gun: [[0], [0.12, ...REVOLVER_TILT], [0.2, ...add(REVOLVER_TILT, [0, 0.04, 0, 0.7, 0, 0])], [0.3, ...REVOLVER_TILT], [0.7, ...REVOLVER_TILT],
     [0.76, ...add(REVOLVER_TILT, [0, 0, 0, 0, 0, 0.45])], [0.8, ...REVOLVER_TILT], [0.94]],
@@ -264,7 +264,7 @@ const STYLE = {
     kick: { back: 0.025, up: 1.6 * DEG, roll: 1.5 * DEG, halflife: 0.035 }, casing: [0.01, 0.022, 'brass'],
     left: HANDGUN_LEFT, seat: [0.05, -0.1, 0.03],
     arms: handgunArms,
-    reload: (seat) => handgunReload(seat, add(PISTOL_TILT, [0, 0.05, 0, 0, 0, 0]), 0.08), // the long magazine: the gun and the hand come up higher
+    reload: (seat) => handgunReload(seat, [0, 0.14, -0.1, 0.6, 0.25, -0.5], 0.12), // muzzle up and turned, so the long magazine drops clear of the fist; the hand brings the new one up higher
   },
   handcannon: { // a revolver: a big slow kick, no casings at the shot
     rest: [0.17, -0.17, -0.5, 0, 0.1, 0], anchor: [0, 0.065, -0.06], flash: 0.2,

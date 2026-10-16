@@ -18,7 +18,7 @@ export default {
       { c: 'dark', s: [0.04, 0.04, 0.3], at: [0, 0.15, -0.06], tp: 'top' }, // scope tube
       { c: 'dark', s: [0.058, 0.058, 0.07], at: [0, 0.155, -0.245], tp: 'top' }, // objective bell
       { c: 'dark', s: [0.05, 0.05, 0.055], at: [0, 0.152, 0.11] }, // eyepiece
-      { c: 'slot', s: [0.04, 0.04, 0.004], at: [0, 0.152, 0.139] }, // its glass, lit in your colour
+      { c: 'metal', s: [0.04, 0.04, 0.004], at: [0, 0.152, 0.139] }, // its glass, glinting the sky
       { c: 'metal', s: [0.022, 0.026, 0.026], at: [0, 0.182, -0.07] }, // elevation turret
       { c: 'metal', s: [0.026, 0.022, 0.026], at: [0.031, 0.15, -0.07] }, // windage turret
       { c: 'metal', s: [0.05, 0.03, 0.024], at: [0, 0.118, -0.14] }, // rings
